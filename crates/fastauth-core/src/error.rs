@@ -93,6 +93,15 @@ impl AuthError {
         Self::new(StatusCode::NOT_FOUND, codes::NOT_FOUND, "not found")
     }
 
+    /// 403 `SESSION_NOT_FRESH`: the session is older than `fresh_age`.
+    pub const fn not_fresh() -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            codes::SESSION_NOT_FRESH,
+            "sign in again to continue",
+        )
+    }
+
     pub const fn too_many_requests() -> Self {
         Self::new(
             StatusCode::TOO_MANY_REQUESTS,
@@ -144,6 +153,14 @@ impl AuthError {
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
         }
         response
+    }
+}
+
+/// Lets axum handlers return `Result<T, AuthError>`: the same JSON body the auth routes use.
+#[cfg(feature = "axum")]
+impl axum_core::response::IntoResponse for AuthError {
+    fn into_response(self) -> axum_core::response::Response {
+        AuthError::into_response(self).map(axum_core::body::Body::from)
     }
 }
 

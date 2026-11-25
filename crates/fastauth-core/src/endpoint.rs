@@ -526,16 +526,8 @@ async fn run<D: Adapter, E: Endpoint<D>>(
     };
     match (level, &session) {
         (AccessLevel::Required | AccessLevel::Fresh, None) => return Err(AuthError::unauthorized()),
-        (AccessLevel::Fresh, Some(s)) => {
-            let fresh_age = shared.config.session.fresh_age;
-            if !fresh_age.is_zero() && OffsetDateTime::now_utc() - s.session.created_at > fresh_age
-            {
-                return Err(AuthError::new(
-                    StatusCode::FORBIDDEN,
-                    crate::error::codes::SESSION_NOT_FRESH,
-                    "sign in again to continue",
-                ));
-            }
+        (AccessLevel::Fresh, Some(s)) if !shared.config.is_fresh(&s.session) => {
+            return Err(AuthError::not_fresh());
         }
         _ => {}
     }

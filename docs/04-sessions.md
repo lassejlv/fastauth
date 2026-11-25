@@ -62,6 +62,12 @@ let app = Router::new()
     .with_state(state);
 ```
 
+The layer also adds the cookies that lookup produced to the response: a refreshed session
+cookie (sliding expiry) or cleared cookies for an invalid one. Without it, extractors still
+work, but a refresh that happens on one of your own routes doesn't reach the browser until
+the next request to an auth route. A cookie the handler itself sets (say, after signing the
+user out) wins over the layer's.
+
 ## Typed plugin data on the user
 
 Plugins that add columns to `user` expose them as a typed struct:

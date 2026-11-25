@@ -86,7 +86,7 @@ and columns. [Databases](06-database.md#migrations) has the details.
 // src/main.rs
 use acme::auth::{self, AppAuth};
 use axum::{Json, Router, routing::get};
-use fastauth::axum::Session;
+use fastauth::axum::{AuthRouter, Session};
 use serde::Serialize;
 
 #[derive(Serialize)]

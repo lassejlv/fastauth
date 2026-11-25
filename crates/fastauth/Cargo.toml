@@ -1,0 +1,29 @@
+[package]
+name = "fastauth"
+description = "Authentication for Rust web apps, modelled on Better Auth: sessions, email and password, plugins checked by the compiler."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["axum"]
+axum = ["dep:fastauth-axum", "fastauth-core/axum"]
+
+[dependencies]
+fastauth-axum = { path = "../fastauth-axum", optional = true }
+fastauth-core = { path = "../fastauth-core" }
+
+[dev-dependencies]
+axum = "0.8.9"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
+tracing-subscriber = "0.3.23"
+
+[[example]]
+name = "axum_memory"
+required-features = ["axum"]
