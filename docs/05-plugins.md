@@ -31,6 +31,7 @@ registration order.
 
 | Plugin | Adds |
 |---|---|
+| `social::Social` (`fastauth-oauth`) | Social sign-in: GitHub, Google, your own `OAuthProvider`s; linked accounts |
 | `two_factor::TwoFactor` | TOTP, OTP by email, backup codes, trusted devices; a sign-in gate |
 | `passkey::Passkey` | WebAuthn registration and sign-in (on `webauthn-rs`) |
 | `magic_link::MagicLink` | Passwordless sign-in by email link |

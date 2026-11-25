@@ -39,6 +39,7 @@ fastauth-sqlx         Adapter for sqlx: Postgres, SQLite, MySQL; migrations
 fastauth-axum         Router, Session extractor, tower layer
 fastauth-actix        actix-web scope and extractor
 fastauth-redis        SecondaryStorage on fred, for sessions and rate limits
+fastauth-oauth        Social plugin: OAuth providers (GitHub, Google), the outgoing HttpClient
 fastauth-plugins-*    first-party plugins, one crate each (two-factor, organization, passkey, ...)
 fastauth-cli          `fastauth secret`, plus the helpers behind your project's migrate binary
 ```

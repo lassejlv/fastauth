@@ -130,19 +130,21 @@ pass the socket address along through `http` extensions (`ConnectInfo` in axum).
 
 ## The outgoing HTTP client
 
-OAuth token exchange, OIDC discovery and JWKS fetching need an HTTP client. That's a trait
-too, so apps that already use one client don't compile two:
+OAuth token exchange and profile fetching need an HTTP client. That's a trait in
+`fastauth-oauth`, so apps that already use one client don't compile two:
 
 ```rust
 pub trait HttpClient: Send + Sync + 'static {
     fn send(&self, req: http::Request<Bytes>) -> impl Future<Output = Result<http::Response<Bytes>, HttpClientError>> + Send;
 }
 
-.http_client(ReqwestClient::new(my_reqwest_client))   // default with the reqwest feature
+Social::new()                                                        // ReqwestClient, with the reqwest feature (default)
+Social::with_http_client(ReqwestClient::from_client(my_reqwest_client))
+Social::with_http_client(MyClient)                                   // any HttpClient
 ```
 
-Every outgoing call has a timeout (10 s default) and a response size cap, so a slow or
-hostile provider can't tie up sign-in.
+Every outgoing call has a 10 s timeout and a 1 MiB response cap, enforced on top of
+whatever client you pass, so a slow or hostile provider can't tie up sign-in.
 
 ## OpenAPI
 

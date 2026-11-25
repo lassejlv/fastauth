@@ -15,13 +15,12 @@ FastAuth::builder()
     .secondary_storage(Redis::new(redis_pool))  // optional
     .mailer(Resend::from_env()?)                // needed for verification, reset, magic link
     .email_password(EmailPassword::default())
-    .social(Github::from_env()?)
-    .social(Google::from_env()?)
     .session(SessionConfig::default())
     .cookies(CookieConfig::default())
     .rate_limit(RateLimit::default())
     .user_fields::<Profile>()
     .on(|event: UserCreated, ctx| async move { /* ... */ Ok(()) })
+    .plugin(Social::new().provider(Github::from_env()?).provider(Google::from_env()?))
     .plugin(TwoFactor::new())
     .build()?
 ```
@@ -80,20 +79,40 @@ mailers that already fall through to a default.
 
 ## Social providers
 
+Social sign-in is a plugin, `Social` from `fastauth-oauth`, so it is registered with
+`.plugin(..)` and listed in the alias like any other plugin:
+
 ```rust
-.social(Github::new(client_id, client_secret).scopes(["read:user", "user:email"]))
-.social(Google::from_env()?)                                  // GOOGLE_CLIENT_ID / _SECRET
-.social(Oidc::discover("keycloak", "https://sso.acme.dk/realms/main", id, secret).await?)
+use fastauth::social::{AccountLinking, Github, Google, Social};
+
+pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![Social, TwoFactor]>;
+
+.plugin(
+    Social::new()
+        .provider(Github::new(client_id, client_secret).scopes(["read:user", "user:email"]))
+        .provider(Google::from_env()?)                        // GOOGLE_CLIENT_ID / _SECRET
+        .account_linking(AccountLinking::ByVerifiedEmail),    // default
+)
 ```
 
-Built in: GitHub, Google, Apple, Discord, Microsoft, GitLab, Twitch, Spotify, and a
-generic OIDC provider with discovery. A provider is the `OAuthProvider` trait (an
-authorize URL, a token exchange, and a profile mapping), so adding one takes about 60
-lines. The redirect URI is `{base_url}{base_path}/callback/{provider_id}`.
+It serves Better Auth's routes: `POST /sign-in/social`, `GET /callback/{provider_id}`,
+`POST /link-social`, `GET /list-accounts` and `POST /unlink-account` (which refuses to remove
+a user's last account). The redirect URI to register with the provider is
+`{base_url}{base_path}/callback/{provider_id}`. A successful callback redirects to
+`callbackURL` (or `newUserCallbackURL` for a new user); a failed one redirects to
+`errorCallbackURL` with `?error=` set to Better Auth's error string (`state_mismatch`,
+`account_not_linked`, ...). When a sign-in gate challenges, the callback redirects to
+`callbackURL` with the challenge as query parameters (`?twoFactorRedirect=true`).
 
-Accounts link by verified email by default. `.account_linking(AccountLinking::Off)`
-turns that off, and `::TrustedProviders([..])` limits it to providers you trust to verify
-email addresses.
+Built in: GitHub and Google. A provider is the `OAuthProvider` trait (an authorization URL,
+a code exchange, and a profile mapping), and `fastauth_oauth::provider` has the standard
+OAuth 2.0 steps, so adding one takes about 60 lines. Apple, Discord, Microsoft, GitLab,
+Twitch, Spotify and a generic OIDC provider with discovery are planned, not built.
+
+Accounts link by verified email by default: a social sign-in whose email matches an
+existing user is attached to that user only when the provider reports the email as
+verified. `AccountLinking::Off` never links by email; signed-in users can still link with
+`/link-social`.
 
 ## Sessions
 

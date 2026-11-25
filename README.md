@@ -13,9 +13,9 @@ runs on sqlx and axum out of the box, and the plugin API is checked by the compi
 ```rust
 use fastauth::prelude::*;
 use fastauth::plugins::{organization::Organization, two_factor::TwoFactor};
-use fastauth::social::Github;
+use fastauth::social::{Github, Social};
 
-pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![TwoFactor, Organization]>;
+pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![Social, TwoFactor, Organization]>;
 
 #[derive(Fields, Serialize, Clone)]
 pub struct Profile {
@@ -29,8 +29,8 @@ pub fn auth(pool: PgPool) -> Result<AppAuth, BuildError> {
         .base_url("http://localhost:3000")
         .database(Sqlx::new(pool))
         .email_password(EmailPassword::default())
-        .social(Github::from_env()?)
         .user_fields::<Profile>()
+        .plugin(Social::new().provider(Github::from_env()?))
         .plugin(TwoFactor::new().issuer("Acme"))
         .plugin(Organization::default())
         .build()

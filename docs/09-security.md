@@ -77,11 +77,14 @@ burned.
 - `state` and PKCE (S256) on every provider, including ones that don't require PKCE.
 - State is stored hashed in `verification` with a 10-minute TTL and bound to a signed
   cookie, so a callback only completes in the browser that started it.
-- OIDC `id_token`s are verified against the provider's JWKS (cached, refreshed on unknown
-  `kid`), including `nonce`, `aud`, `iss` and expiry.
-- Provider access and refresh tokens are stored as `Encrypted<String>`.
+- Profiles come from the provider's API over TLS with the fresh access token (Google's
+  OpenID Connect userinfo endpoint, GitHub's `/user` and `/user/emails`), so no `id_token`
+  is trusted yet. Verifying `id_token`s against the provider's JWKS (cached, refreshed on
+  unknown `kid`, checking `nonce`, `aud`, `iss` and expiry) arrives with the generic OIDC
+  provider.
+- Provider access and refresh tokens are stored encrypted (XChaCha20-Poly1305).
 - Accounts link by email only when the provider reports the email as verified and linking
-  is allowed for that provider.
+  isn't turned off (`AccountLinking::Off`).
 
 ## Rate limiting
 
