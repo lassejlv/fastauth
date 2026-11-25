@@ -26,7 +26,7 @@ Sqlx::new(pool)
 ```
 
 `fastauth-sqlx` is built on sqlx 0.9, with the `postgres` and `sqlite` features (both on by
-default). sqlx 0.9 needs Rust 1.94, so this crate's MSRV is 1.94 while core stays at 1.88.
+default). sqlx 0.9 needs Rust 1.94, which is the MSRV of the whole workspace.
 What it does with the database:
 
 - **Bind parameters only.** Values never appear in SQL text. The text for each query shape

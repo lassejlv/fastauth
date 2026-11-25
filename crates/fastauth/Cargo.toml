@@ -11,12 +11,20 @@ repository.workspace = true
 workspace = true
 
 [features]
-default = ["axum"]
+default = ["axum", "postgres", "macros"]
 axum = ["dep:fastauth-axum", "fastauth-core/axum"]
+macros = ["fastauth-core/macros"]
+postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
+sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
+oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
+two-factor = ["dep:fastauth-plugin-two-factor"]
 
 [dependencies]
 fastauth-axum = { path = "../fastauth-axum", optional = true }
 fastauth-core = { path = "../fastauth-core" }
+fastauth-oauth = { path = "../fastauth-oauth", default-features = false, optional = true }
+fastauth-plugin-two-factor = { path = "../fastauth-plugin-two-factor", optional = true }
+fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, optional = true }
 
 [dev-dependencies]
 axum = "0.8.9"
@@ -27,3 +35,7 @@ tracing-subscriber = "0.3.23"
 [[example]]
 name = "axum_memory"
 required-features = ["axum"]
+
+[[example]]
+name = "axum_sqlite"
+required-features = ["axum", "sqlite", "macros", "two-factor"]
