@@ -275,6 +275,8 @@ pub(crate) struct Shared<D> {
 /// The per-request context. Cheap to clone; hooks and event handlers get their own copy.
 pub struct Ctx<D, A = Public> {
     pub(crate) shared: Arc<Shared<D>>,
+    /// The adapter a server API call runs on instead of `shared.db` (`Api::within`).
+    pub(crate) within: Option<Arc<D>>,
     pub(crate) request: Arc<RequestInfo>,
     pub(crate) session: Option<Arc<SessionView>>,
     pub(crate) effects: Arc<Mutex<Effects>>,
@@ -285,6 +287,7 @@ impl<D, A> Clone for Ctx<D, A> {
     fn clone(&self) -> Self {
         Self {
             shared: self.shared.clone(),
+            within: self.within.clone(),
             request: self.request.clone(),
             session: self.session.clone(),
             effects: self.effects.clone(),
@@ -302,12 +305,14 @@ impl<D, A> std::fmt::Debug for Ctx<D, A> {
 impl<D: Adapter, A> Ctx<D, A> {
     pub(crate) fn new(
         shared: Arc<Shared<D>>,
+        within: Option<Arc<D>>,
         request: Arc<RequestInfo>,
         session: Option<Arc<SessionView>>,
         effects: Arc<Mutex<Effects>>,
     ) -> Self {
         Self {
             shared,
+            within,
             request,
             session,
             effects,
@@ -318,14 +323,16 @@ impl<D: Adapter, A> Ctx<D, A> {
     pub(crate) fn retype<B>(&self) -> Ctx<D, B> {
         Ctx::new(
             self.shared.clone(),
+            self.within.clone(),
             self.request.clone(),
             self.session.clone(),
             self.effects.clone(),
         )
     }
 
+    /// Typed queries on the adapter this call runs on.
     pub fn db(&self) -> Db<'_, D> {
-        Db::new(&self.shared.db, &self.shared.schema)
+        Db::new(self.adapter(), &self.shared.schema)
     }
 
     /// Typed queries inside a transaction: `let tx = ctx.adapter().begin().await?; ctx.db_on(&tx)`.
@@ -333,8 +340,10 @@ impl<D: Adapter, A> Ctx<D, A> {
         Db::new(queries, &self.shared.schema)
     }
 
+    /// The adapter this call runs on: the configured one, or the one a server API call
+    /// passed to `Api::within` (for sqlx, one bound to the app's transaction).
     pub fn adapter(&self) -> &D {
-        &self.shared.db
+        self.within.as_deref().unwrap_or(&self.shared.db)
     }
 
     pub fn schema(&self) -> &Schema {
@@ -493,25 +502,24 @@ pub(crate) struct Executed<O> {
     pub effects: Effects,
 }
 
-/// Runs one endpoint: session by access level, before hooks, the call, after hooks, events.
+/// Runs one endpoint: session by access level, before hooks, the call, after hooks.
+/// Events are left in the effects for the caller to dispatch or defer.
 pub(crate) async fn execute<D: Adapter, E: Endpoint<D>>(
     shared: &Arc<Shared<D>>,
+    within: Option<Arc<D>>,
     endpoint: &E,
     request: Arc<RequestInfo>,
     input: E::Input,
 ) -> Executed<E::Output> {
     let effects = Arc::new(Mutex::new(Effects::default()));
-    let result = run::<D, E>(shared, endpoint, request, input, &effects).await;
-    let mut effects = std::mem::take(&mut *effects.lock().unwrap());
-    if result.is_ok() {
-        let events = std::mem::take(&mut effects.events);
-        dispatch_events(shared, events).await;
-    }
+    let result = run::<D, E>(shared, within, endpoint, request, input, &effects).await;
+    let effects = std::mem::take(&mut *effects.lock().unwrap());
     Executed { result, effects }
 }
 
 async fn run<D: Adapter, E: Endpoint<D>>(
     shared: &Arc<Shared<D>>,
+    within: Option<Arc<D>>,
     endpoint: &E,
     request: Arc<RequestInfo>,
     input: E::Input,
@@ -520,7 +528,7 @@ async fn run<D: Adapter, E: Endpoint<D>>(
     let level = <E::Access as Access>::LEVEL;
     let session = match level {
         AccessLevel::Public => None,
-        _ => crate::session::resolve(shared, &request, effects)
+        _ => crate::session::resolve(shared, within.as_ref(), &request, effects)
             .await?
             .map(Arc::new),
     };
@@ -532,7 +540,8 @@ async fn run<D: Adapter, E: Endpoint<D>>(
         _ => {}
     }
 
-    let ctx: Ctx<D, E::Access> = Ctx::new(shared.clone(), request, session, effects.clone());
+    let ctx: Ctx<D, E::Access> =
+        Ctx::new(shared.clone(), within, request, session, effects.clone());
     let hooks = shared.hooks.get(&TypeId::of::<E>());
     let mut input = input;
     for before in hooks.map(|h| h.before.as_slice()).unwrap_or_default() {
@@ -559,7 +568,10 @@ async fn run<D: Adapter, E: Endpoint<D>>(
     Ok(Outcome::Output(output))
 }
 
-async fn dispatch_events<D: Adapter>(shared: &Arc<Shared<D>>, events: Vec<PendingEvent>) {
+pub(crate) async fn dispatch_events<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    events: Vec<PendingEvent>,
+) {
     for pending in events {
         let Some(handlers) = shared.events.get(&pending.type_id) else {
             continue;
@@ -570,7 +582,7 @@ async fn dispatch_events<D: Adapter>(shared: &Arc<Shared<D>>, events: Vec<Pendin
                 "/event",
                 HeaderMap::new(),
             ));
-            let ctx = Ctx::new(shared.clone(), request, None, Arc::default());
+            let ctx = Ctx::new(shared.clone(), None, request, None, Arc::default());
             if let Err(err) = handler(pending.event.clone(), ctx).await {
                 tracing::error!(error = %err, "fastauth event handler failed");
             }
@@ -601,7 +613,11 @@ impl<D: Adapter, E: Endpoint<D>> ErasedEndpoint<D> for Erased<E> {
                 Ok(input) => input,
                 Err(err) => return err.into_response(),
             };
-            let executed = execute(shared, &self.0, request, input).await;
+            let mut executed = execute(shared, None, &self.0, request, input).await;
+            if executed.result.is_ok() {
+                let events = std::mem::take(&mut executed.effects.events);
+                dispatch_events(shared, events).await;
+            }
             let result = executed.result.and_then(|outcome| match outcome {
                 Outcome::Output(output) => serde_json::to_vec(&output)
                     .map(|b| Outcome::Output(Bytes::from(b)))

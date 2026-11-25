@@ -22,7 +22,7 @@ pub mod prelude {
     pub use fastauth_axum::{AuthRouter, FreshSession, Session};
     pub use fastauth_core::prelude::*;
     #[cfg(any(feature = "postgres", feature = "sqlite"))]
-    pub use fastauth_sqlx::Sqlx;
+    pub use fastauth_sqlx::{InTx, SharedTx, Sqlx};
     #[cfg(feature = "postgres")]
     pub use fastauth_sqlx::{PgPool, Postgres};
     #[cfg(feature = "sqlite")]

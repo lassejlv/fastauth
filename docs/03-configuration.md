@@ -215,7 +215,8 @@ validated by the types. They show up typed as `session.user.fields`. The same wo
 ## Events
 
 Events fire after the change is committed, for every caller: HTTP, the server API, and
-plugins. Use them for side effects such as a welcome email or a Stripe customer.
+plugins. Server API calls that share the app's transaction (`.in_tx(&tx)`) fire their events
+after `tx.commit()` ([Sharing a transaction](04-sessions.md#sharing-a-transaction)). Use them for side effects such as a welcome email or a Stripe customer.
 
 ```rust
 .on(|e: UserCreated, ctx: Ctx<_>| async move {

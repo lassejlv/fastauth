@@ -1,6 +1,40 @@
 //! Events fire after an endpoint succeeds, for every caller (HTTP, server API, plugins).
+//! Server API calls made with `Api::within` defer them to a [`DeferredEvents`] queue.
 
+use std::sync::{Arc, Mutex};
+
+use crate::endpoint::BoxFuture;
 use crate::value::Id;
+
+pub(crate) type Dispatch = Box<dyn FnOnce() -> BoxFuture<'static, ()> + Send>;
+
+/// Events from server API calls, held back until the caller fires them after its own
+/// commit. Clones share one queue; dropping the last one discards the events.
+#[derive(Clone, Default)]
+pub struct DeferredEvents(Arc<Mutex<Vec<Dispatch>>>);
+
+impl std::fmt::Debug for DeferredEvents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DeferredEvents")
+            .field(&self.0.lock().unwrap().len())
+            .finish()
+    }
+}
+
+impl DeferredEvents {
+    pub(crate) fn push(&self, dispatch: Dispatch) {
+        self.0.lock().unwrap().push(dispatch);
+    }
+
+    /// Runs the handlers of every queued event, in the order the calls emitted them, and
+    /// empties the queue.
+    pub async fn fire(&self) {
+        let queued = std::mem::take(&mut *self.0.lock().unwrap());
+        for dispatch in queued {
+            dispatch().await;
+        }
+    }
+}
 
 pub trait Event: Clone + Send + Sync + 'static {}
 

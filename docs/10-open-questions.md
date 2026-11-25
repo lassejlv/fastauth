@@ -21,8 +21,8 @@ hand for now ([Better Auth's client](11-better-auth-client.md)).
 
 ## 2. Adapter as a type parameter
 
-`Auth<D, U, P>` is generic over the adapter. That gives `.in_tx(&mut sqlx::Transaction)`
-and static dispatch, at the price of one more type parameter in the alias. The alternative
+`Auth<D, U, P>` is generic over the adapter. That gives typed transaction sharing
+(`.in_tx(&tx)` on a `SharedTx<Postgres>`) and static dispatch, at the price of one more type parameter in the alias. The alternative
 is `Arc<dyn Adapter>` with `Auth<U, P>`, and no typed transaction sharing.
 
 **Recommendation:** keep it generic. The alias hides it, and shared transactions are a real

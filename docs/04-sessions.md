@@ -170,24 +170,52 @@ let session = auth.get_session_by_token(&token).await?;       // e.g. from a Web
 
 ### Sharing a transaction
 
-With sqlx, server API calls can join your transaction, so the user row and your own rows
-commit or roll back together:
+With sqlx, server API calls can join your transaction, so the user, account and session
+rows they write commit or roll back together with your own rows. Hand your sqlx
+transaction to a `SharedTx`, and pass that to `.in_tx`:
 
 ```rust
-let mut tx = pool.begin().await?;
+use fastauth::routes::CreateUserInput;
+use fastauth::sqlx::{InTx, SharedTx};   // also in the prelude
+
+let tx = SharedTx::new(pool.begin().await?);
 let user = auth.api()
-    .create_user(CreateUser { email, name, password: None })
-    .in_tx(&mut tx)
+    .in_tx(&tx)
+    .create_user(CreateUserInput { email, name, ..Default::default() })
     .await?;
 sqlx::query("insert into team_members (team_id, user_id) values ($1, $2)")
-    .bind(team_id).bind(user.id)
-    .execute(&mut *tx).await?;
+    .bind(team_id).bind(user.id.as_str())
+    .execute(&mut **tx.lock().await).await?;
 tx.commit().await?;
-// Events (UserCreated) fire here, after commit, not inside the transaction.
+// UserCreated fires here, after the commit. tx.rollback() (or dropping tx) discards it.
 ```
 
-`.in_tx` is available because `Auth` is generic over the adapter: the compiler knows it is
-`Sqlx<Postgres>` and accepts a `&mut sqlx::Transaction<'_, Postgres>`.
+The rules:
+
+- **Every query of the call runs on your transaction**: its writes, its reads, the session
+  lookup, and the queries of hooks and sign-in gates. Nothing touches the pool, so the call
+  can't wait on your own uncommitted writes (which deadlocks with in-memory SQLite).
+- **A failed fastauth call leaves your transaction as it was.** Each call runs inside its own
+  savepoint, and a failure of any kind (a taken email, a hook's error, a database error)
+  rolls back to it. Your earlier writes stay, and the transaction stays usable, on Postgres
+  too. A transaction fastauth opens inside the call, like `create_user`'s, is a nested
+  savepoint.
+- **Events fire after `tx.commit()` succeeds**, in the order the calls emitted them, and
+  never on rollback. Handlers run on the pool, so they see the committed rows.
+- **Don't hold `tx.lock()` across a fastauth call.** The call needs the connection, and
+  waits for your guard. `.execute(&mut **tx.lock().await)` drops it at the end of the
+  statement.
+
+`.in_tx` sits on `Api` next to `.headers` and `.session_token`, and applies to every call
+made through that `Api`. It takes a `SharedTx` rather than `&mut sqlx::Transaction` because
+hooks and event handlers get an owned, `'static` context, which can't hold a borrow, and
+because only fastauth's own `commit` can fire the events after the commit. It type-checks
+because `Auth` is generic over the adapter: on `Auth<Sqlx<Postgres>, ..>` it accepts a
+`SharedTx<Postgres>` and nothing else.
+
+`create_user` is server-only (there's no HTTP route). It validates like sign-up, creates a
+`credential` account when `password` is set, takes app and plugin `input` columns in
+`fields`, and answers `USER_ALREADY_EXISTS` (422) for a taken email.
 
 ## Sessions, listed
 
