@@ -191,7 +191,7 @@ async fn duplicate_email_leaves_tx_usable<DB: AppDb>(pool: Pool<DB>) {
 
     let err = f.create_user(&tx, "LASSE@acme.dk").await.unwrap_err();
     assert_eq!(err.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(err.code(), codes::USER_ALREADY_EXISTS);
+    assert_eq!(err.code(), codes::USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL);
 
     DB::insert_member(&tx, &id).await.unwrap();
     tx.commit().await.unwrap();
