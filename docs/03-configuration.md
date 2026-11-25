@@ -21,7 +21,7 @@ FastAuth::builder()
     .cookies(CookieConfig::default())
     .rate_limit(RateLimit::default())
     .user_fields::<Profile>()
-    .on(|event: &UserCreated, ctx| async move { /* ... */ Ok(()) })
+    .on(|event: UserCreated, ctx| async move { /* ... */ Ok(()) })
     .plugin(TwoFactor::new())
     .build()?
 ```
@@ -166,7 +166,7 @@ Events fire after the change is committed, for every caller: HTTP, the server AP
 plugins. Use them for side effects such as a welcome email or a Stripe customer.
 
 ```rust
-.on(|e: &UserCreated, ctx: &EventCtx<_>| async move {
+.on(|e: UserCreated, ctx: Ctx<_>| async move {
     let customer = stripe::create_customer(&e.user.email).await?;
     ctx.db().update::<User>(User::ID.eq(&e.user.id))
         .set(Profile::STRIPE_CUSTOMER_ID, Some(customer.id))
@@ -180,4 +180,4 @@ Core events: `UserCreated`, `UserUpdated`, `UserDeleted`, `SessionCreated`,
 `SessionRevoked`, `PasswordChanged`, `EmailVerified`, `AccountLinked`. Plugins publish
 their own (`MemberAdded`, `TwoFactorEnabled`). To change or block an operation before it
 happens, use a hook ([Plugins](05-plugins.md#hooks)); an app can register hooks too, with
-`.hook(..)`.
+`.configure(|app| ..)`.

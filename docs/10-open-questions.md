@@ -63,9 +63,9 @@ stay isolated, and community plugins look the same as first-party ones.
 ## 6. MSRV
 
 The design needs return-position `impl Trait` in traits (1.75), `#[diagnostic::on_unimplemented]`
-(1.78), async closures for hooks (1.85) and edition 2024 (1.85).
+(1.78), edition 2024 (1.85) and `if let` chains (1.88).
 
-**Recommendation:** MSRV 1.85, raised only in minor releases.
+**Decided:** MSRV 1.88, raised only in minor releases. Development uses the latest stable.
 
 ## 7. Name
 

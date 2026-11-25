@@ -1,0 +1,294 @@
+mod common;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use common::{Client, secret};
+use fastauth_core::crypto::Argon2id;
+use fastauth_core::plugin_prelude::*;
+use fastauth_core::prelude::{EmailPassword, FastAuth, MemoryAdapter, RateLimit};
+use fastauth_core::routes::{GetSession, SignUpEmail, SignUpEmailInput};
+use fastauth_core::{Auth, plugins};
+use serde_json::json;
+
+// ---------------------------------------------------------------- a plugin with user fields
+
+#[derive(Default)]
+struct Beta {
+    challenge_members: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct BetaUser {
+    beta: bool,
+}
+
+impl Fields for BetaUser {
+    fn columns() -> &'static [ColumnDef] {
+        const COLUMNS: &[ColumnDef] =
+            &[ColumnDef::new("beta", ColumnType::Bool).default(DefaultValue::Bool(false))];
+        COLUMNS
+    }
+    fn decode(row: &Row) -> Result<Self, DecodeError> {
+        Ok(Self {
+            beta: row.get("beta")?,
+        })
+    }
+}
+
+impl OnTable for BetaUser {
+    type Table = User;
+}
+
+impl BetaUser {
+    const BETA: Col<BetaUser, bool> = Col::new("beta");
+}
+
+struct JoinBeta;
+
+#[derive(Serialize)]
+struct Joined {
+    beta: bool,
+}
+
+impl<D: Adapter> Endpoint<D> for JoinBeta {
+    const METHOD: Method = Method::POST;
+    const PATH: &'static str = "/beta/join";
+    type Access = Authenticated;
+    type Input = Empty;
+    type Output = Joined;
+
+    async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Joined, AuthError> {
+        let id = ctx.session().user.id.clone();
+        ctx.db()
+            .update::<User>(User::ID.eq(&id))
+            .set(BetaUser::BETA, true)
+            .exec()
+            .await?;
+        Ok(Joined { beta: true })
+    }
+}
+
+struct HeaderResolver;
+
+impl<D: Adapter> SessionResolver<D> for HeaderResolver {
+    async fn resolve(
+        &self,
+        ctx: &Ctx<D>,
+        headers: &HeaderMap,
+    ) -> Result<Option<Resolved>, AuthError> {
+        let Some(email) = headers.get("x-test-user").and_then(|v| v.to_str().ok()) else {
+            return Ok(None);
+        };
+        Ok(ctx
+            .internal()
+            .find_user_by_email(email)
+            .await?
+            .map(|u| Resolved::User(u.id.clone())))
+    }
+}
+
+impl Plugin for Beta {
+    const ID: &'static str = "beta";
+    type Requires = ();
+    type UserFields = BetaUser;
+    type SessionFields = ();
+
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        app.endpoint(JoinBeta);
+        app.session_resolver(HeaderResolver);
+        app.hook::<SignUpEmail>()
+            .before(|_ctx, mut input: SignUpEmailInput| async move {
+                if input.email.ends_with("@spam.dk") {
+                    return Err(AuthError::bad_request("SPAM", "no spam"));
+                }
+                input.name = input.name.to_uppercase();
+                Ok(Before::Continue(input))
+            });
+        app.hook::<GetSession>()
+            .after(|_ctx, output: Option<serde_json::Value>| async move {
+                Ok(After::Continue(output.map(|mut o| {
+                    o["hookedBy"] = json!("beta");
+                    o
+                })))
+            });
+        let challenge = self.challenge_members;
+        app.sign_in_gate(move |_ctx, attempt| async move {
+            let fields: BetaUser = attempt.user.fields().map_err(AuthError::internal)?;
+            Ok(if challenge && fields.beta {
+                Gate::Challenge(json!({ "betaRedirect": true }))
+            } else {
+                Gate::Allow
+            })
+        });
+    }
+}
+
+/// Server-side API, only on auth instances with `Beta`.
+trait BetaExt: AuthInstance + Sized {
+    async fn join_beta<I>(&self, token: &str) -> Result<Joined, AuthError>
+    where
+        Self: HasPlugin<Beta, I>,
+    {
+        Ok(self
+            .api()
+            .session_token(token)
+            .call(&JoinBeta, Empty {})
+            .await?
+            .data)
+    }
+}
+
+impl<A: AuthInstance> BetaExt for A {}
+
+// ---------------------------------------------------------------- a plugin that requires Beta
+
+struct BetaBilling {
+    calls: Arc<AtomicUsize>,
+}
+
+impl Plugin for BetaBilling {
+    const ID: &'static str = "beta-billing";
+    type Requires = (Beta,);
+    type UserFields = ();
+    type SessionFields = ();
+
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        let calls = self.calls.clone();
+        app.on(
+            move |_event: fastauth_core::events::UserCreated, ctx: Ctx<D>| {
+                let calls = calls.clone();
+                async move {
+                    let _beta: &Beta = ctx.plugin::<Beta>();
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            },
+        );
+    }
+}
+
+type AppAuth = Auth<MemoryAdapter, (), plugins![Beta, BetaBilling]>;
+
+fn app(challenge_members: bool) -> (AppAuth, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let auth = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .plugin(Beta { challenge_members })
+        .plugin(BetaBilling {
+            calls: calls.clone(),
+        })
+        .build()
+        .expect("valid config");
+    (auth, calls)
+}
+
+#[tokio::test]
+async fn plugin_fields_are_typed_on_the_session() {
+    let (auth, calls) = app(false);
+    let mut client = Client::new(auth.clone());
+    let res = client.sign_up("p@acme.dk", "correct horse").await;
+    assert_eq!(res.json["user"]["beta"], false);
+    assert_eq!(
+        res.json["user"]["name"], "TEST USER",
+        "before hook changed the input"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "event handler ran once");
+
+    let token = res.json["token"].as_str().unwrap().to_owned();
+    let before = auth.get_session_by_token(&token).await.unwrap().unwrap();
+    assert!(!before.user.plugin::<Beta, _>().beta);
+
+    assert!(
+        client.post("/beta/join", json!({})).await.json["beta"]
+            .as_bool()
+            .unwrap()
+    );
+    let after = auth.get_session_by_token(&token).await.unwrap().unwrap();
+    assert!(after.user.plugin::<Beta, _>().beta);
+    assert_eq!(client.get("/get-session").await.json["hookedBy"], "beta");
+}
+
+#[tokio::test]
+async fn extension_trait_calls_the_plugin_endpoint() {
+    let (auth, _) = app(false);
+    let mut client = Client::new(auth.clone());
+    let token = client.sign_up("e@acme.dk", "correct horse").await.json["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(auth.join_beta(&token).await.unwrap().beta);
+    assert!(auth.join_beta("bogus").await.is_err());
+}
+
+#[tokio::test]
+async fn hooks_can_reject() {
+    let (auth, calls) = app(false);
+    let res = Client::new(auth)
+        .sign_up("x@spam.dk", "correct horse")
+        .await;
+    assert_eq!(res.json["code"], "SPAM");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "no event when the endpoint failed"
+    );
+}
+
+#[tokio::test]
+async fn gates_challenge_without_creating_a_session() {
+    let (auth, _) = app(true);
+    let mut client = Client::new(auth.clone());
+    client.sign_up("g@acme.dk", "correct horse").await;
+    client.post("/beta/join", json!({})).await;
+    client.jar.clear();
+    let res = client
+        .post(
+            "/sign-in/email",
+            json!({ "email": "g@acme.dk", "password": "correct horse" }),
+        )
+        .await;
+    assert_eq!(res.json, json!({ "betaRedirect": true }));
+    assert!(client.jar.is_empty(), "no session cookie");
+}
+
+#[tokio::test]
+async fn resolvers_turn_headers_into_sessions() {
+    let (auth, _) = app(false);
+    Client::new(auth.clone())
+        .sign_up("r@acme.dk", "correct horse")
+        .await;
+    let mut headers = HeaderMap::new();
+    headers.insert("x-test-user", "r@acme.dk".parse().unwrap());
+    let session = auth.get_session(&headers).await.unwrap().unwrap();
+    assert_eq!(session.user.email, "r@acme.dk");
+    assert!(session.view().ephemeral);
+}
+
+#[test]
+fn hooking_an_unregistered_endpoint_fails_the_build() {
+    let err = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .plugin(Beta::default())
+        .build()
+        .unwrap_err();
+    assert!(
+        err.problems.iter().any(|p| p.contains("SignUpEmail")),
+        "{err}"
+    );
+}
+
+#[test]
+fn schema_shows_owners() {
+    let (auth, _) = app(false);
+    let user = auth.schema().table("user").unwrap();
+    assert_eq!(user.column("beta").unwrap().owner, "beta");
+    assert_eq!(user.column("email").unwrap().owner, "core");
+    assert!(!auth.plugin::<Beta, _>().challenge_members);
+}

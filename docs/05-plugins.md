@@ -86,7 +86,7 @@ impl Plugin for ApiKeys {
         schema.model::<ApiKey>();
     }
 
-    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D, Self>) {
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
         app.endpoint(CreateKey(self.clone()));
         app.endpoint(ListKeys);
         app.endpoint(RevokeKey);
@@ -175,7 +175,7 @@ impl<D: Adapter> Endpoint<D> for CreateKey {
     type Input = CreateKeyInput;
     type Output = CreatedKey;
 
-    async fn call(&self, ctx: Ctx<'_, D, Authenticated>, input: CreateKeyInput) -> Result<CreatedKey, AuthError> {
+    async fn call(&self, ctx: Ctx<D, Authenticated>, input: CreateKeyInput) -> Result<CreatedKey, AuthError> {
         let user_id = ctx.session().user.id.clone();
         let key = format!("{}{}", self.0.prefix, ctx.random().token_base62(32));
         let row = ApiKey {
@@ -214,7 +214,7 @@ don't need plugin config:
 
 ```rust
 #[endpoint(GET "/api-key/list", access = Authenticated)]
-async fn list_keys<D: Adapter>(ctx: Ctx<'_, D, Authenticated>, _: ()) -> Result<Vec<KeySummary>, AuthError> {
+async fn list_keys<D: Adapter>(ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Vec<KeySummary>, AuthError> {
     let keys = ctx.db()
         .find::<ApiKey>(ApiKey::USER_ID.eq(&ctx.session().user.id))
         .order_by(ApiKey::CREATED_AT.desc())
@@ -234,20 +234,20 @@ key plugin turns `x-api-key` into a session for the key's owner:
 struct KeyResolver(Arc<ApiKeys>);
 
 impl<D: Adapter> SessionResolver<D> for KeyResolver {
-    async fn resolve(&self, ctx: &ResolveCtx<'_, D>, parts: &Parts) -> Result<Option<Resolved>, AuthError> {
-        let Some(key) = parts.headers.get(&self.0.header) else { return Ok(None) };
+    async fn resolve(&self, ctx: &Ctx<D>, headers: &HeaderMap) -> Result<Option<Resolved>, AuthError> {
+        let Some(key) = headers.get(&self.0.header) else { return Ok(None) };
         let Some(row) = ctx.db().find::<ApiKey>(ApiKey::KEY_HASH.eq(Hash::sha256(key.as_bytes()))).one().await? else {
             return Err(ApiKeyError::NotFound.into());
         };
         if row.expires_at.is_some_and(|t| t < ctx.now()) {
             return Err(ApiKeyError::Expired.into());
         }
-        Ok(Some(Resolved::ephemeral(row.user_id).scopes(row.scopes.0)))
+        Ok(Some(Resolved::User(row.user_id)))
     }
 }
 ```
 
-`Resolved::ephemeral` builds a session that is never written to the `session` table. Every
+`Resolved::User` builds a session that exists only for this request and is never written to the `session` table (`session.view().ephemeral` is true). `Resolved::Token` hands back a session token found somewhere other than the cookie, such as a bearer header. Every
 `Session<AppAuth>` extractor in the app now accepts API keys, with no handler changes.
 
 ### Errors
@@ -307,38 +307,39 @@ HTTP request, minus the JSON. Without `ApiKeys` registered, `auth.api_keys()` fa
 
 ### Hooks
 
-Hooks run around endpoints, for every caller. Typed hooks name an endpoint type and get its
-typed input or output:
+Hooks run around endpoints, for every caller (HTTP and the server API). They name an
+endpoint type and get its typed input or output by value:
 
 ```rust
-fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D, Self>) {
-    // Block disposable domains at sign-up.
-    app.before::<SignUpEmail>(|ctx, input: &mut SignUpEmailInput| async move {
+fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+    // Block disposable domains at sign-up, and normalise the name.
+    app.hook::<SignUpEmail>().before(|ctx, mut input: SignUpEmailInput| async move {
         if disposable::is_disposable(&input.email) {
             return Err(AuthError::bad_request("DISPOSABLE_EMAIL", "use a real email address"));
         }
-        input.email = input.email.trim().to_lowercase();
-        Ok(Flow::Continue)
+        input.name = input.name.trim().to_owned();
+        Ok(Before::Continue(input))
     });
 
     // Add a field to every get-session response.
-    app.after::<GetSession>(|ctx, out: &mut GetSessionOutput| async move {
-        out.extra.insert("plan", json!(lookup_plan(ctx).await?));
-        Ok(Flow::Continue)
-    });
-
-    // Untyped: everything under a path, for middleware-like plugins.
-    app.before_path("/organization/*", |ctx, req: &RequestParts| async move {
-        audit::log(req.path(), ctx.ip()).await;
-        Ok(Flow::Continue)
+    app.hook::<GetSession>().after(|ctx, output: Option<serde_json::Value>| async move {
+        Ok(After::Continue(output.map(|mut o| {
+            o["plan"] = json!("pro");
+            o
+        })))
     });
 }
 ```
 
-A hook returns `Flow::Continue`, `Flow::Respond(response)` to stop and answer, or an error.
-Typed hooks on an endpoint that isn't registered (say, `after::<CreateOrg>` without the
-organization plugin) are a `BuildError`. If your plugin lists `Organization` in
-`Requires`, that can't happen.
+A before hook returns `Before::Continue(input)` (possibly changed) or `Before::Respond(response)`
+to stop and answer; an after hook returns `After::Continue(output)` or `After::Respond(..)`;
+either can return an error. Hooks get an owned `HookCtx<D>` (a `Ctx` with an optional
+session), so their futures are `'static` and plain `async move` closures work.
+
+A hook on an endpoint that isn't registered (say, `hook::<CreateOrg>()` without the
+organization plugin) is a `BuildError`. If your plugin lists `Organization` in `Requires`,
+that can't happen. The app registers hooks the same way, with
+`.configure(|app| { app.hook::<SignUpEmail>().before(..); })` on the builder.
 
 ### Sign-in gates
 
@@ -349,8 +350,8 @@ password, social, magic link, passkey.
 
 ```rust
 impl Plugin for TwoFactor {
-    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D, Self>) {
-        app.sign_in_gate(|ctx, attempt: &SignInAttempt| async move {
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        app.sign_in_gate(|ctx, attempt: SignInAttempt| async move {
             let tfa = attempt.user.fields::<TwoFactorUser>()?;
             if !tfa.two_factor_enabled || ctx.trusted_device(attempt).await? {
                 return Ok(Gate::Allow);
@@ -369,7 +370,7 @@ signed cookie naming the pending user; no session exists until the challenge is 
 ### Events
 
 ```rust
-app.on(|e: &UserDeleted, ctx| async move {
+app.on(|e: UserDeleted, ctx: Ctx<D>| async move {
     ctx.db().delete::<ApiKey>(ApiKey::USER_ID.eq(&e.user_id)).await?;
     Ok(())
 });
@@ -379,9 +380,8 @@ app.on(|e: &UserDeleted, ctx| async move {
 pub struct ApiKeyCreated { pub id: Id, pub user_id: Id }
 ```
 
-Events are dispatched after the transaction that caused them commits. By default an event
-handler error is logged and doesn't fail the request; `app.on_strict(..)` runs the handler
-inside the transaction instead, so its error rolls everything back.
+Events are dispatched after the endpoint that emitted them succeeds. An event handler's
+error is logged and doesn't fail the request.
 
 ### Depending on another plugin
 
@@ -391,11 +391,11 @@ impl Plugin for OrgBilling {
     type Requires = (Organization,);
     // ...
 
-    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D, Self>) {
-        app.after::<CreateOrg>(|ctx, out: &mut CreateOrgOutput| async move {
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        app.hook::<CreateOrg>().after(|ctx, out: CreateOrgOutput| async move {
             let org = ctx.plugin::<Organization>();   // infallible: Requires proved it's there
             stripe::create_customer(&out.organization, org.billing_email()).await?;
-            Ok(Flow::Continue)
+            Ok(After::Continue(out))
         });
     }
 }
