@@ -366,8 +366,10 @@ impl<D: Adapter, A> Ctx<D, A> {
         OffsetDateTime::now_utc()
     }
 
-    pub fn new_id(&self) -> Id {
-        Id::new_v7()
+    /// A new id from the configured [`IdStrategy`](crate::config::IdStrategy). Fails only
+    /// when a custom generator returns an invalid id: a 500 whose detail is logged.
+    pub fn new_id(&self) -> Result<Id, AuthError> {
+        self.shared.config.ids.generate()
     }
 
     pub fn request(&self) -> &RequestInfo {

@@ -42,7 +42,8 @@ pub use time::Duration;
 /// Everything an app needs to configure auth.
 pub mod prelude {
     pub use crate::config::{
-        ClientIp, CookieConfig, EmailPassword, EmailVerification, SameSite, Secure, SessionConfig,
+        ClientIp, CookieConfig, EmailPassword, EmailVerification, IdStrategy, SameSite, Secure,
+        SessionConfig,
     };
     pub use crate::crypto::Secret;
     pub use crate::events::*;

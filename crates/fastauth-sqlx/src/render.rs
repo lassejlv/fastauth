@@ -10,7 +10,7 @@ use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, Table
 use fastauth_core::value::Value;
 use sqlx::{AssertSqlSafe, SqlSafeStr, SqlStr};
 
-use crate::driver::{Driver, Param};
+use crate::driver::{Driver, Param, stored_type};
 
 /// How logical table names (`user`) map to stored ones (`"auth"."fa_user"`).
 #[derive(Clone, Debug, Default)]
@@ -148,7 +148,7 @@ impl Sql {
             .columns
             .iter()
             .zip(q.values)
-            .map(|(column, value)| Param::write(value, column.ty))
+            .map(|(column, value)| Param::write(value, stored_type(table, column.ty)))
             .collect();
         Statement { sql, params }
     }
@@ -238,7 +238,9 @@ impl Sql {
         let mut params: Vec<Param> = q
             .set
             .into_iter()
-            .map(|(column, value)| Param::write(value, table.columns[column].ty))
+            .map(|(column, value)| {
+                Param::write(value, stored_type(table, table.columns[column].ty))
+            })
             .collect();
         filter_params::<DB>(table, q.filter, &mut params);
         Statement { sql, params }
@@ -401,10 +403,13 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
     match filter {
         Filter::All | Filter::Null { .. } => {}
         Filter::Cmp { column, value, .. } => {
-            out.push(Param::filter(value, table.columns[column].ty));
+            out.push(Param::filter(
+                value,
+                stored_type(table, table.columns[column].ty),
+            ));
         }
         Filter::In { column, values } => {
-            let ty = table.columns[column].ty;
+            let ty = stored_type(table, table.columns[column].ty);
             out.extend(values.into_iter().map(|value| Param::filter(value, ty)));
         }
         Filter::StartsWith { prefix, .. } => out.push(Param::write(
@@ -479,7 +484,11 @@ fn column_def<DB: Driver>(
     adding: bool,
 ) -> String {
     let physical = names.physical(table.name);
-    let mut def = format!("{} {}", quote(column.name), DB::sql_type(column.ty));
+    let mut def = format!(
+        "{} {}",
+        quote(column.name),
+        DB::sql_type(stored_type(table, column.ty))
+    );
     if !column.nullable {
         def.push_str(" NOT NULL");
     }
@@ -518,6 +527,7 @@ fn column_def<DB: Driver>(
 #[cfg(all(test, feature = "sqlite"))]
 mod tests {
     use fastauth_core::adapter::{Filter, Op, Select};
+    use fastauth_core::config::IdStrategy;
     use fastauth_core::testing::conformance_schema;
     use fastauth_core::value::Value;
     use sqlx::Sqlite;
@@ -526,7 +536,7 @@ mod tests {
 
     #[test]
     fn query_text_is_cached_per_shape_not_per_value() {
-        let schema = conformance_schema(false);
+        let schema = conformance_schema(&IdStrategy::default(), false);
         let user = schema.expect("user");
         let sql = Sql::new(Names::default());
         let select = |filter: Filter| Select {
