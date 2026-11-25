@@ -134,8 +134,10 @@ let signed_in = auth
     .await?;
 
 // Plugin endpoints live on extension traits, which only compile with the plugin registered.
-use fastauth::plugins::two_factor::TwoFactorExt;
-let setup = auth.two_factor().enable(&session, EnableTwoFactor { password }).await?;
+// They take the request's headers: their cookies carry the session (or, for verify_totp,
+// the pending two-factor sign-in).
+use fastauth::plugins::two_factor::{EnableInput, TwoFactorExt};
+let setup = auth.two_factor().enable(&headers, EnableInput { password, issuer: None }).await?;
 
 use fastauth::plugins::organization::OrganizationExt;
 let org = auth.organization().create(&session, CreateOrg { name: "Acme".into(), slug: None }).await?;

@@ -377,19 +377,22 @@ password, social, magic link, passkey.
 impl Plugin for TwoFactor {
     fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
         app.sign_in_gate(|ctx, attempt: SignInAttempt| async move {
-            let tfa = attempt.user.fields::<TwoFactorUser>()?;
-            if !tfa.two_factor_enabled || ctx.trusted_device(attempt).await? {
+            let tfa: TwoFactorUser = attempt.user.fields().map_err(AuthError::internal)?;
+            if !tfa.two_factor_enabled || is_trusted(&ctx, &attempt.user.id).await? {
                 return Ok(Gate::Allow);
             }
-            Ok(Gate::Challenge(Challenge::new("two-factor").redirect(true)))
+            ctx.set_signed_cookie("two_factor", &pending(&attempt), Some(Duration::minutes(10)));
+            Ok(Gate::Challenge(json!({ "twoFactorRedirect": true })))
         });
-        // /two-factor/verify-totp finishes the challenge with app.complete_challenge(..)
     }
 }
 ```
 
-`Gate::Challenge` answers the sign-in with `{ "twoFactorRedirect": true }` and a short-lived
-signed cookie naming the pending user; no session exists until the challenge is completed.
+`Gate::Challenge` answers the sign-in with that JSON and no session. The gate's `ctx` shares
+the sign-in's response, so the cookie it sets (here a short-lived signed cookie naming the
+pending user) goes out with the challenge. The endpoint that completes the challenge
+(`/two-factor/verify-totp`) reads the cookie back and finishes with
+`ctx.internal().create_session(..)`, which skips the gates.
 `Gate::Deny(err)` refuses the sign-in outright (the admin plugin's ban check).
 
 ### Events

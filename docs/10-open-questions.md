@@ -52,7 +52,7 @@ on it.
 
 ## 5. One crate per plugin, or features on one crate
 
-Separate crates (`fastauth-plugins-two-factor`) compile in parallel and version
+Separate crates (`fastauth-plugin-two-factor`) compile in parallel and version
 independently. Features on one `fastauth-plugins` crate are simpler to publish. Either way,
 the facade re-exports them under `fastauth::plugins::*` behind features, so users don't see
 the difference.
