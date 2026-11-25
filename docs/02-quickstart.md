@@ -67,13 +67,13 @@ migration. Add a three-line binary to your project:
 // src/bin/fastauth.rs
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    fastauth::cli::run(|pool| acme::auth::build(pool)).await
+    fastauth::cli::run(acme::auth::build).await
 }
 ```
 
-`run` loads `.env`, connects to `DATABASE_URL` (or `--database-url`), and hands the pool
-to your closure. The closure's argument type picks the database: `build` takes a `PgPool`,
-so the CLI opens one; a `SqlitePool` works the same way.
+`run` loads `.env`, connects to `DATABASE_URL` (or `--database-url`), and passes the pool
+to `build`. The function's argument type picks the database: `build` takes a `PgPool`, so
+the CLI opens one; a `SqlitePool` works the same way. A closure works too.
 
 ```bash
 cargo run --bin fastauth -- generate --out migrations   # writes migrations/<ts>_fastauth.sql

@@ -17,7 +17,7 @@ three lines:
     // src/bin/fastauth.rs
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        fastauth::cli::run(|pool| my_app::auth::build(pool)).await
+        fastauth::cli::run(my_app::auth::build).await
     }
 
 Then:

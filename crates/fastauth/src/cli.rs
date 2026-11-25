@@ -5,7 +5,7 @@
 //! // src/bin/fastauth.rs
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     fastauth::cli::run(|pool| acme::auth::build(pool)).await
+//!     fastauth::cli::run(acme::auth::build).await
 //! }
 //! ```
 //!
