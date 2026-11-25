@@ -715,6 +715,15 @@ impl<T: Serialize> ApiResponse<T> {
     }
 }
 
+/// Lets a handler return a server API result as is: the JSON body plus the cookies the
+/// endpoint set, like the HTTP route would answer.
+#[cfg(feature = "axum")]
+impl<T: Serialize> axum_core::response::IntoResponse for ApiResponse<T> {
+    fn into_response(self) -> axum_core::response::Response {
+        self.into_http().map(axum_core::body::Body::from)
+    }
+}
+
 impl<D: Adapter> Api<'_, D> {
     /// The configured adapter.
     pub fn adapter(&self) -> &D {

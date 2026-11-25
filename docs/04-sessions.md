@@ -126,11 +126,19 @@ Every endpoint can be called from Rust without HTTP. There's no JSON round trip:
 goes straight to the endpoint's `call` with the typed input.
 
 ```rust
-// Core endpoints live on auth.api().
+use fastauth::routes::SignInEmailInput;
+
+// Core endpoints live on auth.api(). Pass the request's headers so the call sees its
+// cookies, user agent and so on, or act as a session with .session_token(token).
 let signed_in = auth
     .api()
-    .sign_in_email(SignInEmail { email, password, remember_me: true })
-    .meta(RequestMeta::from_headers(&headers))   // ip and user agent for the session row
+    .headers(&headers)
+    .sign_in_email(SignInEmailInput {
+        email,
+        password,
+        callback_url: None,
+        remember_me: Some(true),
+    })
     .await?;
 
 // Plugin endpoints live on extension traits, which only compile with the plugin registered.
@@ -139,24 +147,29 @@ let signed_in = auth
 use fastauth::plugins::two_factor::{EnableInput, TwoFactorExt};
 let setup = auth.two_factor().enable(&headers, EnableInput { password, issuer: None }).await?;
 
-use fastauth::plugins::organization::OrganizationExt;
-let org = auth.organization().create(&session, CreateOrg { name: "Acme".into(), slug: None }).await?;
+// Any endpoint, core or plugin, runs through the same pipeline with `call`:
+let sessions = auth.api().headers(&headers).call(&fastauth::routes::ListSessions, Default::default()).await?;
 ```
 
-Results that would set cookies over HTTP (`sign_in_email`, `sign_up_email`) return a
-value carrying the session token, plus an `IntoResponse` impl that sets the cookie. A custom
-sign-in handler can return it as is:
+Every call returns `ApiResponse<T>`: the typed output in `data` plus the `Set-Cookie` values the
+endpoint produced in `set_cookies`. With the `axum` feature it implements `IntoResponse`, so a
+custom sign-in handler can return it as is and the browser gets the session cookie:
 
 ```rust
 async fn sign_in_with_invite(
     State(auth): State<AppAuth>,
     headers: HeaderMap,
     Json(body): Json<InviteSignIn>,
-) -> Result<SignedIn<AppAuth>, AuthError> {
+) -> Result<ApiResponse<SignInOutput>, AuthError> {
     let invite = invites::redeem(&body.code).await?;
     auth.api()
-        .sign_in_email(SignInEmail { email: invite.email, password: body.password, remember_me: true })
-        .meta(RequestMeta::from_headers(&headers))
+        .headers(&headers)
+        .sign_in_email(SignInEmailInput {
+            email: invite.email,
+            password: body.password,
+            callback_url: None,
+            remember_me: Some(true),
+        })
         .await
 }
 ```

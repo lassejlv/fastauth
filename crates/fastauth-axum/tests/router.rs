@@ -365,3 +365,34 @@ async fn unknown_auth_route_is_a_404_json_error() {
     assert_eq!(res.status, StatusCode::NOT_FOUND);
     assert_eq!(res.json["code"], "NOT_FOUND");
 }
+
+#[tokio::test]
+async fn handlers_can_return_server_api_responses() {
+    async fn custom_sign_up(
+        axum::extract::State(auth): axum::extract::State<AppAuth>,
+        headers: HeaderMap,
+    ) -> Result<fastauth_core::ApiResponse<fastauth_core::routes::SignUpOutput>, AuthError> {
+        let input = serde_json::from_value(json!({
+            "email": "custom@acme.dk",
+            "password": "correct horse",
+            "name": "Custom"
+        }))
+        .expect("valid input");
+        auth.api().headers(&headers).sign_up_email(input).await
+    }
+
+    let auth = auth();
+    let app = Router::new()
+        .route("/custom-sign-up", axum::routing::post(custom_sign_up))
+        .with_state(auth);
+    let res = send(
+        &app,
+        Request::post("/custom-sign-up")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(res.status, StatusCode::OK);
+    assert_eq!(res.json["user"]["email"], "custom@acme.dk");
+    assert!(res.session_cookie().starts_with("fastauth.session_token="));
+}
