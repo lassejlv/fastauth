@@ -1,8 +1,8 @@
 # Databases
 
 fastauth talks to the database through one trait, `Adapter`. `fastauth-sqlx` implements
-it for Postgres, SQLite and MySQL; `MemoryAdapter` implements it for tests. Plugins never
-see SQL, so every plugin works on every adapter.
+it for Postgres and SQLite (MySQL is planned, not built); `MemoryAdapter` implements it for
+tests. Plugins never see SQL, so every plugin works on every adapter.
 
 ## Using sqlx
 
@@ -20,10 +20,29 @@ Options:
 
 ```rust
 Sqlx::new(pool)
-    .schema("auth")              // Postgres schema; default: the search_path
+    .schema("auth")              // Postgres only; default: the search_path. The migrator creates it.
     .table_prefix("fa_")         // fa_user, fa_session, ...
-    .rename("user", "accounts")  // keep an existing users table name
+    .rename("user", "accounts")  // keep an existing users table name (the prefix doesn't apply)
 ```
+
+`fastauth-sqlx` is built on sqlx 0.9, with the `postgres` and `sqlite` features (both on by
+default). sqlx 0.9 needs Rust 1.94, so this crate's MSRV is 1.94 while core stays at 1.88.
+What it does with the database:
+
+- **Bind parameters only.** Values never appear in SQL text. The text for each query shape
+  (operation, table, filter shape, columns) is rendered once and cached, so sqlx's prepared
+  statement cache hits on every repeat.
+- **Constraint names are fixed:** `<table>_pkey`, `<table>_<column>_key` for unique columns
+  and `idx_<table>_<column>` for indexes, using the stored (prefixed) table name. The
+  adapter maps a unique violation back to `DbError::UniqueViolation { table, column }`
+  through these names on Postgres and through the error message on SQLite.
+- **SQLite `ADD COLUMN`** can't add a UNIQUE constraint or a non-constant default, so the
+  migrator adds a unique column plus a unique index named `<table>_<column>_key`, and a
+  `DefaultValue::Now` column gets the migration time as its default for existing rows.
+- **In-memory SQLite** (`sqlite::memory:`) is one shared-cache database per pool. A query on
+  the pool waits while another connection's transaction holds uncommitted writes to the same
+  table, so code that holds a transaction must run every query through it (`ctx.db_on(&tx)`)
+  or it waits on itself.
 
 ## The schema
 
@@ -187,20 +206,29 @@ table, which the schema fixed at build time.
 
 ### Conformance tests
 
-`fastauth-core` ships the adapter test suite as a macro. A new adapter is done when this
-passes:
+`fastauth-core` ships the adapter test suite as a function behind its `testing` feature.
+A new adapter is done when this passes:
 
 ```rust
-fastauth::adapter_tests!(async || MyAdapter::connect(&test_url()).await.unwrap());
+// [dev-dependencies] fastauth-core = { version = "0.1", features = ["testing"] }
+#[tokio::test]
+async fn conformance() {
+    fastauth_core::testing::run_adapter_conformance(async || MyAdapter::connect(&test_url()).await).await;
+}
 ```
 
-It covers every filter, ordering, unique violations (which must map to
-`DbError::UniqueViolation` so sign-up can answer "email taken"), transaction rollback,
-concurrent session refresh, and the migrator round trip.
+Each case gets a fresh adapter from the closure, so it must return an empty database. The
+suite covers every `Filter` variant, ordering, limit and offset, updates and deletes,
+unique violations (which must map to `DbError::UniqueViolation` so sign-up can answer
+"email taken"), transaction commit, rollback and drop, `session_with_user`, and the
+migrator round trip (create, then an empty plan, then added columns on a table with rows).
+`MemoryAdapter` and both `fastauth-sqlx` databases run it. It is a function rather than
+the `adapter_tests!` macro first sketched here: a plain `async fn` reports failures with
+ordinary backtraces and needs no macro hygiene.
 
 ### Adapters we'd expect
 
-- `fastauth-sqlx`: Postgres, SQLite, MySQL. First party.
+- `fastauth-sqlx`: Postgres and SQLite, MySQL later. First party.
 - `fastauth-diesel`: diesel-async. Community, same trait.
 - `fastauth-seaorm`: for apps already on SeaORM.
 - `fastauth-libsql`, `fastauth-d1` (Cloudflare Workers via `worker`): plausible, since

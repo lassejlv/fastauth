@@ -25,6 +25,8 @@ pub mod rate_limit;
 pub mod routes;
 pub mod schema;
 pub mod session;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod value;
 
 pub use auth::{
