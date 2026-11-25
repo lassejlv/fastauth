@@ -16,6 +16,7 @@ use crate::hlist::{Has, PluginSet};
 use crate::model::{Fields, Model};
 use crate::models::{Session, User};
 use crate::plugin::Plugin;
+use crate::query::Db;
 use crate::value::{DecodeError, Row, Value};
 
 /// A user row as plugins see it: core fields typed, everything else in `row`.
@@ -48,6 +49,13 @@ impl UserView {
     /// What clients see: every `returned` column, camelCase.
     pub fn to_json(&self) -> serde_json::Map<String, serde_json::Value> {
         self.row.to_client_json()
+    }
+}
+
+/// Serializes as the client JSON of the row, the `user` of `/get-session`.
+impl Serialize for UserView {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_json().serialize(serializer)
     }
 }
 
@@ -318,13 +326,13 @@ fn read_cache<D>(shared: &Shared<D>, request: &RequestInfo, token: &str) -> Opti
 /// Looks a session up by its raw token. Deletes it if expired.
 pub(crate) async fn by_token<D: Adapter>(
     shared: &Shared<D>,
+    db: &D,
     token: &str,
 ) -> Result<Option<SessionView>, AuthError> {
     let token_hash = Hash::sha256(token);
     let session_table = shared.schema.expect(Session::TABLE);
     let user_table = shared.schema.expect(User::TABLE);
-    let found = shared
-        .db
+    let found = db
         .session_with_user(SessionWithUser {
             session: session_table,
             user: user_table,
@@ -336,8 +344,7 @@ pub(crate) async fn by_token<D: Adapter>(
     };
     let session = Session::decode(&row).map_err(AuthError::internal)?;
     if session.expires_at <= OffsetDateTime::now_utc() {
-        shared
-            .db()
+        Db::new(db, &shared.schema)
             .delete::<Session>(Session::ID.eq(&session.id))
             .await?;
         return Ok(None);
@@ -355,6 +362,7 @@ pub(crate) async fn by_token<D: Adapter>(
 /// concurrent requests extend it once.
 async fn refresh<D: Adapter>(
     shared: &Shared<D>,
+    db: &D,
     request: &RequestInfo,
     effects: &Mutex<Effects>,
     view: &mut SessionView,
@@ -383,7 +391,7 @@ async fn refresh<D: Adapter>(
         (position("expires_at"), Value::Timestamp(expires_at)),
         (position("updated_at"), Value::Timestamp(now)),
     ];
-    shared.db.update(Update { table, filter, set }).await?;
+    db.update(Update { table, filter, set }).await?;
     view.session.expires_at = expires_at;
     view.session.updated_at = now;
     view.row.set("expires_at", Value::Timestamp(expires_at));
@@ -398,11 +406,14 @@ async fn refresh<D: Adapter>(
 }
 
 /// Finds the request's session: signed cookie (and cookie cache), then resolvers.
+/// `within` is the adapter of an `Api::within` call; every lookup goes through it.
 pub(crate) async fn resolve<D: Adapter>(
     shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
     request: &Arc<RequestInfo>,
     effects: &Arc<Mutex<Effects>>,
 ) -> Result<Option<SessionView>, AuthError> {
+    let db = within.map_or(&shared.db, |db| &**db);
     let cookie_name = shared.config.cookie_name(SESSION_TOKEN);
     if let Some(raw) = cookies::read(&request.headers, &cookie_name) {
         let Some(token) = shared
@@ -416,23 +427,28 @@ pub(crate) async fn resolve<D: Adapter>(
         if let Some(view) = read_cache(shared, request, &token) {
             return Ok(Some(view));
         }
-        let Some(mut view) = by_token(shared, &token).await? else {
+        let Some(mut view) = by_token(shared, db, &token).await? else {
             clear_session_cookies(&shared.config, effects);
             return Ok(None);
         };
-        refresh(shared, request, effects, &mut view).await?;
+        refresh(shared, db, request, effects, &mut view).await?;
         write_cache(shared, effects, &view);
         return Ok(Some(view));
     }
 
     for resolver in &shared.resolvers {
-        let ctx: Ctx<D> = Ctx::new(shared.clone(), request.clone(), None, effects.clone());
+        let ctx: Ctx<D> = Ctx::new(
+            shared.clone(),
+            within.cloned(),
+            request.clone(),
+            None,
+            effects.clone(),
+        );
         match resolver.resolve(&ctx, &request.headers).await? {
             None => continue,
-            Some(Resolved::Token(token)) => return by_token(shared, &token).await,
+            Some(Resolved::Token(token)) => return by_token(shared, db, &token).await,
             Some(Resolved::User(user_id)) => {
-                let Some(user_row) = shared
-                    .db()
+                let Some(user_row) = Db::new(db, &shared.schema)
                     .find::<User>(User::ID.eq(&user_id))
                     .one_row()
                     .await?
@@ -468,10 +484,4 @@ fn ephemeral<D>(shared: &Shared<D>, user_row: Row) -> Result<SessionView, AuthEr
         token: None,
         ephemeral: true,
     })
-}
-
-impl<D: Adapter> Shared<D> {
-    pub(crate) fn db(&self) -> crate::query::Db<'_, D> {
-        crate::query::Db::new(&self.db, &self.schema)
-    }
 }

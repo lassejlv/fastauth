@@ -241,6 +241,6 @@ Run it with `cd spike/typed-plugins && cargo test`. The error messages quoted in
 [Sessions](04-sessions.md) and [Plugins](05-plugins.md) are its real output.
 
 What it doesn't prove yet: the `Access` typestate on `Ctx`, `#[derive(Model)]`'s typed
-columns, `.in_tx(&mut sqlx::Transaction)`, and the axum `FromRequestParts` impl for
+columns, `.in_tx(&tx)` transaction sharing, and the axum `FromRequestParts` impl for
 `Session<A>` generic over the alias. Those are standard Rust patterns with less risk, and
 they're the first things to build in v0.1.

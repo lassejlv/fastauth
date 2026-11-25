@@ -565,6 +565,7 @@ dependencies = [
  "http",
  "serde_json",
  "sqlx",
+ "sqlx-core",
  "time",
  "tokio",
 ]

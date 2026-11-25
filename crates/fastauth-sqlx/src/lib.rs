@@ -18,6 +18,7 @@ mod postgres;
 mod render;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+mod tx;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -30,7 +31,8 @@ use fastauth_core::migrate::{LiveSchema, MigrationPlan, index_name};
 use fastauth_core::schema::{ColumnType, TableDef};
 use fastauth_core::value::{DecodeError, Row, Value};
 use sqlx::pool::PoolConnection;
-use tokio::sync::Mutex;
+use sqlx_core::transaction::TransactionManager;
+use tokio::sync::{Mutex, MutexGuard};
 
 pub use sqlx;
 pub use sqlx::Pool;
@@ -40,6 +42,7 @@ pub use sqlx::{PgPool, Postgres};
 pub use sqlx::{Sqlite, SqlitePool};
 
 use crate::render::{Names, Sql, Statement};
+pub use crate::tx::{InTx, SharedTx};
 
 /// A database this crate supports: [`Postgres`] or [`Sqlite`], each behind the feature of
 /// the same name. Sealed.
@@ -55,13 +58,19 @@ impl<DB: driver::Driver> Dialect for DB {}
 pub struct Sqlx<DB: Dialect> {
     pool: Pool<DB>,
     sql: Arc<Sql>,
+    /// The app transaction this copy is bound to by `InTx::in_tx`: every query runs on it,
+    /// and `begin` opens a savepoint in it.
+    tx: Option<SharedConn<DB>>,
 }
+
+type SharedConn<DB> = Arc<Mutex<sqlx::Transaction<'static, DB>>>;
 
 impl<DB: Dialect> Clone for Sqlx<DB> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
             sql: self.sql.clone(),
+            tx: self.tx.clone(),
         }
     }
 }
@@ -80,6 +89,7 @@ impl<DB: Dialect> Sqlx<DB> {
         Self {
             pool,
             sql: Arc::new(Sql::new(Names::default())),
+            tx: None,
         }
     }
 
@@ -109,11 +119,49 @@ impl<DB: Dialect> Sqlx<DB> {
         Self {
             pool: self.pool,
             sql: Arc::new(Sql::new(names)),
+            tx: self.tx,
         }
     }
 
-    async fn acquire(&self) -> DbResult<PoolConnection<DB>> {
-        self.pool.acquire().await.map_err(DbError::other)
+    fn bind(&self, tx: SharedConn<DB>) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            sql: self.sql.clone(),
+            tx: Some(tx),
+        }
+    }
+
+    async fn conn(&self) -> DbResult<Conn<'_, DB>> {
+        Ok(match &self.tx {
+            Some(tx) => Conn::Tx(tx.lock().await),
+            None => Conn::Pool(self.pool.acquire().await.map_err(DbError::other)?),
+        })
+    }
+}
+
+/// A connection for one query: from the pool, or the bound app transaction's.
+enum Conn<'a, DB: Dialect> {
+    Pool(PoolConnection<DB>),
+    Tx(MutexGuard<'a, sqlx::Transaction<'static, DB>>),
+}
+
+impl<DB: Dialect> std::ops::Deref for Conn<'_, DB> {
+    type Target = DB::Connection;
+
+    fn deref(&self) -> &DB::Connection {
+        match self {
+            Self::Pool(conn) => conn,
+            Self::Tx(tx) => tx,
+        }
+    }
+}
+
+impl<DB: Dialect> std::ops::DerefMut for Conn<'_, DB> {
+    fn deref_mut(&mut self) -> &mut DB::Connection {
+        match self {
+            Self::Pool(conn) => conn,
+            Self::Tx(tx) => tx,
+        }
     }
 }
 
@@ -127,10 +175,41 @@ impl Sqlx<Postgres> {
     }
 }
 
-/// A transaction from [`Adapter::begin`]. Dropping it without `commit` rolls back.
+/// A transaction from [`Adapter::begin`]: a new one on a pool connection, or a savepoint
+/// when the adapter is bound to an app transaction. Dropping it without `commit` rolls back.
 pub struct SqlxTx<DB: Dialect> {
-    tx: Mutex<sqlx::Transaction<'static, DB>>,
+    kind: TxKind<DB>,
     sql: Arc<Sql>,
+}
+
+enum TxKind<DB: Dialect> {
+    Owned(Mutex<sqlx::Transaction<'static, DB>>),
+    Savepoint(Savepoint<DB>),
+}
+
+struct Savepoint<DB: Dialect> {
+    tx: SharedConn<DB>,
+    open: bool,
+}
+
+impl<DB: Dialect> Drop for Savepoint<DB> {
+    fn drop(&mut self) {
+        if !self.open {
+            return;
+        }
+        if let Ok(mut tx) = self.tx.try_lock() {
+            DB::TransactionManager::start_rollback(&mut **tx);
+        }
+    }
+}
+
+impl<DB: Dialect> SqlxTx<DB> {
+    async fn lock(&self) -> MutexGuard<'_, sqlx::Transaction<'static, DB>> {
+        match &self.kind {
+            TxKind::Owned(tx) => tx.lock().await,
+            TxKind::Savepoint(savepoint) => savepoint.tx.lock().await,
+        }
+    }
 }
 
 fn db_error<DB: Dialect>(err: sqlx::Error, sql: &Sql, table: &TableDef) -> DbError {
@@ -266,67 +345,81 @@ async fn session_with_user<DB: Dialect>(
 
 impl<DB: Dialect> Queries for Sqlx<DB> {
     async fn insert(&self, q: Insert<'_>) -> DbResult<Row> {
-        insert::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        insert::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 
     async fn find_one(&self, q: Select<'_>) -> DbResult<Option<Row>> {
-        find_one::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        find_one::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 
     async fn find_many(&self, q: Select<'_>) -> DbResult<Vec<Row>> {
-        find_many::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        find_many::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 
     async fn update(&self, q: Update<'_>) -> DbResult<u64> {
-        update::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        update::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 
     async fn delete(&self, q: Delete<'_>) -> DbResult<u64> {
-        delete::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        delete::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 
     async fn count(&self, q: Select<'_>) -> DbResult<u64> {
-        count::<DB>(&mut *self.acquire().await?, &self.sql, q.table, q.filter).await
+        count::<DB>(&mut *self.conn().await?, &self.sql, q.table, q.filter).await
     }
 }
 
 impl<DB: Dialect> Queries for SqlxTx<DB> {
     async fn insert(&self, q: Insert<'_>) -> DbResult<Row> {
-        insert::<DB>(&mut **self.tx.lock().await, &self.sql, q).await
+        insert::<DB>(&mut **self.lock().await, &self.sql, q).await
     }
 
     async fn find_one(&self, q: Select<'_>) -> DbResult<Option<Row>> {
-        find_one::<DB>(&mut **self.tx.lock().await, &self.sql, q).await
+        find_one::<DB>(&mut **self.lock().await, &self.sql, q).await
     }
 
     async fn find_many(&self, q: Select<'_>) -> DbResult<Vec<Row>> {
-        find_many::<DB>(&mut **self.tx.lock().await, &self.sql, q).await
+        find_many::<DB>(&mut **self.lock().await, &self.sql, q).await
     }
 
     async fn update(&self, q: Update<'_>) -> DbResult<u64> {
-        update::<DB>(&mut **self.tx.lock().await, &self.sql, q).await
+        update::<DB>(&mut **self.lock().await, &self.sql, q).await
     }
 
     async fn delete(&self, q: Delete<'_>) -> DbResult<u64> {
-        delete::<DB>(&mut **self.tx.lock().await, &self.sql, q).await
+        delete::<DB>(&mut **self.lock().await, &self.sql, q).await
     }
 
     async fn count(&self, q: Select<'_>) -> DbResult<u64> {
-        count::<DB>(&mut **self.tx.lock().await, &self.sql, q.table, q.filter).await
+        count::<DB>(&mut **self.lock().await, &self.sql, q.table, q.filter).await
     }
 }
 
 impl<DB: Dialect> Transaction for SqlxTx<DB> {
     async fn commit(self) -> DbResult<()> {
-        self.tx.into_inner().commit().await.map_err(DbError::other)
+        match self.kind {
+            TxKind::Owned(tx) => tx.into_inner().commit().await.map_err(DbError::other),
+            TxKind::Savepoint(mut savepoint) => {
+                DB::TransactionManager::commit(&mut **savepoint.tx.lock().await)
+                    .await
+                    .map_err(DbError::other)?;
+                savepoint.open = false;
+                Ok(())
+            }
+        }
     }
 
     async fn rollback(self) -> DbResult<()> {
-        self.tx
-            .into_inner()
-            .rollback()
-            .await
-            .map_err(DbError::other)
+        match self.kind {
+            TxKind::Owned(tx) => tx.into_inner().rollback().await.map_err(DbError::other),
+            TxKind::Savepoint(mut savepoint) => {
+                DB::TransactionManager::rollback(&mut **savepoint.tx.lock().await)
+                    .await
+                    .map_err(DbError::other)?;
+                savepoint.open = false;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -334,16 +427,27 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
     type Tx = SqlxTx<DB>;
 
     async fn begin(&self) -> DbResult<SqlxTx<DB>> {
-        let tx = self.pool.begin().await.map_err(DbError::other)?;
+        let kind = match &self.tx {
+            Some(tx) => {
+                DB::TransactionManager::begin(&mut **tx.lock().await, None)
+                    .await
+                    .map_err(DbError::other)?;
+                TxKind::Savepoint(Savepoint {
+                    tx: tx.clone(),
+                    open: true,
+                })
+            }
+            None => TxKind::Owned(Mutex::new(self.pool.begin().await.map_err(DbError::other)?)),
+        };
         Ok(SqlxTx {
-            tx: Mutex::new(tx),
+            kind,
             sql: self.sql.clone(),
         })
     }
 
     async fn introspect(&self) -> DbResult<LiveSchema> {
         let names = &self.sql.names;
-        let catalog = DB::introspect(&mut *self.acquire().await?, names.schema.clone())
+        let catalog = DB::introspect(&mut *self.conn().await?, names.schema.clone())
             .await
             .map_err(DbError::other)?;
         let mut live = LiveSchema::default();
@@ -370,11 +474,11 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
         if script.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await.map_err(DbError::other)?;
-        DB::execute_script(&mut tx, script)
+        let tx = self.begin().await?;
+        DB::execute_script(&mut **tx.lock().await, script)
             .await
             .map_err(DbError::other)?;
-        tx.commit().await.map_err(DbError::other)
+        tx.commit().await
     }
 
     fn render_sql(&self, plan: &MigrationPlan) -> DbResult<String> {
@@ -386,6 +490,6 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
     }
 
     async fn session_with_user(&self, q: SessionWithUser<'_>) -> DbResult<Option<(Row, Row)>> {
-        session_with_user::<DB>(&mut *self.acquire().await?, &self.sql, q).await
+        session_with_user::<DB>(&mut *self.conn().await?, &self.sql, q).await
     }
 }

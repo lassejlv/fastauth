@@ -237,6 +237,61 @@ impl<D: Adapter> Endpoint<D> for SignUpEmail {
     }
 }
 
+// ---------------------------------------------------------------------------- create-user
+
+/// Server-only: `auth.api().create_user(..)`. Never registered as a route.
+pub struct CreateUser;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUserInput {
+    pub email: String,
+    pub name: String,
+    /// Creates a credential account with this password. `None` creates the user alone.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// App and plugin `input` columns, by camelCase name, as on sign-up.
+    #[serde(default)]
+    pub fields: Map<String, Json>,
+}
+
+impl<D: Adapter> Endpoint<D> for CreateUser {
+    const METHOD: Method = Method::POST;
+    const PATH: &'static str = "/create-user";
+    type Access = Public;
+    type Input = CreateUserInput;
+    type Output = UserView;
+
+    async fn call(
+        &self,
+        ctx: Ctx<D, Public>,
+        input: CreateUserInput,
+    ) -> Result<UserView, AuthError> {
+        let email = normalize_email(&input.email)?;
+        let internal = ctx.internal();
+        let extra = user_input_fields(&ctx, &input.fields, true)?;
+        let account = match &input.password {
+            Some(password) => {
+                internal.validate_new_password(password)?;
+                let hash = ctx
+                    .passwords()
+                    .hash(password)
+                    .await
+                    .map_err(AuthError::internal)?;
+                Some(NewAccount::credential(hash))
+            }
+            None => None,
+        };
+        let new_user = NewUser {
+            email,
+            name: input.name,
+            extra,
+            ..NewUser::default()
+        };
+        internal.create_user(new_user, account).await
+    }
+}
+
 // ---------------------------------------------------------------------------- sign-in
 
 pub struct SignInEmail;

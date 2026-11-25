@@ -42,7 +42,9 @@ What it does with the database:
 - **In-memory SQLite** (`sqlite::memory:`) is one shared-cache database per pool. A query on
   the pool waits while another connection's transaction holds uncommitted writes to the same
   table, so code that holds a transaction must run every query through it (`ctx.db_on(&tx)`)
-  or it waits on itself.
+  or it waits on itself. Server API calls made with `.in_tx(&tx)` do this for you: the
+  adapter they run on is bound to the app's transaction
+  ([Sharing a transaction](04-sessions.md#sharing-a-transaction)).
 
 ## The schema
 

@@ -12,16 +12,17 @@ use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use serde::Serialize;
 use url::Url;
 
-use crate::adapter::Adapter;
+use crate::adapter::{Adapter, Transaction};
 use crate::config::{
     ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, Secure, SessionConfig,
 };
 use crate::crypto::{Argon2id, Keys, Passwords, Secret, SignPurpose};
 use crate::endpoint::{
-    Effects, Endpoint, Outcome, RequestInfo, Response, Shared, execute, header_str,
+    Effects, Endpoint, Executed, Outcome, RequestInfo, Response, Shared, dispatch_events, execute,
+    header_str,
 };
 use crate::error::{AuthError, BuildError, codes};
-use crate::events::Event;
+use crate::events::{DeferredEvents, Event};
 use crate::hlist::{Append, Has, Nil, PluginSet, Satisfied};
 use crate::mail::{DynMailer, Mailer};
 use crate::migrate::Migrator;
@@ -31,7 +32,7 @@ use crate::plugin::{Plugin, PluginBuilder, Registry};
 use crate::rate_limit::{RateLimit, RateLimiter};
 use crate::routes;
 use crate::schema::Schema;
-use crate::session::{self, SessionData};
+use crate::session::{self, SessionData, UserView};
 
 /// Entry point: `FastAuth::builder()`.
 #[derive(Debug)]
@@ -466,6 +467,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
         Api {
             shared: &self.shared,
             headers: HeaderMap::new(),
+            within: None,
         }
     }
 
@@ -569,7 +571,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
             headers.clone(),
         ));
         let effects = Arc::new(Mutex::new(Effects::default()));
-        let result = session::resolve(&self.shared, &request, &effects)
+        let result = session::resolve(&self.shared, None, &request, &effects)
             .await
             .and_then(|view| {
                 view.map(SessionData::from_view)
@@ -599,7 +601,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
         &self,
         token: &str,
     ) -> Result<Option<SessionData<U, P>>, AuthError> {
-        let view = session::by_token(&self.shared, token).await?;
+        let view = session::by_token(&self.shared, &self.shared.db, token).await?;
         view.map(SessionData::from_view)
             .transpose()
             .map_err(AuthError::internal)
@@ -679,6 +681,7 @@ impl<D: Adapter, U: Fields, P: Has<Pl, I>, Pl: Plugin, I> HasPlugin<Pl, I> for A
 pub struct Api<'a, D> {
     shared: &'a Arc<Shared<D>>,
     headers: HeaderMap,
+    within: Option<(Arc<D>, DeferredEvents)>,
 }
 
 impl<D> std::fmt::Debug for Api<'_, D> {
@@ -713,6 +716,25 @@ impl<T: Serialize> ApiResponse<T> {
 }
 
 impl<D: Adapter> Api<'_, D> {
+    /// The configured adapter.
+    pub fn adapter(&self) -> &D {
+        &self.shared.db
+    }
+
+    /// Runs every call on `db` instead of the configured adapter (its queries, session
+    /// lookup, hooks and gates), and queues the calls' events on `events` instead of firing
+    /// them.
+    ///
+    /// Each call runs inside its own `db.begin()`, committed when the call succeeds and
+    /// rolled back when it fails, so a failed call leaves `db` as it was. That needs an
+    /// adapter whose `begin` nests inside its own queries: with sqlx, use `.in_tx(&tx)` from
+    /// `fastauth_sqlx::InTx`, which binds the adapter to a transaction and makes `begin` a
+    /// savepoint.
+    pub fn within(mut self, db: D, events: &DeferredEvents) -> Self {
+        self.within = Some((Arc::new(db), events.clone()));
+        self
+    }
+
     /// Uses these request headers: cookies for the session, user agent and so on.
     pub fn headers(mut self, headers: &HeaderMap) -> Self {
         self.headers = headers.clone();
@@ -740,7 +762,30 @@ impl<D: Adapter> Api<'_, D> {
             E::PATH,
             self.headers.clone(),
         ));
-        let executed = execute(self.shared, endpoint, request, input).await;
+        let Some((db, events)) = &self.within else {
+            let mut executed = execute(self.shared, None, endpoint, request, input).await;
+            if executed.result.is_ok() {
+                let pending = std::mem::take(&mut executed.effects.events);
+                dispatch_events(self.shared, pending).await;
+            }
+            return self.respond(executed);
+        };
+        let savepoint = db.begin().await?;
+        let mut executed = execute(self.shared, Some(db.clone()), endpoint, request, input).await;
+        if !matches!(executed.result, Ok(Outcome::Output(_))) {
+            savepoint.rollback().await?;
+            return self.respond(executed);
+        }
+        savepoint.commit().await?;
+        let pending = std::mem::take(&mut executed.effects.events);
+        let shared = self.shared.clone();
+        events.push(Box::new(move || {
+            Box::pin(async move { dispatch_events(&shared, pending).await })
+        }));
+        self.respond(executed)
+    }
+
+    fn respond<O>(&self, executed: Executed<O>) -> Result<ApiResponse<O>, AuthError> {
         let set_cookies = executed
             .effects
             .cookies
@@ -755,6 +800,13 @@ impl<D: Adapter> Api<'_, D> {
                 String::from_utf8_lossy(response.body()).into_owned(),
             )),
         }
+    }
+
+    /// Creates a user, plus a credential account when `password` is set. Server-only: there
+    /// is no HTTP route. Validates like sign-up and answers `USER_ALREADY_EXISTS` (422) when
+    /// the email is taken.
+    pub async fn create_user(&self, input: routes::CreateUserInput) -> Result<UserView, AuthError> {
+        Ok(self.call(&routes::CreateUser, input).await?.data)
     }
 
     pub async fn sign_up_email(
