@@ -1,0 +1,5 @@
+error: missing `#[model(table = "...")]`
+ --> tests/ui/fail/model_missing_table.rs:5:8
+  |
+5 | struct ApiKey {
+  |        ^^^^^^

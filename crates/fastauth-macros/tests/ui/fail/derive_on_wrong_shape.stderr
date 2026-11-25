@@ -1,0 +1,17 @@
+error: `Fields` can only be derived for structs with named fields
+ --> tests/ui/fail/derive_on_wrong_shape.rs:4:8
+  |
+4 | struct Tuple(bool);
+  |        ^^^^^
+
+error: `Model` can't be derived for generic types
+ --> tests/ui/fail/derive_on_wrong_shape.rs:8:15
+  |
+8 | struct Generic<T> {
+  |               ^^^
+
+error: `AuthError` can only be derived for enums
+  --> tests/ui/fail/derive_on_wrong_shape.rs:13:8
+   |
+13 | struct NotAnEnum;
+   |        ^^^^^^^^^

@@ -1,0 +1,38 @@
+error[E0277]: the trait bound `fastauth_core::value::Id: From<i64>` is not satisfied
+  --> tests/ui/fail/model_wrong_column.rs:12:42
+   |
+12 |     let _: Where<ApiKey> = ApiKey::ID.eq(3i64);
+   |                                       -- ^^^^ the trait `From<i64>` is not implemented for `fastauth_core::value::Id`
+   |                                       |
+   |                                       required by a bound introduced by this call
+   |
+help: `fastauth_core::value::Id` implements trait `From<T>`
+  --> $WORKSPACE/crates/fastauth-core/src/value.rs
+   |
+   | impl From<String> for Id {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ `From<String>`
+...
+   | impl From<&str> for Id {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `From<&str>`
+...
+   | impl From<&Id> for Id {
+   | ^^^^^^^^^^^^^^^^^^^^^ `From<&fastauth_core::value::Id>`
+   = note: required for `i64` to implement `Into<fastauth_core::value::Id>`
+note: required by a bound in `Col::<O, T>::eq`
+  --> $WORKSPACE/crates/fastauth-core/src/model.rs
+   |
+   | impl<O: OnTable, T: ColumnValue> Col<O, T> {
+...
+   |     pub fn eq(self, value: impl Into<T>) -> Where<O::Table> {
+   |                                 ^^^^^^^ required by this bound in `Col::<O, T>::eq`
+
+error[E0308]: mismatched types
+  --> tests/ui/fail/model_wrong_column.rs:13:26
+   |
+13 |     let _: Where<User> = ApiKey::ID.eq("u1");
+   |            -----------   ^^^^^^^^^^^^^^^^^^^ expected `Where<User>`, found `Where<ApiKey>`
+   |            |
+   |            expected due to this
+   |
+   = note: expected struct `Where<fastauth_core::models::User>`
+              found struct `Where<ApiKey>`

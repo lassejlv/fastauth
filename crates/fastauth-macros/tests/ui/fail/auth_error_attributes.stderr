@@ -1,0 +1,17 @@
+error: missing `#[auth_error(status = .., message = "..")]`
+ --> tests/ui/fail/auth_error_attributes.rs:6:5
+  |
+6 |     Variant,
+  |     ^^^^^^^
+
+error: a status is between 100 and 999
+  --> tests/ui/fail/auth_error_attributes.rs:11:27
+   |
+11 |     #[auth_error(status = 42, message = "too low")]
+   |                           ^^
+
+error: unknown `auth_error` attribute; expected `prefix`
+  --> tests/ui/fail/auth_error_attributes.rs:16:14
+   |
+16 | #[auth_error(code = "X")]
+   |              ^^^^
