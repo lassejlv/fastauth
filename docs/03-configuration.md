@@ -111,7 +111,8 @@ Twitch, Spotify and a generic OIDC provider with discovery are planned, not buil
 
 Accounts link by verified email by default: a social sign-in whose email matches an
 existing user is attached to that user only when the provider reports the email as
-verified. `AccountLinking::Off` never links by email; signed-in users can still link with
+verified. If that user never verified their email, their password and sessions are removed
+first ([Security](09-security.md#oauth)). `AccountLinking::Off` never links by email; signed-in users can still link with
 `/link-social`.
 
 ## Sessions

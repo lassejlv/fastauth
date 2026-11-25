@@ -2,12 +2,13 @@
 
 use std::sync::Arc;
 
-use fastauth_core::adapter::{Adapter, Order};
+use fastauth_core::adapter::{Adapter, Order, Transaction};
 use fastauth_core::crypto::{Hash, base64url, ct_eq, random_token};
 use fastauth_core::endpoint::{Authenticated, Ctx, Empty, Endpoint, Public};
 use fastauth_core::error::codes;
+use fastauth_core::events::{AccountLinked, EmailVerified, SessionRevoked};
 use fastauth_core::internal::{NewAccount, NewUser, SignInResult};
-use fastauth_core::models::{Account, User};
+use fastauth_core::models::{Account, Session, User};
 use fastauth_core::routes::Status;
 use fastauth_core::value::Id;
 use fastauth_core::{AuthError, Duration};
@@ -370,14 +371,10 @@ impl SocialCallback {
                         {
                             return Err(fail("account_not_linked"));
                         }
-                        internal.link_account(&user.id, account).await?;
-                        if !user.email_verified {
-                            ctx.db()
-                                .update::<User>(User::ID.eq(&user.id))
-                                .set(User::EMAIL_VERIFIED, true)
-                                .exec()
-                                .await
-                                .map_err(AuthError::from)?;
+                        if user.email_verified {
+                            internal.link_account(&user.id, account).await?;
+                        } else {
+                            claim_unverified_user(ctx, &user.id, account).await?;
                         }
                         (user, false)
                     }
@@ -426,6 +423,64 @@ fn new_account(provider_id: &str, profile: &OAuthProfile, tokens: OAuthTokens) -
         scope: tokens.scope,
         ..NewAccount::oauth(provider_id, &profile.id)
     }
+}
+
+/// Links a verified social account to a user whose email was never verified. Whoever
+/// registered that email first may not own it, so in one transaction their password and
+/// sessions go, the email becomes verified, and the account is linked.
+async fn claim_unverified_user<D: Adapter>(
+    ctx: &Ctx<D, Public>,
+    user_id: &Id,
+    account: NewAccount,
+) -> Result<(), AuthError> {
+    let keys = ctx.keys();
+    let seal = |token: Option<String>| token.map(|t| keys.encrypt(t.as_bytes()));
+    let now = ctx.now();
+    let provider_id = account.provider_id.clone();
+    let row = Account {
+        id: ctx.new_id(),
+        user_id: user_id.clone(),
+        provider_id: account.provider_id,
+        account_id: account.account_id.unwrap_or_else(|| user_id.to_string()),
+        password_hash: None,
+        access_token: seal(account.access_token),
+        refresh_token: seal(account.refresh_token),
+        id_token: account.id_token,
+        access_token_expires_at: account.access_token_expires_at,
+        refresh_token_expires_at: account.refresh_token_expires_at,
+        scope: account.scope,
+        created_at: now,
+        updated_at: now,
+    };
+    let tx = ctx.adapter().begin().await?;
+    let db = ctx.db_on(&tx);
+    db.delete::<Account>(
+        Account::USER_ID
+            .eq(user_id)
+            .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
+    )
+    .await?;
+    let revoked = db.delete::<Session>(Session::USER_ID.eq(user_id)).await?;
+    db.update::<User>(User::ID.eq(user_id))
+        .set(User::EMAIL_VERIFIED, true)
+        .exec()
+        .await?;
+    db.insert(&row).await?;
+    tx.commit().await?;
+    if revoked > 0 {
+        ctx.emit(SessionRevoked {
+            user_id: user_id.clone(),
+            session_id: None,
+        });
+    }
+    ctx.emit(EmailVerified {
+        user_id: user_id.clone(),
+    });
+    ctx.emit(AccountLinked {
+        user_id: user_id.clone(),
+        provider_id,
+    });
+    Ok(())
 }
 
 /// Stores fresh tokens on an existing account. A missing refresh or id token keeps the old one,

@@ -411,6 +411,12 @@ async fn links_an_existing_user_by_verified_email() {
     let mut browser = Client::new(&auth);
     browser.sign_up("ada@acme.dk").await;
     browser.jar.clear();
+    db(&auth)
+        .update::<User>(User::EMAIL.eq("ada@acme.dk"))
+        .set(User::EMAIL_VERIFIED, true)
+        .exec()
+        .await
+        .unwrap();
     mock.google_user("Ada@Acme.dk", true);
 
     let url = browser
@@ -420,11 +426,6 @@ async fn links_an_existing_user_by_verified_email() {
     assert_eq!(res.location(), "/dashboard");
     assert!(browser.has_session());
 
-    let session = browser.get("/get-session").await.json;
-    assert_eq!(
-        session["user"]["emailVerified"], true,
-        "the provider verified the email"
-    );
     let providers: Vec<Json> = browser
         .get("/list-accounts")
         .await
@@ -435,6 +436,53 @@ async fn links_an_existing_user_by_verified_email() {
         .map(|a| a["providerId"].clone())
         .collect();
     assert_eq!(providers, [json!("credential"), json!("google")]);
+}
+
+#[tokio::test]
+async fn a_verified_sign_in_takes_over_a_pre_registered_unverified_account() {
+    let (auth, mock) = app(AccountLinking::default());
+    let mut attacker = Client::new(&auth);
+    attacker.sign_up("ada@acme.dk").await;
+    assert!(attacker.get("/get-session").await.json["user"].is_object());
+
+    mock.google_user("ada@acme.dk", true);
+    let mut ada = Client::new(&auth);
+    let url = ada.start("/sign-in/social", sign_in_body("google")).await;
+    let res = ada.callback("google", &url).await;
+    assert_eq!(res.location(), "/dashboard");
+    assert!(ada.has_session());
+
+    let session = ada.get("/get-session").await.json;
+    assert_eq!(session["user"]["emailVerified"], true);
+    let providers: Vec<Json> = ada
+        .get("/list-accounts")
+        .await
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["providerId"].clone())
+        .collect();
+    assert_eq!(
+        providers,
+        [json!("google")],
+        "the pre-registered password is gone"
+    );
+
+    assert_eq!(
+        attacker.get("/get-session").await.json,
+        Json::Null,
+        "the attacker's session is revoked"
+    );
+    attacker.jar.clear();
+    let res = attacker
+        .post(
+            "/sign-in/email",
+            json!({ "email": "ada@acme.dk", "password": "correct horse" }),
+        )
+        .await;
+    assert_eq!(res.status, 401);
+    assert_eq!(res.json["code"], "INVALID_EMAIL_OR_PASSWORD");
 }
 
 #[tokio::test]

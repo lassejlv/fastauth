@@ -85,6 +85,13 @@ burned.
 - Provider access and refresh tokens are stored encrypted (XChaCha20-Poly1305).
 - Accounts link by email only when the provider reports the email as verified and linking
   isn't turned off (`AccountLinking::Off`).
+- Linking to a user whose email was never verified closes the pre-registration attack (someone
+  signs up with your email and a password before you first sign in with Google). In one
+  transaction, the user's `credential` account is deleted, all of the user's sessions are
+  revoked, the email is marked verified, and the social account is linked. The person who
+  proved the email through the provider ends up as the only one who can sign in. A legitimate
+  owner who never verified their email loses their password and can set a new one with a
+  password reset.
 
 ## Rate limiting
 
