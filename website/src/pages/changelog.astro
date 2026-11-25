@@ -1,0 +1,23 @@
+---
+import { getCollection, render } from "astro:content";
+import Docs from "../layouts/Docs.astro";
+import { getNav } from "../lib/nav";
+import { GITHUB } from "../lib/site";
+
+const [entry] = await getCollection("changelog");
+const { groups, ordered } = await getNav();
+const { Content, headings } = await render(entry);
+const last = ordered[ordered.length - 1];
+---
+<Docs
+  title="Changelog"
+  description="Every change to fastauth, newest first."
+  eyebrow="Project"
+  headings={headings.filter((h) => h.depth === 2)}
+  groups={groups}
+  current="/changelog/"
+  editUrl={`${GITHUB}/edit/main/CHANGELOG.md`}
+  prev={last && { href: last.href, title: last.title }}
+>
+  <Content />
+</Docs>

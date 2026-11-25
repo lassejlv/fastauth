@@ -1,0 +1,399 @@
+---
+import { getNav } from "../lib/nav";
+import Icon from "./Icon.astro";
+
+const { ordered } = await getNav();
+const pages = ordered.map((p) => ({ title: p.title, description: p.description, href: p.href, group: p.group }));
+---
+<dialog id="search" class="palette" aria-label="Search docs">
+  <div class="palette-input">
+    <Icon name="search" size={18} />
+    <input
+      id="search-input"
+      type="text"
+      placeholder="Search docs"
+      autocomplete="off"
+      spellcheck="false"
+      role="combobox"
+      aria-expanded="true"
+      aria-controls="search-results"
+      aria-autocomplete="list"
+      aria-label="Search docs"
+    />
+    <button type="button" class="kbd" data-search-close aria-label="Close search">esc</button>
+  </div>
+  <div class="palette-results" id="search-results" role="listbox" aria-label="Results"></div>
+  <div class="palette-foot">
+    <span class="hint"><span class="kbd"><Icon name="up" size={12} /></span><span class="kbd"><Icon name="down" size={12} /></span> to move</span>
+    <span class="hint"><span class="kbd"><Icon name="enter" size={12} /></span> to open</span>
+    <span class="count" id="search-count" aria-live="polite"></span>
+  </div>
+  <template id="search-icons">
+    <span data-icon="file"><Icon name="file" /></span>
+    <span data-icon="hash"><Icon name="hash" /></span>
+    <span data-icon="enter"><Icon name="enter" /></span>
+  </template>
+  <script type="application/json" id="search-pages" set:html={JSON.stringify(pages)} />
+</dialog>
+
+<script>
+  type Row = { href: string; title: string; text: string; kind: "file" | "hash" };
+  type Group = { label: string; rows: Row[] };
+  type PagefindResult = { url: string; meta: { title?: string; description?: string }; excerpt: string; sub_results?: { url: string; title: string; excerpt: string }[] };
+  type Pagefind = { search: (q: string) => Promise<{ results: { data: () => Promise<PagefindResult> }[] } | null>; debouncedSearch: (q: string, opts?: object, ms?: number) => Promise<{ results: { data: () => Promise<PagefindResult> }[] } | null>; options: (o: object) => Promise<void> };
+
+  const dialog = document.querySelector<HTMLDialogElement>("#search")!;
+  const input = dialog.querySelector<HTMLInputElement>("#search-input")!;
+  const list = dialog.querySelector<HTMLElement>("#search-results")!;
+  const count = dialog.querySelector<HTMLElement>("#search-count")!;
+  const icons = dialog.querySelector<HTMLTemplateElement>("#search-icons")!.content;
+  const pages: { title: string; description: string; href: string; group: string }[] = JSON.parse(dialog.querySelector("#search-pages")!.textContent ?? "[]");
+
+  let pagefind: Promise<Pagefind> | undefined;
+  let active = 0;
+  let rows: HTMLAnchorElement[] = [];
+  let query = 0;
+
+  const icon = (name: string) => icons.querySelector(`[data-icon="${name}"] svg`)!.cloneNode(true);
+
+  const loadPagefind = () =>
+    (pagefind ??= import(/* @vite-ignore */ ["/pagefind", "pagefind.js"].join("/")).then(async (pf: Pagefind) => {
+      await pf.options({ excerptLength: 12 });
+      return pf;
+    }));
+
+  const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+  function render(groups: Group[], empty?: string) {
+    list.replaceChildren();
+    rows = [];
+    let n = 0;
+    for (const group of groups) {
+      const section = document.createElement("div");
+      section.className = "palette-group";
+      section.setAttribute("role", "group");
+      const label = document.createElement("div");
+      label.className = "palette-label";
+      label.id = `search-group-${n++}`;
+      label.textContent = group.label;
+      section.setAttribute("aria-labelledby", label.id);
+      section.append(label);
+      for (const row of group.rows) {
+        const a = document.createElement("a");
+        a.className = "palette-row";
+        a.href = row.href;
+        a.id = `search-row-${rows.length}`;
+        a.setAttribute("role", "option");
+        const lead = document.createElement("span");
+        lead.className = "palette-icon";
+        lead.append(icon(row.kind));
+        const body = document.createElement("span");
+        body.className = "palette-text";
+        body.innerHTML = `<span class="palette-title">${escapeHtml(row.title)}</span><span class="palette-excerpt">${row.text}</span>`;
+        const trail = document.createElement("span");
+        trail.className = "palette-icon palette-enter";
+        trail.append(icon("enter"));
+        a.append(lead, body, trail);
+        a.addEventListener("mousemove", () => setActive(rows.indexOf(a), false));
+        section.append(a);
+        rows.push(a);
+      }
+      list.append(section);
+    }
+    if (empty) {
+      const p = document.createElement("p");
+      p.className = "palette-empty";
+      p.textContent = empty;
+      list.append(p);
+    }
+    count.textContent = rows.length === 1 ? "1 result" : `${rows.length} results`;
+    setActive(0, true);
+  }
+
+  function setActive(index: number, scroll: boolean) {
+    if (!rows.length) {
+      input.removeAttribute("aria-activedescendant");
+      return;
+    }
+    active = (index + rows.length) % rows.length;
+    rows.forEach((row, i) => row.setAttribute("aria-selected", String(i === active)));
+    input.setAttribute("aria-activedescendant", rows[active].id);
+    if (scroll) rows[active].scrollIntoView({ block: "nearest" });
+  }
+
+  function showPages() {
+    const groups = new Map<string, Row[]>();
+    for (const p of pages) {
+      const rowsFor = groups.get(p.group) ?? [];
+      rowsFor.push({ href: p.href, title: p.title, text: escapeHtml(p.description), kind: "file" });
+      groups.set(p.group, rowsFor);
+    }
+    render(Array.from(groups, ([label, r]) => ({ label, rows: r })));
+  }
+
+  async function search(term: string) {
+    const id = ++query;
+    if (!term.trim()) return showPages();
+    const pf = await loadPagefind();
+    const found = await pf.debouncedSearch(term, {}, 120);
+    if (!found || id !== query) return;
+    const data = await Promise.all(found.results.slice(0, 6).map((r) => r.data()));
+    if (id !== query) return;
+    const groups: Group[] = data.map((page) => {
+      const title = page.meta.title ?? page.url;
+      const subs = (page.sub_results ?? []).filter((s) => s.url !== page.url && s.title !== title).slice(0, 3);
+      return {
+        label: title,
+        rows: [
+          { href: page.url, title, text: page.meta.description ? escapeHtml(page.meta.description) : page.excerpt, kind: "file" as const },
+          ...subs.map((s) => ({ href: s.url, title: s.title, text: s.excerpt, kind: "hash" as const })),
+        ],
+      };
+    });
+    render(groups, groups.length ? undefined : `No results for “${term}”`);
+  }
+
+  function open() {
+    if (dialog.open) return;
+    document.querySelector<HTMLDialogElement>("#nav-sheet[open]")?.close();
+    dialog.showModal();
+    input.select();
+    if (!input.value) showPages();
+    loadPagefind();
+  }
+
+  input.addEventListener("input", () => search(input.value));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive(active + 1, true);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive(active - 1, true);
+    } else if (event.key === "Enter" && rows[active]) {
+      event.preventDefault();
+      rows[active].click();
+    }
+  });
+  list.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).closest("a")) dialog.close();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-search-close]")) dialog.close();
+  });
+
+  document.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).closest("[data-search-open]")) open();
+  });
+  document.addEventListener("keydown", (event) => {
+    const typing = (event.target as HTMLElement).closest("input, textarea, [contenteditable]");
+    if ((event.key === "k" && (event.metaKey || event.ctrlKey)) || (event.key === "/" && !typing)) {
+      event.preventDefault();
+      if (dialog.open) dialog.close();
+      else open();
+    }
+  });
+</script>
+
+<style>
+  .palette {
+    position: fixed;
+    inset: 96px 0 auto;
+    margin: 0 auto;
+    width: min(640px, calc(100vw - 24px));
+    max-height: calc(100dvh - 120px);
+    padding: 0;
+    border: 1px solid var(--overlay-border);
+    border-radius: 14px;
+    background: var(--overlay-bg);
+    color: var(--text);
+    box-shadow: var(--overlay-shadow);
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  .palette[open] {
+    display: flex;
+  }
+
+  .palette::backdrop {
+    background: var(--scrim);
+  }
+
+  .palette-input {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 56px;
+    padding: 0 16px 0 20px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  .palette-input input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 17px;
+    line-height: 24px;
+  }
+
+  .palette-input input::placeholder {
+    color: var(--text-3);
+  }
+
+  .palette-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    max-height: min(520px, calc(100dvh - 240px));
+  }
+
+  .palette-results:empty {
+    display: none;
+  }
+
+  .palette-results :global(.palette-group) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .palette-results :global(.palette-label) {
+    display: flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 12px;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+  }
+
+  .palette-results :global(.palette-row) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    scroll-margin: 8px;
+  }
+
+  .palette-results :global(.palette-row[aria-selected="true"]) {
+    background: var(--fill-strong);
+  }
+
+  .palette-results :global(.palette-icon) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--text-2);
+  }
+
+  .palette-results :global(.palette-enter) {
+    color: var(--text-3);
+    visibility: hidden;
+  }
+
+  .palette-results :global(.palette-row[aria-selected="true"] .palette-enter) {
+    visibility: visible;
+  }
+
+  .palette-results :global(.palette-text) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .palette-results :global(.palette-title) {
+    color: var(--text);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+  }
+
+  .palette-results :global(.palette-excerpt) {
+    overflow: hidden;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .palette-results :global(.palette-excerpt mark) {
+    background: none;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .palette-results :global(.palette-empty) {
+    margin: 0;
+    padding: 16px 12px;
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .palette-foot {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 44px;
+    padding: 0 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+    flex-shrink: 0;
+  }
+
+  .hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .hint .kbd {
+    padding: 0;
+    margin-right: 4px;
+  }
+
+  .hint .kbd + .kbd {
+    margin-left: -2px;
+  }
+
+  .count {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .palette-input .kbd {
+    cursor: pointer;
+  }
+
+  @media (max-width: 640px) {
+    .palette {
+      inset: 12px 0 auto;
+      max-height: calc(100dvh - 24px);
+    }
+
+    .palette-foot .hint {
+      display: none;
+    }
+  }
+</style>

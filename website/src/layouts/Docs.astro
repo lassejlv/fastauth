@@ -1,0 +1,104 @@
+---
+import type { MarkdownHeading } from "astro";
+import Base from "./Base.astro";
+import DocsHeader from "../components/DocsHeader.astro";
+import Icon from "../components/Icon.astro";
+import NavSheet from "../components/NavSheet.astro";
+import Sidebar from "../components/Sidebar.astro";
+import type { NavGroup } from "../lib/site";
+
+type Link = { href: string; title: string };
+type Props = {
+  title: string;
+  description: string;
+  eyebrow: string;
+  headings: MarkdownHeading[];
+  groups: NavGroup[];
+  current: string;
+  editUrl: string;
+  prev?: Link;
+  next?: Link;
+};
+
+const { title, description, eyebrow, headings, groups, current, editUrl, prev, next } = Astro.props;
+const outline = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+<Base title={`${title} · fastauth`} description={description}>
+  <DocsHeader />
+  <div class="docs">
+    <div class="sidebar-col">
+      <aside class="sidebar">
+        <Sidebar groups={groups} current={current} idPrefix="side" />
+        <div class="sidebar-dither" aria-hidden="true"></div>
+      </aside>
+    </div>
+    <main id="main" class="docs-main">
+      {
+        outline.length > 0 && (
+          <details class="outline-mobile">
+            <summary>
+              On this page <Icon name="chevron" size={14} />
+            </summary>
+            <ul>
+              {outline.map((h) => (
+                <li class={`depth-${h.depth}`}>
+                  <a href={`#${h.slug}`}>{h.text}</a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )
+      }
+      <div class="docs-columns">
+        <article class="doc" data-pagefind-body>
+          <p class="eyebrow" data-pagefind-ignore>{eyebrow}</p>
+          <h1>{title}</h1>
+          <p hidden data-pagefind-meta="description">{description}</p>
+          <div class="prose">
+            <slot />
+          </div>
+          <footer class="doc-foot" data-pagefind-ignore>
+            <nav class="pager" aria-label="Previous and next pages">
+              {
+                prev ? (
+                  <a class="pager-link" href={prev.href} rel="prev">
+                    <span>Previous</span>
+                    <strong>{prev.title}</strong>
+                  </a>
+                ) : (
+                  <span />
+                )
+              }
+              {
+                next ? (
+                  <a class="pager-link next" href={next.href} rel="next">
+                    <span>Next</span>
+                    <strong>{next.title}</strong>
+                  </a>
+                ) : (
+                  <span />
+                )
+              }
+            </nav>
+            <a class="edit-link" href={editUrl}>Edit this page on GitHub</a>
+          </footer>
+        </article>
+        {
+          outline.length > 0 && (
+            <nav class="outline" aria-labelledby="outline-title">
+              <p id="outline-title">On this page</p>
+              <ul>
+                {outline.map((h) => (
+                  <li class={`depth-${h.depth}`}>
+                    <a href={`#${h.slug}`}>{h.text}</a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )
+        }
+      </div>
+    </main>
+  </div>
+  <NavSheet groups={groups} current={current} />
+</Base>

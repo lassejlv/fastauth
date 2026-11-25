@@ -1,0 +1,19 @@
+---
+import Icon from "./Icon.astro";
+---
+<button type="button" class="icon-button theme-toggle" data-theme-toggle aria-label="Switch theme">
+  <span class="when-light"><Icon name="moon" /></span>
+  <span class="when-dark"><Icon name="sun" /></span>
+</button>
+
+<style>
+  .when-dark {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .when-dark {
+    display: block;
+  }
+  :global(:root[data-theme="dark"]) .when-light {
+    display: none;
+  }
+</style>

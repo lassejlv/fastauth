@@ -1,0 +1,28 @@
+---
+import type { NavGroup } from "../lib/site";
+import Icon from "./Icon.astro";
+import Sidebar from "./Sidebar.astro";
+
+type Props = { groups: NavGroup[]; current?: string };
+const { groups, current } = Astro.props;
+---
+<dialog id="nav-sheet" class="sheet" aria-labelledby="nav-sheet-title">
+  <div class="sheet-grabber" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <h2 id="nav-sheet-title">Documentation</h2>
+    <button type="button" class="icon-button sheet-close" data-nav-close aria-label="Close navigation"><Icon name="close" size={20} /></button>
+  </div>
+  <div class="sheet-search">
+    <button type="button" class="sheet-search-field" data-search-open>
+      <Icon name="search" />
+      <span>Search docs</span>
+    </button>
+  </div>
+  <div class="sheet-nav">
+    <Sidebar groups={groups} current={current} idPrefix="sheet" />
+    <button type="button" class="sheet-theme" data-theme-toggle>
+      <span class="when-light">Dark theme</span>
+      <span class="when-dark">Light theme</span>
+    </button>
+  </div>
+</dialog>
