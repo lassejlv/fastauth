@@ -5,10 +5,10 @@ one builder call gives you email and password sign-in, social login, sessions, a
 plugin system for two-factor, organizations, passkeys, API keys and the rest. It
 runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
 
-> **Status: v0.1, unreleased.** Core, axum, sqlx (Postgres and SQLite), the derive macros,
-> GitHub and Google sign-in, two-factor and the CLI are on `main` and tested, including
-> against Better Auth's own client. Not on crates.io yet. Some pages in `docs/` still describe
-> planned features (organization, passkey, admin, actix, Redis); docs/01 lists what ships.
+> **Status: v0.1.** Core, axum, sqlx (Postgres and SQLite), the derive macros, GitHub and
+> Google sign-in, two-factor and the CLI are published on crates.io and tested, including
+> against Better Auth's own client. Some pages in `docs/` still describe planned features
+> (organization, passkey, admin, actix, Redis); docs/01 lists what ships.
 
 ```rust
 use fastauth::prelude::*;

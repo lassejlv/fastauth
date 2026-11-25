@@ -24,7 +24,7 @@ the design.
 
 ```toml
 [dependencies]
-fastauth = { git = "https://github.com/lassejlv/fastauth", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.1", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

@@ -9,6 +9,8 @@ edition = "2024"
 rust-version = "1.94"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lassejlv/fastauth"
+keywords = ["auth", "authentication", "axum", "sqlx", "session"]
+categories = ["authentication", "web-programming"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
