@@ -33,7 +33,9 @@
 //! let _two_factor = auth.two_factor();
 //! ```
 //!
-//! Signing in as a user with two-factor on answers `{ "twoFactorRedirect": true }` and sets a
+//! Signing in as a user with two-factor on answers
+//! `{ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] }` (`"otp"` only with a
+//! mailer) and sets a
 //! signed `{prefix}.two_factor` cookie naming the pending user. One of `verify-totp`,
 //! `verify-otp` (after `send-otp`) or `verify-backup-code` then creates the session.
 

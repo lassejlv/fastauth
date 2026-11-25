@@ -123,7 +123,9 @@ impl Plugin for Gatekeeper {
         app.sign_in_gate(|ctx, attempt| async move {
             if attempt.method == "social" && attempt.user.email.starts_with("gated") {
                 ctx.set_signed_cookie("pending_user", attempt.user.id.as_str(), None);
-                return Ok(Gate::Challenge(json!({ "twoFactorRedirect": true })));
+                return Ok(Gate::Challenge(
+                    json!({ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] }),
+                ));
             }
             Ok(Gate::Allow)
         });
@@ -622,7 +624,10 @@ async fn a_gate_challenge_redirects_with_the_challenge_and_no_session() {
         .start("/sign-in/social", sign_in_body("github"))
         .await;
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/dashboard?twoFactorRedirect=true");
+    assert_eq!(
+        res.location(),
+        "/dashboard?twoFactorMethods=totp%2Cotp&twoFactorRedirect=true"
+    );
     assert!(!browser.has_session());
     assert!(
         browser.jar.contains_key("fastauth.pending_user"),

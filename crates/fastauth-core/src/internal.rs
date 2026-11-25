@@ -74,7 +74,7 @@ fn user_exists(err: DbError) -> AuthError {
     match err {
         DbError::UniqueViolation { ref table, .. } if table == User::TABLE => AuthError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
-            codes::USER_ALREADY_EXISTS,
+            codes::USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL,
             "user already exists, use another email",
         ),
         other => other.into(),
@@ -149,7 +149,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     }
 
     /// Creates a user (and optionally its first account) in one transaction.
-    /// Answers `USER_ALREADY_EXISTS` (422) when the email is taken.
+    /// Answers `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` (422) when the email is taken.
     pub async fn create_user(
         &self,
         user: NewUser,
@@ -485,6 +485,11 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .delete::<Verification>(Verification::ID.eq(&found.id))
             .await?;
         Ok((deleted == 1 && found.expires_at > self.ctx.now()).then_some(found))
+    }
+
+    /// Whether a mailer is configured, so `send_email` can succeed.
+    pub fn can_send_email(&self) -> bool {
+        self.ctx.mailer().is_some()
     }
 
     pub async fn send_email(&self, email: AuthEmail) -> Result<(), AuthError> {
