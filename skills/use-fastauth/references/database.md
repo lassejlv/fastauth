@@ -15,6 +15,14 @@ Core tables are `user`, `session`, `account` (passwords live here, provider `cre
 and `verification`. Plugins and your user fields add tables and columns. `docs/06-database.md`
 has the full schema.
 
+## Ids
+
+Every row's id comes from the builder's `.ids(..)`: `IdStrategy::Ulid` (default, stored as
+`text`), `UuidV7` or `UuidV4` (Postgres `uuid`), or `IdStrategy::custom(|| ..)` (`text`, at
+most 255 bytes). Pick it before the first migration; the migrator never changes a column
+type and only warns. A Postgres database created with fastauth 0.1 has `uuid` columns: keep
+it on `.ids(IdStrategy::UuidV7)`. Treat `Id` as an opaque string.
+
 ## Migrations
 
 fastauth derives the schema from the config (plugins decide it) and diffs it against the
@@ -52,9 +60,10 @@ session.user_id`, `add column user.plan (Text, owner app)`. `sql()` renders the 
 `CREATE TABLE`, `ALTER TABLE` and `CREATE INDEX` statements for the pool's database (adding
 `Profile` below gives `ALTER TABLE "user" ADD COLUMN "plan" text NOT NULL DEFAULT 'free';`),
 and an empty string once the database is up to date, so generate it after each config change,
-against a database that has every earlier migration applied. There is no `fastauth` CLI
-yet (`docs/02` and `docs/06` describe a planned one): write the SQL from a small binary of
-your own that builds the auth instance and prints `migrator().sql()`.
+against a database that has every earlier migration applied. For files, add
+`src/bin/fastauth.rs` with `fastauth::cli::run(my_app::auth::build).await` (facade feature
+`cli`) and run `cargo run --bin fastauth -- generate` (also `schema`, `status`, `migrate`);
+`docs/02-quickstart.md#4-tables` has the three lines.
 
 ## App columns on `user`
 

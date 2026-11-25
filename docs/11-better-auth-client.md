@@ -1,7 +1,7 @@
 # Better Auth's client
 
-fastauth's core and two-factor endpoints use Better Auth's paths, JSON shapes and error
-codes, so Better Auth's own TypeScript client works against a fastauth server with no
+fastauth's core endpoints and its two-factor, organization, admin and API key plugins use
+Better Auth's paths, JSON shapes and error codes, so Better Auth's own TypeScript client works against a fastauth server with no
 TypeScript of your own. This page shows how to point the client at fastauth, which version
 is tested, and what doesn't match yet.
 
@@ -10,6 +10,7 @@ is tested, and what doesn't match yet.
 | Package | Version |
 |---|---|
 | `better-auth` (`better-auth/client`, `better-auth/client/plugins`) | 1.7.28 |
+| `@better-auth/api-key` (`apiKeyClient`) | 1.7.28 |
 | `@better-auth/core` | 1.7.28 |
 | `@better-fetch/fetch` | 1.3.3 |
 
@@ -19,15 +20,21 @@ The versions are pinned in `compat/better-auth/package.json` and `bun.lock`.
 
 ```ts
 import { createAuthClient } from "better-auth/client"; // or better-auth/react, /vue, /svelte
-import { twoFactorClient } from "better-auth/client/plugins";
+import { adminClient, organizationClient, twoFactorClient } from "better-auth/client/plugins";
+import { apiKeyClient } from "@better-auth/api-key/client";
 
 export const authClient = createAuthClient({
   baseURL: "http://localhost:3000", // fastauth's base_url; the client adds /api/auth
-  plugins: [twoFactorClient({ onTwoFactorRedirect: () => (location.href = "/2fa") })],
+  plugins: [
+    twoFactorClient({ onTwoFactorRedirect: () => (location.href = "/2fa") }),
+    organizationClient(),
+    adminClient(),
+    apiKeyClient(),
+  ],
 });
 ```
 
-If you moved the routes with `.base_path("/auth")`, pass `basePath: "/auth"` too. Extra user
+Add only the client plugins whose fastauth plugins you registered. If you moved the routes with `.base_path("/auth")`, pass `basePath: "/auth"` too. Extra user
 fields marked `input` (such as `plan` in the example) are accepted by `signUp.email` and
 `updateUser` and come back on `user`. Better Auth's client doesn't know their types, so add
 them with `inferAdditionalFields` or a cast.
@@ -80,22 +87,33 @@ const authClient = createAuthClient({
 
 `compat/better-auth/compat.ts` uses this jar, one per simulated device.
 
-## The compatibility test
+## The compatibility tests
 
-`compat/better-auth/run.sh` builds `crates/fastauth/examples/axum_sqlite.rs` (features
-`sqlite,two-factor`), starts it on port 3000 with a fresh database, runs `compat.ts` with
-Better Auth's client, and stops the server. It needs cargo and bun, and exits non-zero when
-any check fails:
+Three scripts in `compat/better-auth/` each build a server, start it with a fresh database,
+run a TypeScript file with Better Auth's client, and stop the server. They need cargo and
+bun, and exit non-zero when any check fails:
+
+| Script | Server | Client file | Checks |
+|---|---|---|---|
+| `run.sh` | `crates/fastauth/examples/axum_sqlite.rs` (features `sqlite,two-factor,organization,admin,api-key`) | `compat.ts`: core, two-factor, API keys | 92 |
+| `run-organization.sh` | the organization plugin's `compat_server` example, in memory | `organization.ts` | 30 |
+| `run-admin.sh` | `crates/fastauth-plugin-admin/examples/admin_server.rs`, in memory; `PORT` picks the port | `admin.ts` | 40 |
 
 ```bash
 compat/better-auth/run.sh
+compat/better-auth/run-organization.sh
+PORT=3107 compat/better-auth/run-admin.sh
 ```
 
-It checks, through the client: `signUp.email` (with an app field), `getSession`, `signOut`,
+All three passed on 2026-11-25.
+
+`compat.ts` checks, through the client: `signUp.email` (with an app field), `getSession`, `signOut`,
 `signIn.email`, `listSessions`, `revokeSession` by token and by id, `updateUser`,
 `changePassword`, `requestPasswordReset` then `resetPassword`, `twoFactor.enable` then
 `verifyTotp`, a sign-in that answers `twoFactorRedirect` (and fires `onTwoFactorRedirect`), and
-`verifyTotp` finishing it. It also checks `error.code` and `error.status` for a wrong password
+`verifyTotp` finishing it, and the API key flow: `apiKey.create` (and 400
+`SERVER_ONLY_PROPERTY` for a server-only field), `list`, `get`, `update`, `getSession` with
+`x-api-key`, `delete`, then `KEY_NOT_FOUND`. It also checks `error.code` and `error.status` for a wrong password
 (401 `INVALID_EMAIL_OR_PASSWORD`), a duplicate sign-up (422
 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`), a wrong current password (400 `INVALID_PASSWORD`), a
 used reset token (400 `INVALID_TOKEN`) and a wrong TOTP code (401 `INVALID_CODE`).
@@ -106,7 +124,13 @@ file and passes it as `FASTAUTH_LOG`; the script reads the reset token from it. 
 `requestPasswordReset` and skips `resetPassword`. The TOTP code is computed in the script from
 the `totpURI`.
 
-There's no CI job yet; run it before changing an endpoint's path, input or output.
+`organization.ts` covers organizations, members, invitations and the active organization
+through `organizationClient`; `admin.ts` covers user management, roles, bans and
+impersonation through `adminClient`. The plugin pages list their gaps:
+[Organization](12-organization.md#better-auths-client),
+[Admin](13-admin.md#better-auths-client) and [API keys](14-api-keys.md#better-auths-client).
+
+There's no CI job; run the scripts before changing an endpoint's path, input or output.
 
 ## Known gaps
 
@@ -119,7 +143,7 @@ There's no CI job yet; run it before changing an endpoint's path, input or outpu
 - **Rate limits are on in development.** Better Auth only enables its limiter in production;
   fastauth always does, with 3 requests per 10 s on `/sign-in/*`, `/sign-up/*` and the
   password-reset and verification-email routes. The client gets 429 `TOO_MANY_REQUESTS`
-  with `Retry-After`. The test script waits and retries.
+  (without a `Retry-After` header). The test script waits and retries.
 - **`changePassword({ revokeOtherSessions: true })` keeps the current session.** Better Auth
   replaces it with a new one and returns the new token; fastauth returns the current token.
   The client keeps working either way.
@@ -128,5 +152,5 @@ There's no CI job yet; run it before changing an endpoint's path, input or outpu
 - **`getSession({ query: { disableCookieCache: true } })`** is accepted but ignored; fastauth
   always reads the session from the database unless `cookie_cache` is on.
 - **Not tested here:** social sign-in (needs a provider), email verification links,
-  `twoFactor.sendOtp`/`verifyOtp` and backup codes, and plugins fastauth doesn't have yet
-  (organization, passkey, magic link, admin and the rest).
+  `twoFactor.sendOtp`/`verifyOtp` and backup codes, and Better Auth plugins fastauth doesn't
+  have ([planned](01-overview.md#planned)).

@@ -12,15 +12,18 @@ separate key per purpose:
 |---|---|---|
 | Cookie signing | `fastauth/v1/cookie` | HMAC-SHA256 on every cookie fastauth sets |
 | Cookie cache | `fastauth/v1/cookie-cache` | HMAC on the cached session payload |
-| Field encryption | `fastauth/v1/encrypt` | XChaCha20-Poly1305 for `Encrypted<T>` columns |
-| Plugin keys | `fastauth/v1/plugin/{id}` | `ctx.derive_key()` inside a plugin |
+| Field encryption | `fastauth/v1/encrypt` | XChaCha20-Poly1305 for encrypted columns (OAuth tokens, two-factor secrets) |
+| Plugin keys | `fastauth/v1/plugin/{id}` | `ctx.keys().derive_key(ID)` inside a plugin |
 
 So a bug that leaks one derived key doesn't expose the others, and plugins can't reach
 core's keys.
 
 **Rotation.** `.secrets([new, old])`: the first signs and encrypts, all verify and
-decrypt. Encrypted values carry a one-byte key id, so `fastauth reencrypt` can rewrite old
-rows in the background. After one session lifetime (7 days by default), drop the old secret.
+decrypt. Encrypted values carry a one-byte key id, so values encrypted under an old secret
+still decrypt. Cookies signed with the old secret expire within one session lifetime (7
+days by default), but encrypted columns (OAuth tokens, two-factor secrets) keep needing it:
+there is no re-encryption command yet, so keep the old secret in the list until those rows
+are rewritten.
 
 ## Session tokens
 
@@ -32,7 +35,10 @@ rows in the background. After one session lifetime (7 days by default), drop the
   cookies without a database query.
 
 This differs from Better Auth, which stores tokens as they are. See
-[Open questions](10-open-questions.md#3-hashed-session-tokens) for the migration impact.
+[Decisions](10-open-questions.md#3-hashed-session-tokens) for the migration impact.
+
+The same rule covers every other secret value fastauth stores: verification values,
+OAuth state and [API keys](14-api-keys.md) are stored as hashes.
 
 ## Cookies
 
@@ -61,15 +67,17 @@ browsers. On top of that, every non-`GET` request that carries a session cookie 
   Without it, a burst of sign-in attempts would allocate 19 MiB each and could run the
   server out of memory.
 - Unknown emails still hash a dummy password, so response time doesn't reveal which emails
-  have accounts. Sign-up for an existing email returns the same response as success when
-  `require_email_verification` is on, and emails the owner instead.
+  have accounts. When `require_email_verification` is on, sign-up for an existing email
+  answers like a successful sign-up (no session, a user that isn't stored) and sends no
+  email, so sign-up can't be used to discover accounts either. Without it, sign-up answers
+  422 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`, as Better Auth does.
 - Length: 8 to 128 by default. The maximum bounds the work per request.
-- `PasswordHasher` is a trait. `Scrypt::better_auth_compat()` (feature `scrypt`) verifies
-  hashes imported from a Better Auth database and rehashes them with argon2id on sign-in.
+- `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. Verifying scrypt hashes
+  imported from a Better Auth database is [planned](01-overview.md#planned).
 
 ## Verification values
 
-Email verification, password reset, magic link and OTP values are random, single use,
+Email verification, password reset and two-factor OTP values are random, single use,
 short-lived (default 1 hour, 15 minutes for OTP), and stored hashed in `verification`.
 Codes are compared in constant time (`subtle`). OTPs allow 5 attempts before the code is
 burned.
@@ -98,15 +106,16 @@ burned.
 ## Rate limiting
 
 On by default: 100 requests per 10 seconds per IP and path, and 3 per 10 seconds on
-`/sign-in/*`, `/sign-up/*`, `/forget-password` and `/request-password-reset`. The limiter is
-GCRA (one timestamp per key, no sliding-window bookkeeping) in a sharded in-memory map, or in
-secondary storage when you run more than one instance. Exceeding a limit returns `429` with
-`Retry-After`.
+`/sign-in/*`, `/sign-up/*`, `/forget-password`, `/request-password-reset` and
+`/send-verification-email`. Two-factor adds 5 a minute on `/two-factor/verify-*`. The
+limiter is GCRA (one timestamp per key, no sliding-window bookkeeping) in a sharded
+in-memory map, so each process counts on its own; a shared store is
+[planned](01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
 
 ## What fastauth doesn't do for you
 
 - **TLS.** Terminate it in front of the app; set `base_url` to https so cookies get `Secure`.
 - **Account enumeration via other routes.** If your own `/users/:email` endpoint answers
   differently for unknown emails, the sign-in timing work above doesn't help.
-- **Bot protection.** A CAPTCHA plugin (Turnstile, hCaptcha) gates sign-up and sign-in, but
-  isn't on by default.
+- **Bot protection.** There's no CAPTCHA plugin yet; a [sign-in gate](05-plugins.md#sign-in-gates)
+  or a before hook on sign-up is where one would go.

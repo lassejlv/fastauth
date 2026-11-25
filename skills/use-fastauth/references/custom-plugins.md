@@ -4,10 +4,10 @@ A plugin is a value passed to `.plugin(..)` and listed in the alias. It can add 
 user columns, endpoints, hooks, sign-in gates, session resolvers, events, rate limits and
 error codes. Import everything from `fastauth::plugin_prelude` (a published plugin crate
 depends on `fastauth-core` and imports `fastauth_core::plugin_prelude`). `docs/05-plugins.md`
-explains the design; its `fastauth::plugin::prelude` path, `#[endpoint]`, `#[derive(Event)]`,
-`ctx.random()` and `TestAuth` don't exist yet.
+explains the design with the same example.
 
-The running example is an API-key plugin, compiled and tested against `main`.
+The running example is a personal access token plugin (not the real API key plugin, which is
+[api-keys.md](api-keys.md)), compiled and tested against `main`.
 
 ## Table, errors, events
 
@@ -16,45 +16,45 @@ use fastauth::events::PasswordChanged;
 use fastauth::plugin_prelude::*;
 
 #[derive(Model, Clone)]
-#[model(table = "api_key")]
-pub struct ApiKey {
+#[model(table = "access_token")]
+pub struct AccessToken {
     #[model(id)]
     pub id: Id,
     #[model(references = User, on_delete = Cascade, index)]
     pub user_id: Id,
     pub name: String,
     #[model(unique, hidden)]
-    pub key_hash: Hash,
+    pub token_hash: Hash,
     pub expires_at: Option<OffsetDateTime>,
     #[model(default = now)]
     pub created_at: OffsetDateTime,
 }
 
 #[derive(AuthError, Debug)]
-#[auth_error(prefix = "API_KEY")]
-pub enum ApiKeyError {
-    #[auth_error(status = 401, message = "API key expired")]
+#[auth_error(prefix = "ACCESS_TOKEN")]
+pub enum AccessTokenError {
+    #[auth_error(status = 401, message = "access token expired")]
     Expired,
 }
 
 #[derive(Clone, Debug)]
-pub struct ApiKeyCreated {
+pub struct AccessTokenCreated {
     pub user_id: Id,
-    pub key_id: Id,
+    pub token_id: Id,
 }
 
-impl Event for ApiKeyCreated {}
+impl Event for AccessTokenCreated {}
 ```
 
 `#[derive(Model)]` needs `#[model(table = "..")]` and declares every field as a column
 (`Option<T>` is nullable; field types must be `Clone`). Field attributes: `id`,
 `references = Model` with `on_delete = Cascade | SetNull | Restrict`, `unique`, `index`,
 `hidden` (never sent to clients), `default = ..` (literal or `now`). It generates a typed
-constant per column, `ApiKey::USER_ID: Col<ApiKey, Id>`, so filters are type-checked.
-Add the table in `Plugin::schema` with `schema.model::<ApiKey>()`; the migrator creates it.
+constant per column, `AccessToken::USER_ID: Col<AccessToken, Id>`, so filters are type-checked.
+Add the table in `Plugin::schema` with `schema.model::<AccessToken>()`; the migrator creates it.
 
 `#[derive(AuthError)]` turns each variant into an `AuthError` with code
-`{PREFIX}_{VARIANT}` (`API_KEY_EXPIRED`), or the variant alone without a prefix. Register the
+`{PREFIX}_{VARIANT}` (`ACCESS_TOKEN_EXPIRED`), or the variant alone without a prefix. Register the
 codes with `app.errors::<E>()` so two plugins can't claim one.
 
 An event is any `Clone + Send + Sync + 'static` type with `impl Event`.
@@ -62,13 +62,13 @@ An event is any `Clone + Send + Sync + 'static` type with `impl Event`.
 ## The plugin
 
 ```rust
-/// API keys: `.plugin(ApiKeys::new())`, then send `x-api-key: <key>`.
+/// Personal access tokens: `.plugin(AccessTokens::new())`, then send `x-access-token: <token>`.
 #[derive(Default)]
-pub struct ApiKeys {
+pub struct AccessTokens {
     ttl: Option<Duration>,
 }
 
-impl ApiKeys {
+impl AccessTokens {
     pub fn new() -> Self {
         Self::default()
     }
@@ -79,24 +79,24 @@ impl ApiKeys {
     }
 }
 
-impl Plugin for ApiKeys {
-    const ID: &'static str = "api-key";
+impl Plugin for AccessTokens {
+    const ID: &'static str = "access-tokens";
     type Requires = ();
     type UserFields = ();
     type SessionFields = ();
 
     fn schema(&self, schema: &mut SchemaBuilder) {
-        schema.model::<ApiKey>();
+        schema.model::<AccessToken>();
     }
 
     fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
-        app.endpoint(CreateKey(self.clone()))
-            .endpoint(ListKeys)
-            .session_resolver(KeyResolver)
-            .rate_limit("/api-key/create", Limit::per(Duration::minutes(1), 10))
-            .errors::<ApiKeyError>();
+        app.endpoint(CreateToken(self.clone()))
+            .endpoint(ListTokens)
+            .session_resolver(TokenResolver)
+            .rate_limit("/access-token/create", Limit::per(Duration::minutes(1), 10))
+            .errors::<AccessTokenError>();
         app.on(|e: PasswordChanged, ctx: Ctx<D>| async move {
-            ctx.db().delete::<ApiKey>(ApiKey::USER_ID.eq(e.user_id)).await?;
+            ctx.db().delete::<AccessToken>(AccessToken::USER_ID.eq(e.user_id)).await?;
             Ok(())
         });
     }
@@ -111,76 +111,76 @@ impl Plugin for ApiKeys {
 ## Endpoints
 
 ```rust
-pub struct CreateKey(Arc<ApiKeys>);
+pub struct CreateToken(Arc<AccessTokens>);
 
 #[derive(Deserialize)]
-pub struct CreateKeyInput {
+pub struct CreateTokenInput {
     pub name: String,
 }
 
 #[derive(Serialize)]
-pub struct CreatedKey {
+pub struct CreatedToken {
     pub id: Id,
-    pub key: String,
+    pub token: String,
 }
 
-impl<D: Adapter> Endpoint<D> for CreateKey {
+impl<D: Adapter> Endpoint<D> for CreateToken {
     const METHOD: Method = Method::POST;
-    const PATH: &'static str = "/api-key/create";
+    const PATH: &'static str = "/access-token/create";
     type Access = Authenticated;
-    type Input = CreateKeyInput;
-    type Output = CreatedKey;
+    type Input = CreateTokenInput;
+    type Output = CreatedToken;
 
     async fn call(
         &self,
         ctx: Ctx<D, Authenticated>,
-        input: CreateKeyInput,
-    ) -> Result<CreatedKey, AuthError> {
-        let key = format!("ak_{}", random_token());
-        let row = ApiKey {
-            id: ctx.new_id(),
+        input: CreateTokenInput,
+    ) -> Result<CreatedToken, AuthError> {
+        let token = format!("at_{}", random_token());
+        let row = AccessToken {
+            id: ctx.new_id()?,
             user_id: ctx.session().user.id.clone(),
             name: input.name,
-            key_hash: Hash::sha256(&key),
+            token_hash: Hash::sha256(&token),
             expires_at: self.0.ttl.map(|ttl| ctx.now() + ttl),
             created_at: ctx.now(),
         };
         let row = ctx.db().insert(&row).await?;
-        ctx.emit(ApiKeyCreated {
+        ctx.emit(AccessTokenCreated {
             user_id: row.user_id.clone(),
-            key_id: row.id.clone(),
+            token_id: row.id.clone(),
         });
-        Ok(CreatedKey { id: row.id, key })
+        Ok(CreatedToken { id: row.id, token })
     }
 }
 
-pub struct ListKeys;
+pub struct ListTokens;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KeySummary {
+pub struct TokenSummary {
     pub id: Id,
     pub name: String,
     pub expires_at: Option<OffsetDateTime>,
 }
 
-impl<D: Adapter> Endpoint<D> for ListKeys {
+impl<D: Adapter> Endpoint<D> for ListTokens {
     const METHOD: Method = Method::GET;
-    const PATH: &'static str = "/api-key/list";
+    const PATH: &'static str = "/access-token/list";
     type Access = Authenticated;
     type Input = Empty;
-    type Output = Vec<KeySummary>;
+    type Output = Vec<TokenSummary>;
 
-    async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Vec<KeySummary>, AuthError> {
-        let keys = ctx
+    async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Vec<TokenSummary>, AuthError> {
+        let tokens = ctx
             .db()
-            .find::<ApiKey>(ApiKey::USER_ID.eq(&ctx.session().user.id))
-            .order_by(ApiKey::CREATED_AT.desc())
+            .find::<AccessToken>(AccessToken::USER_ID.eq(&ctx.session().user.id))
+            .order_by(AccessToken::CREATED_AT.desc())
             .all()
             .await?;
-        Ok(keys
+        Ok(tokens
             .into_iter()
-            .map(|k| KeySummary {
+            .map(|k| TokenSummary {
                 id: k.id,
                 name: k.name,
                 expires_at: k.expires_at,
@@ -201,32 +201,35 @@ impl<D: Adapter> Endpoint<D> for ListKeys {
 | `Authenticated` | `401`, `call` never runs | `&SessionView` |
 | `Fresh` | `401`, or `403 SESSION_NOT_FRESH` | `&SessionView` |
 
-Also on `ctx`: `db()`, `new_id()`, `now()`, `emit(event)`, `plugin::<P>()` (panics
+Also on `ctx`: `db()`, `new_id()?` (fallible: a custom id strategy can fail; ids are opaque
+strings, ULIDs by default), `now()`, `emit(event)`, `plugin::<P>()` (panics
 unless `P` is required) and `try_plugin::<P>()`, `config()`, `headers()`, `ip()`,
 `set_signed_cookie`/`signed_cookie`, `redirect(url)`, and `internal()` for core
-operations (`find_user_by_email`, `create_session`, `send_email`, verification values).
+operations (`find_user_by_email`, `complete_sign_in`, `send_email`, verification values).
+Code outside a request that is generic over `AuthInstance` (an axum extractor) reads a
+plugin's config with `auth.try_plugin::<P>()` and its tables with `auth.api().db()`.
 `ctx.db()` errors convert into `AuthError` with `?`.
 
 ## Session resolvers
 
 ```rust
-struct KeyResolver;
+struct TokenResolver;
 
-impl<D: Adapter> SessionResolver<D> for KeyResolver {
+impl<D: Adapter> SessionResolver<D> for TokenResolver {
     async fn resolve(&self, ctx: &Ctx<D>, headers: &HeaderMap) -> Result<Option<Resolved>, AuthError> {
-        let Some(key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) else {
+        let Some(token) = headers.get("x-access-token").and_then(|v| v.to_str().ok()) else {
             return Ok(None);
         };
         let Some(row) = ctx
             .db()
-            .find::<ApiKey>(ApiKey::KEY_HASH.eq(Hash::sha256(key)))
+            .find::<AccessToken>(AccessToken::TOKEN_HASH.eq(Hash::sha256(token)))
             .one()
             .await?
         else {
             return Ok(None);
         };
         if row.expires_at.is_some_and(|at| at < ctx.now()) {
-            return Err(ApiKeyError::Expired.into());
+            return Err(AccessTokenError::Expired.into());
         }
         Ok(Some(Resolved::User(row.user_id)))
     }
@@ -241,40 +244,40 @@ header. Every `Session<AppAuth>` extractor then accepts the key.
 ## A server API: extension traits
 
 ```rust
-pub trait ApiKeysExt: AuthInstance + Sized {
-    fn api_keys<I>(&self) -> ApiKeysApi<'_, Self>
+pub trait AccessTokensExt: AuthInstance + Sized {
+    fn access_tokens<I>(&self) -> AccessTokensApi<'_, Self>
     where
-        Self: HasPlugin<ApiKeys, I>,
+        Self: HasPlugin<AccessTokens, I>,
     {
-        ApiKeysApi {
+        AccessTokensApi {
             auth: self,
             plugin: self.plugin_arc().clone(),
         }
     }
 }
 
-impl<A: AuthInstance> ApiKeysExt for A {}
+impl<A: AuthInstance> AccessTokensExt for A {}
 
-pub struct ApiKeysApi<'a, A> {
+pub struct AccessTokensApi<'a, A> {
     auth: &'a A,
-    plugin: Arc<ApiKeys>,
+    plugin: Arc<AccessTokens>,
 }
 
-impl<A: AuthInstance> ApiKeysApi<'_, A> {
-    pub async fn create(&self, headers: &HeaderMap, input: CreateKeyInput) -> Result<CreatedKey, AuthError> {
+impl<A: AuthInstance> AccessTokensApi<'_, A> {
+    pub async fn create(&self, headers: &HeaderMap, input: CreateTokenInput) -> Result<CreatedToken, AuthError> {
         let created = self
             .auth
             .api()
             .headers(headers)
-            .call(&CreateKey(self.plugin.clone()), input)
+            .call(&CreateToken(self.plugin.clone()), input)
             .await?;
         Ok(created.data)
     }
 }
 ```
 
-The `HasPlugin` bound makes `auth.api_keys()` compile only on an `Auth` that registered
-`ApiKeys`, with the same "not registered" error as `session.user.plugin::<P, _>()`.
+The `HasPlugin` bound makes `auth.access_tokens()` compile only on an `Auth` that registered
+`AccessTokens`, with the same "not registered" error as `session.user.plugin::<P, _>()`.
 
 ## Gates
 
@@ -317,41 +320,47 @@ impl Plugin for Bans {
 }
 ```
 
+A plugin that challenges finishes the sign-in itself, from the endpoint that checks the
+answer, with `ctx.internal().complete_sign_in(MyPlugin::ID, user, method, remember_me)`. It
+runs every other plugin's gate (so a banned user is still refused after a correct code) and
+returns `SignInResult::SignedIn(session)` or `SignInResult::Challenge(json)`. Never finish a
+sign-in with `create_session`, which skips the gates.
+
 ## Depending on another plugin
 
 ```rust
-/// Logs every new key. Needs `ApiKeys` registered before it.
-pub struct KeyAudit;
+/// Logs every new token. Needs `AccessTokens` registered before it.
+pub struct TokenAudit;
 
-impl Plugin for KeyAudit {
-    const ID: &'static str = "key-audit";
-    type Requires = (ApiKeys,);
+impl Plugin for TokenAudit {
+    const ID: &'static str = "token-audit";
+    type Requires = (AccessTokens,);
     type UserFields = ();
     type SessionFields = ();
 
     fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
-        app.on(|e: ApiKeyCreated, ctx: Ctx<D>| async move {
-            let keys: &ApiKeys = ctx.plugin::<ApiKeys>();
-            println!("user {} created key {} (ttl {:?})", e.user_id, e.key_id, keys.ttl);
+        app.on(|e: AccessTokenCreated, ctx: Ctx<D>| async move {
+            let tokens: &AccessTokens = ctx.plugin::<AccessTokens>();
+            println!("user {} created token {} (ttl {:?})", e.user_id, e.token_id, tokens.ttl);
             Ok(())
         });
     }
 }
 ```
 
-Registering `KeyAudit` without `ApiKeys` before it fails at the `.plugin(KeyAudit)` call
+Registering `TokenAudit` without `AccessTokens` before it fails at the `.plugin(TokenAudit)` call
 (see Common mistakes in `SKILL.md`). For an optional dependency, leave `Requires` empty and
 use `ctx.try_plugin::<P>()`.
 
 ## Registering it
 
 ```rust
-pub type AppAuth<D> = Auth<D, Profile, plugins![ApiKeys, KeyAudit, Bans]>;
+pub type AppAuth<D> = Auth<D, Profile, plugins![AccessTokens, TokenAudit, Bans]>;
 
 FastAuth::builder()
     // ...
-    .plugin(ApiKeys::new().ttl(Duration::days(90)))
-    .plugin(KeyAudit)
+    .plugin(AccessTokens::new().ttl(Duration::days(90)))
+    .plugin(TokenAudit)
     .plugin(Bans)
 ```
 

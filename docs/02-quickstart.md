@@ -7,7 +7,7 @@ and one protected route. The defaults cover everything not shown.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.1", features = ["cli"] }
+fastauth = { version = "0.2", features = ["cli"] }
 axum = "0.8"
 sqlx = { version = "0.9", features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1", features = ["full"] }
@@ -122,6 +122,8 @@ async fn main() -> anyhow::Result<()> {
 
 `Session<AppAuth>` rejects the request with `401` and a JSON error body when there is
 no valid session. Use `Option<Session<AppAuth>>` for routes that work signed in or out.
+Ids are opaque strings, [ULIDs](06-database.md#ids) unless you pick another strategy, so
+`to_string()` is all `Me.id` needs.
 
 ## 6. Try it
 
@@ -131,7 +133,7 @@ curl -i -c jar -X POST localhost:3000/api/auth/sign-up/email \
   -d '{"email":"lasse@acme.dk","password":"correct horse battery","name":"Lasse"}'
 
 curl -b jar localhost:3000/me
-# {"id":"0193f2a4-...","email":"lasse@acme.dk"}
+# {"id":"01M8AH3K9Q2W7X5R1N0PJCV4TB","email":"lasse@acme.dk"}
 
 curl -b jar localhost:3000/api/auth/get-session
 curl -b jar -c jar -X POST localhost:3000/api/auth/sign-out -H 'origin: http://localhost:3000'
