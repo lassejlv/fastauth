@@ -310,7 +310,7 @@ impl<D: Adapter> Endpoint<D> for CreateApiKey {
             (plugin.start_length > 0).then(|| key.chars().take(plugin.start_length).collect());
         let now = ctx.now();
         let row = ApiKey {
-            id: ctx.new_id(),
+            id: ctx.new_id()?,
             name: input.name,
             start,
             prefix,
