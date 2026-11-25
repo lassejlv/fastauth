@@ -35,22 +35,23 @@
 //! [`path_param!`](crate::path_param).
 //!
 //! Each extractor reads the session through `fastauth_axum::Session`, so it shares that
-//! request's single session lookup, then checks membership and permissions through the same
-//! code as the endpoints, [`Roles::allows`](crate::Roles::allows).
+//! request's single session lookup. It then loads the membership with one query and checks
+//! permissions with the plugin's configured roles (`AuthInstance::try_plugin`), through the
+//! same function as the endpoints, [`Roles::allows`](crate::Roles::allows).
 
 use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
 use ::axum::extract::{FromRef, FromRequestParts, RawPathParams};
+use ::axum::http::StatusCode;
 use ::axum::http::request::Parts;
 use fastauth_axum::Session;
 use fastauth_core::value::Id;
 use fastauth_core::{AuthError, AuthInstance};
 
-use crate::Permission;
-use crate::endpoints::server::{MemberQuery, ResolveMember};
-use crate::model::Member;
+use crate::model::{Member, OrganizationSession};
+use crate::{Organization, OrganizationError, Permission};
 
 /// Where an extractor finds the organization.
 pub trait OrgSource: Send + Sync + 'static {
@@ -111,26 +112,49 @@ impl<P: PathParam> OrgSource for FromPath<P> {
 async fn resolve<A, S, St>(
     parts: &mut Parts,
     state: &St,
-    permission: Option<(String, Vec<String>)>,
+    permission: Option<(&'static str, &'static [&'static str])>,
 ) -> Result<Member, AuthError>
 where
     A: AuthInstance + FromRef<St>,
     S: OrgSource,
     St: Send + Sync,
 {
-    Session::<A>::from_request_parts(parts, state).await?;
-    let organization_id = S::organization_id(parts).await?;
-    let auth = A::from_ref(state);
-    let query = MemberQuery {
-        organization_id,
-        permission,
+    let session = Session::<A>::from_request_parts(parts, state).await?;
+    let organization_id = match S::organization_id(parts).await? {
+        Some(id) => id,
+        None => session
+            .view()
+            .fields::<OrganizationSession>()
+            .map_err(AuthError::internal)?
+            .active_organization_id
+            .ok_or_else(|| {
+                OrganizationError::NoActiveOrganization.with_status(StatusCode::FORBIDDEN)
+            })?,
     };
-    let response = auth
+    let auth = A::from_ref(state);
+    let plugin = auth
+        .try_plugin::<Organization>()
+        .ok_or_else(|| AuthError::internal("the Organization plugin is not registered"))?;
+    let member = auth
         .api()
-        .headers(&parts.headers)
-        .call(&ResolveMember, query)
-        .await?;
-    Ok(response.data)
+        .db()
+        .find::<Member>(
+            Member::ORGANIZATION_ID
+                .eq(&organization_id)
+                .and(Member::USER_ID.eq(&session.user.id)),
+        )
+        .one()
+        .await?
+        .ok_or(OrganizationError::YouAreNotAMemberOfThisOrganization)?;
+    if let Some((resource, actions)) = permission
+        && !plugin.roles.allows(&member.role, &[(resource, actions)])
+    {
+        return Err(OrganizationError::PermissionDenied {
+            permission: format!("{resource}: [{}]", actions.join(", ")),
+        }
+        .into());
+    }
+    Ok(member)
 }
 
 /// The signed-in user's membership in the organization `S` names. Rejects with 401 without
@@ -206,12 +230,8 @@ where
     type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, state: &St) -> Result<Self, AuthError> {
-        let permission = (
-            P::RESOURCE.to_owned(),
-            P::ACTIONS.iter().map(|a| (*a).to_owned()).collect(),
-        );
         Ok(Self {
-            member: resolve::<A, S, St>(parts, state, Some(permission)).await?,
+            member: resolve::<A, S, St>(parts, state, Some((P::RESOURCE, P::ACTIONS))).await?,
             _marker: PhantomData,
         })
     }

@@ -1,15 +1,11 @@
-//! Server-only endpoints: no HTTP route, called through `auth.organization()` and the axum
-//! extractors.
+//! Server-only endpoints: no HTTP route, called through `auth.organization()`.
 
 use std::collections::BTreeMap;
 
 use fastauth_core::plugin_prelude::*;
 
 use super::members::allows_map;
-use super::{
-    RoleInput, active_organization, checked_roles, find_member, insert_member, organization, plugin,
-};
-use crate::OrganizationError;
+use super::{RoleInput, checked_roles, find_member, insert_member, organization, plugin};
 use crate::endpoints::invitations::{InvitationWithOrganization, invitations_for};
 use crate::endpoints::org::{CreateOrganizationInput, OrganizationWithMembers, create};
 use crate::model::Member;
@@ -107,59 +103,6 @@ impl<D: Adapter> Endpoint<D> for CheckPermission {
         Ok(find_member(&ctx, &input.organization_id, &input.user_id)
             .await?
             .is_some_and(|m| allows_map(&plugin(&ctx).roles, &m.role, &input.permissions)))
-    }
-}
-
-/// Input of [`ResolveMember`].
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct MemberQuery {
-    /// `None` for the session's active organization.
-    pub organization_id: Option<Id>,
-    /// A resource and the actions on it the member must be allowed.
-    pub permission: Option<(String, Vec<String>)>,
-}
-
-/// The session user's membership in an organization, for the axum extractors: 403
-/// `NO_ACTIVE_ORGANIZATION` without one, 403 `YOU_ARE_NOT_A_MEMBER_OF_THIS_ORGANIZATION`, and
-/// 403 `PERMISSION_DENIED` when a requested permission isn't granted.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ResolveMember;
-
-impl<D: Adapter> Endpoint<D> for ResolveMember {
-    const METHOD: Method = Method::GET;
-    const PATH: &'static str = "/organization/get-active-member";
-    type Access = Authenticated;
-    type Input = MemberQuery;
-    type Output = Member;
-
-    async fn call(
-        &self,
-        ctx: Ctx<D, Authenticated>,
-        input: MemberQuery,
-    ) -> Result<Member, AuthError> {
-        let session = ctx.session();
-        let organization_id = match input.organization_id {
-            Some(id) => id,
-            None => active_organization(session)?.ok_or_else(|| {
-                OrganizationError::NoActiveOrganization.with_status(StatusCode::FORBIDDEN)
-            })?,
-        };
-        let member = find_member(&ctx, &organization_id, &session.user.id)
-            .await?
-            .ok_or(OrganizationError::YouAreNotAMemberOfThisOrganization)?;
-        if let Some((resource, actions)) = input.permission {
-            let request: Vec<&str> = actions.iter().map(String::as_str).collect();
-            if !plugin(&ctx)
-                .roles
-                .allows(&member.role, &[(resource.as_str(), &request)])
-            {
-                return Err(OrganizationError::PermissionDenied {
-                    permission: format!("{resource}: [{}]", actions.join(", ")),
-                }
-                .into());
-            }
-        }
-        Ok(member)
     }
 }
 

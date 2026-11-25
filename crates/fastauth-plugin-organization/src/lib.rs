@@ -57,8 +57,8 @@ use fastauth_core::plugin_prelude::*;
 pub use access::{Permission, Roles};
 pub use api::{OrganizationApi, OrganizationExt};
 pub use endpoints::server::{
-    AddMember, CheckPermission, CreateOrganizationFor, EmailQuery, MemberQuery, NewMember,
-    NewOrganization, PermissionCheck, ResolveMember, UserInvitations,
+    AddMember, CheckPermission, CreateOrganizationFor, EmailQuery, NewMember, NewOrganization,
+    PermissionCheck, UserInvitations,
 };
 pub use endpoints::*;
 pub use error::OrganizationError;

@@ -30,6 +30,7 @@ use crate::migrate::Migrator;
 use crate::model::{Fields, Model};
 use crate::models::{Session, User};
 use crate::plugin::{Plugin, PluginBuilder, Registry};
+use crate::query::Db;
 use crate::rate_limit::{RateLimit, RateLimiter};
 use crate::routes;
 use crate::schema::Schema;
@@ -754,6 +755,12 @@ impl<D: Adapter> Api<'_, D> {
     /// The configured adapter.
     pub fn adapter(&self) -> &D {
         &self.shared.db
+    }
+
+    /// Typed queries on the configured adapter, for code outside an endpoint that has an
+    /// `AuthInstance` but no `Ctx` (an axum extractor reading a plugin's table).
+    pub fn db(&self) -> Db<'_, D> {
+        Db::new(&self.shared.db, &self.shared.schema)
     }
 
     /// Runs every call on `db` instead of the configured adapter (its queries, session
