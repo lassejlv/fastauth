@@ -26,6 +26,6 @@ When the frontend runs on another origin than `base_url`:
 The two-factor challenge arrives as `{ "twoFactorRedirect": true }` from `/sign-in/email`,
 which is what `twoFactorClient`'s `onTwoFactorRedirect` handles.
 
-FAST-16 is running Better Auth's real client against fastauth in CI and will document the
-pinned client version and any differences in `docs/11`; read that page once it exists, and
-treat compatibility as untested until then.
+Better Auth's real client (1.7.28) is tested against fastauth with `compat/better-auth/run.sh`.
+Read the repo's [docs/11-better-auth-client.md](../../../docs/11-better-auth-client.md) for setup in a browser and in Node,
+the pinned version, and the known gaps (`listSessions` has no `token`, so revoke by `id`).

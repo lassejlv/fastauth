@@ -5,13 +5,12 @@ Calls run the same access checks, hooks and events as HTTP requests.
 
 ```rust
 use axum::Json;
-use axum::body::Body;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::response::Response;
 use fastauth::mail::MailError;
 use fastauth::prelude::*;
-use fastauth::routes::{SignInEmailInput, SignUpEmailInput};
+use fastauth::ApiResponse;
+use fastauth::routes::{SignInEmailInput, SignInOutput, SignUpEmailInput};
 use serde::Deserialize;
 
 pub type AppAuth = Auth<MemoryAdapter>;
@@ -47,12 +46,11 @@ pub async fn sign_in_with_invite(
     State(auth): State<AppAuth>,
     headers: HeaderMap,
     Json(body): Json<InviteSignIn>,
-) -> Result<Response, AuthError> {
+) -> Result<ApiResponse<SignInOutput>, AuthError> {
     if body.code != "let-me-in" {
         return Err(AuthError::bad_request("INVALID_INVITE", "unknown invite code"));
     }
-    let signed_in = auth
-        .api()
+    auth.api()
         .headers(&headers)
         .sign_in_email(SignInEmailInput {
             email: body.email,
@@ -60,8 +58,7 @@ pub async fn sign_in_with_invite(
             callback_url: None,
             remember_me: Some(true),
         })
-        .await?;
-    Ok(signed_in.into_http().map(Body::from))
+        .await
 }
 
 pub async fn session_count(auth: &AppAuth, token: &str) -> Result<usize, AuthError> {
@@ -94,8 +91,8 @@ impl Mailer for ConsoleMailer {
   endpoint types are in `fastauth::routes` and in each plugin crate.
 - Endpoints that need a session read it from `.headers(&request_headers)` (the cookie) or
   `.session_token(&token)`. Without either they fail with `401`.
-- Each call returns `ApiResponse { data, set_cookies }`. To pass a sign-in's cookies to the
-  browser, return `.into_http().map(Body::from)` from the handler, as above.
+- Each call returns `ApiResponse { data, set_cookies }`. It implements axum's `IntoResponse`
+  (JSON body plus the cookies), so a handler can return it directly, as above.
 - App columns go in `SignUpEmailInput.extra`, a JSON map keyed by camelCase name, and the
   `input` rule applies there too.
 - `auth.get_session(&headers)` and `auth.get_session_by_token(&token)` read the current

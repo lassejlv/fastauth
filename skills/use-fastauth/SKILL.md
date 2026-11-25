@@ -236,5 +236,3 @@ At runtime:
   other frontends in `.trusted_origins([..])`.
 - `400 INVALID_FIELD` (`field \`stripeCustomerId\` can't be set`): a client sent an app
   column without `#[field(input)]` ([database.md](references/database.md#app-columns-on-user)).
-- `ApiResponse::into_http()` is an `http::Response<Bytes>`, which axum doesn't accept as a
-  response: return `.into_http().map(axum::body::Body::from)`.

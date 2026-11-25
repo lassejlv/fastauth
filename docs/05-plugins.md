@@ -52,7 +52,7 @@ This section builds a complete plugin, `ApiKeys`, then covers each piece on its 
 ### The plugin value and its config
 
 ```rust
-use fastauth::plugin::prelude::*;
+use fastauth::plugin_prelude::*;
 
 pub struct ApiKeys {
     prefix: &'static str,
@@ -473,5 +473,5 @@ plugin's tests on all three databases.
 ## Publishing
 
 Name the crate `fastauth-plugin-<name>`, depend on `fastauth-core` (not the facade), and
-import from `fastauth_core::plugin::prelude`. That module is the stable plugin API:
+import from `fastauth_core::plugin_prelude`. That module is the stable plugin API:
 semver-breaking changes to it only happen in major versions of `fastauth-core`.
