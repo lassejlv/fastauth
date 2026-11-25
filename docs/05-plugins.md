@@ -122,7 +122,21 @@ pub struct ApiKey {
 
 The derive generates the table definition (for migrations) and typed column constants,
 `ApiKey::USER_ID: Col<ApiKey, Id>`, `ApiKey::KEY_HASH: Col<ApiKey, Hash>`. Queries are
-checked against them: `ApiKey::USER_ID.eq("not an id")` doesn't compile.
+checked against them: `ApiKey::EXPIRES_AT.eq("tomorrow")` doesn't compile.
+
+Every field is a column, typed by its Rust type (`Option<T>` is nullable). Field attributes:
+
+| `#[model(..)]` | Column |
+|---|---|
+| `id` | primary key |
+| `references = User` | foreign key to `User`'s `id` column |
+| `on_delete = Cascade \| SetNull \| Restrict` | with `references`; default `Restrict` |
+| `unique`, `index` | constraint and index |
+| `hidden` | never serialized to clients |
+| `default = ..` | a bool, integer or string literal, or `now`; checked against the column type at compile time |
+
+`created_at` and `updated_at` are ordinary fields: declare them (usually `#[model(default = now)]`)
+when the table wants them.
 
 ### Columns on `user`: `#[derive(Fields)]`
 
@@ -132,7 +146,7 @@ checked against them: `ApiKey::USER_ID.eq("not an id")` doesn't compile.
 #[derive(Fields, Clone, Serialize)]
 #[fields(table = User)]
 pub struct TwoFactorUser {
-    #[field(default = false, input = false)]
+    #[field(default = false)]
     pub two_factor_enabled: bool,
 }
 
@@ -144,6 +158,12 @@ impl Plugin for TwoFactor {
 
 Apps then read `session.user.plugin::<TwoFactor, _>().two_factor_enabled`. Two plugins
 adding the same column is a `BuildError` naming both.
+
+`#[fields(table = ..)]` names the model the columns extend (`User` when omitted), so the
+generated `TwoFactorUser::TWO_FACTOR_ENABLED` filters `find::<User>`. Field attributes:
+`default = ..` (as for models), `input` (sign-up and update-user bodies may set it; without
+it no client can, so `two_factor_enabled` above is server-only), `returned = false`, `unique`,
+`index` and `rename = "column_name"`.
 
 ### Endpoints
 
@@ -264,7 +284,11 @@ pub enum ApiKeyError {
 ```
 
 Every error leaves the server as `{ "code": "...", "message": "..." }` with the given
-status. `app.errors::<ApiKeyError>()` registers the codes so the OpenAPI document and
+status. Without `prefix` the code is the variant name alone. Variants with named fields can
+put them in the message, `message = "scope {scope} is not allowed"`, formatted with `Display`
+(`{scope:?}` for `Debug`).
+
+`app.errors::<ApiKeyError>()` registers the codes so the OpenAPI document and
 `fastauth errors` list them, and so two plugins can't claim the same code.
 
 ### The typed server API: extension traits

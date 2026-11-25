@@ -145,10 +145,9 @@ their own IP.
 ```rust
 #[derive(Fields, Serialize, Deserialize, Clone)]
 pub struct Profile {
-    #[field(default = "free")]
+    #[field(default = "free", input)]     // sign-up and update-user bodies may set it
     pub plan: String,
-    #[field(input = false)]               // sign-up and update-user bodies can't set it
-    pub stripe_customer_id: Option<String>,
+    pub stripe_customer_id: Option<String>, // no `input`: only server code sets it
     #[field(returned = false)]            // never serialized to the client
     pub internal_notes: Option<String>,
 }
@@ -156,8 +155,10 @@ pub struct Profile {
 .user_fields::<Profile>()
 ```
 
-Sign-up and `/update-user` accept `input` fields in their JSON body, validated by the
-types. They show up typed as `session.user.fields`. The same works for sessions with
+Columns are server-only unless marked `#[field(input)]`. That is stricter than Better Auth,
+whose `additionalFields` default to `input: true`, so a forgotten attribute never lets a
+client set a column. Sign-up and `/update-user` accept `input` fields in their JSON body,
+validated by the types. They show up typed as `session.user.fields`. The same works for sessions with
 `.session_fields::<T>()`.
 
 ## Events

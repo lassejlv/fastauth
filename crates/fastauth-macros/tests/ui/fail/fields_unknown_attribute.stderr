@@ -1,0 +1,11 @@
+error: unknown `field` attribute; expected `default`, `input`, `returned`, `unique`, `index` or `rename`
+ --> tests/ui/fail/fields_unknown_attribute.rs:5:13
+  |
+5 |     #[field(nullable)]
+  |             ^^^^^^^^
+
+error: expected a bool, integer or string literal, or `now`
+  --> tests/ui/fail/fields_unknown_attribute.rs:11:23
+   |
+11 |     #[field(default = 1.5)]
+   |                       ^^^

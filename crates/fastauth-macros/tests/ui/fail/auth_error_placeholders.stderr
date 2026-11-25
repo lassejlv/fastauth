@@ -1,0 +1,11 @@
+error: `scope` is not a field of `Variant`
+ --> tests/ui/fail/auth_error_placeholders.rs:5:42
+  |
+5 |     #[auth_error(status = 400, message = "bad {scope}")]
+  |                                          ^^^^^^^^^^^^^
+
+error: `{..}` placeholders need a variant with named fields
+  --> tests/ui/fail/auth_error_placeholders.rs:11:42
+   |
+11 |     #[auth_error(status = 400, message = "bad {0}")]
+   |                                          ^^^^^^^^^

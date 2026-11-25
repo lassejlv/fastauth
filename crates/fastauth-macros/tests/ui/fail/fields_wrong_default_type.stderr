@@ -1,0 +1,17 @@
+error[E0080]: evaluation panicked: `beta` defaults to a string, so its column type must be Text
+ --> tests/ui/fail/fields_wrong_default_type.rs:5:23
+  |
+5 |     #[field(default = "free")]
+  |                       ^^^^^^ evaluation of `_` failed here
+
+error[E0080]: evaluation panicked: `plan` defaults to `now`, so its column type must be Timestamp
+ --> tests/ui/fail/fields_wrong_default_type.rs:7:23
+  |
+7 |     #[field(default = now)]
+  |                       ^^^ evaluation of `_` failed here
+
+error[E0080]: evaluation panicked: `name` defaults to an integer, so its column type must be Int
+ --> tests/ui/fail/fields_wrong_default_type.rs:9:23
+  |
+9 |     #[field(default = 3)]
+  |                       ^ evaluation of `_` failed here

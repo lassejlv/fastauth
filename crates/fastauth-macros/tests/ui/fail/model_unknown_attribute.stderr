@@ -1,0 +1,5 @@
+error: unknown `model` attribute; expected `id`, `references`, `on_delete`, `unique`, `index`, `default` or `hidden`
+ --> tests/ui/fail/model_unknown_attribute.rs:7:17
+  |
+7 |     #[model(id, input)]
+  |                 ^^^^^

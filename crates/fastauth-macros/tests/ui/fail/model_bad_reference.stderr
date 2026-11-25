@@ -1,0 +1,11 @@
+error: expected `Cascade`, `SetNull` or `Restrict`
+ --> tests/ui/fail/model_bad_reference.rs:7:67
+  |
+7 |     #[model(references = fastauth_core::models::User, on_delete = Delete)]
+  |                                                                   ^^^^^^
+
+error: `on_delete` needs `references = ..`
+  --> tests/ui/fail/model_bad_reference.rs:14:25
+   |
+14 |     #[model(on_delete = Cascade)]
+   |                         ^^^^^^^

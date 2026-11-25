@@ -32,6 +32,8 @@ pub use auth::{
     NoDatabase, Present,
 };
 pub use error::{AuthError, BuildError};
+#[cfg(feature = "macros")]
+pub use fastauth_macros::{AuthError, Fields, Model};
 pub use hlist::{Append, Cons, Has, Here, Nil, PluginSet, Satisfied, There};
 pub use time::Duration;
 
@@ -50,6 +52,8 @@ pub mod prelude {
     pub use crate::session::{AuthUser, SessionData};
     pub use crate::value::Id;
     pub use crate::{Auth, AuthError, AuthInstance, BuildError, Duration, FastAuth, plugins};
+    #[cfg(feature = "macros")]
+    pub use fastauth_macros::Fields;
 }
 
 /// Everything a plugin author needs.
@@ -78,4 +82,6 @@ pub mod plugin_prelude {
     pub use crate::session::{SessionView, UserView};
     pub use crate::value::{ColumnValue, DecodeError, Id, Json, Row, Value};
     pub use crate::{AuthInstance, Duration, HasPlugin};
+    #[cfg(feature = "macros")]
+    pub use fastauth_macros::{AuthError, Fields, Model};
 }
