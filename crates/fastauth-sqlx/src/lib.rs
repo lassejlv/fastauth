@@ -272,6 +272,7 @@ async fn find_many<DB: Dialect>(
     sql: &Sql,
     q: Select<'_>,
 ) -> DbResult<Vec<Row>> {
+    render::check_filter(&q.filter)?;
     let table = q.table;
     let rows = fetch::<DB>(conn, sql, sql.select::<DB>(q), table).await?;
     rows.iter().map(|row| decode::<DB>(table, row, 0)).collect()
@@ -292,6 +293,7 @@ async fn count<DB: Dialect>(
     table: &TableDef,
     filter: Filter,
 ) -> DbResult<u64> {
+    render::check_filter(&filter)?;
     let rows = fetch::<DB>(conn, sql, sql.count::<DB>(table, filter), table).await?;
     let value = rows
         .first()
@@ -308,11 +310,13 @@ async fn update<DB: Dialect>(conn: &mut DB::Connection, sql: &Sql, q: Update<'_>
     if q.set.is_empty() {
         return count::<DB>(conn, sql, q.table, q.filter).await;
     }
+    render::check_filter(&q.filter)?;
     let table = q.table;
     execute::<DB>(conn, sql, sql.update::<DB>(q), table).await
 }
 
 async fn delete<DB: Dialect>(conn: &mut DB::Connection, sql: &Sql, q: Delete<'_>) -> DbResult<u64> {
+    render::check_filter(&q.filter)?;
     let table = q.table;
     execute::<DB>(conn, sql, sql.delete::<DB>(q), table).await
 }

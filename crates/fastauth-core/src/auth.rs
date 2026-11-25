@@ -632,6 +632,10 @@ pub trait AuthInstance: Clone + Send + Sync + 'static {
 
     fn config(&self) -> &CoreConfig;
     fn api(&self) -> Api<'_, Self::Db>;
+    /// A registered plugin's config, or `None` when `P` isn't registered. For code generic
+    /// over `AuthInstance` (an axum extractor) that can't name the `HasPlugin` index; with a
+    /// concrete `Auth`, a plugin's extension trait is the compile-checked way.
+    fn try_plugin<P: Plugin>(&self) -> Option<&P>;
     fn handle(&self, request: http::Request<Bytes>) -> impl Future<Output = Response> + Send;
     #[allow(clippy::type_complexity)]
     fn session_with_cookies(
@@ -656,6 +660,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> AuthInstance for Auth<D, U, P> {
 
     fn api(&self) -> Api<'_, D> {
         Auth::api(self)
+    }
+
+    fn try_plugin<Pl: Plugin>(&self) -> Option<&Pl> {
+        self.shared
+            .plugins
+            .get(&std::any::TypeId::of::<Pl>())
+            .and_then(|plugin| plugin.downcast_ref::<Pl>())
     }
 
     fn handle(&self, request: http::Request<Bytes>) -> impl Future<Output = Response> + Send {
