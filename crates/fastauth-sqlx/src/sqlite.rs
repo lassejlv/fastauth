@@ -41,7 +41,8 @@ fn get<'r, T: Decode<'r, Sqlite> + Type<Sqlite>>(
 }
 
 impl Driver for Sqlite {
-    const PREFIX_MATCH: (&'static str, &'static str) = ("GLOB", "");
+    const TEXT_MATCH: (&'static str, &'static str) = ("GLOB", "");
+    const WILDCARD: char = '*';
     const UNIQUE_ON_ADD_COLUMN: bool = false;
 
     fn param(n: usize, out: &mut String) {
@@ -49,9 +50,9 @@ impl Driver for Sqlite {
         out.push_str(&n.to_string());
     }
 
-    fn prefix_pattern(prefix: &str) -> String {
-        let mut pattern = String::with_capacity(prefix.len() + 1);
-        for ch in prefix.chars() {
+    fn escape_pattern(text: &str) -> String {
+        let mut pattern = String::with_capacity(text.len());
+        for ch in text.chars() {
             match ch {
                 '*' | '?' | '[' => {
                     pattern.push('[');
@@ -61,7 +62,6 @@ impl Driver for Sqlite {
                 ch => pattern.push(ch),
             }
         }
-        pattern.push('*');
         pattern
     }
 
@@ -131,7 +131,11 @@ impl Driver for Sqlite {
         )
         .fetch_all(conn)
         .await?;
-        Ok(Catalog { columns, indexes })
+        Ok(Catalog {
+            columns,
+            indexes,
+            id_storage: Vec::new(),
+        })
     }
 
     fn decode(row: &SqliteRow, index: usize, ty: ColumnType) -> Result<Value, String> {

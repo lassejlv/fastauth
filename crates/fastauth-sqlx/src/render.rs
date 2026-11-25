@@ -4,13 +4,15 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::RwLock;
 
-use fastauth_core::adapter::{Delete, Filter, Insert, Op, Order, Select, Update};
+use fastauth_core::adapter::{
+    DbError, DbResult, Delete, Filter, Insert, Op, Order, Select, Update,
+};
 use fastauth_core::migrate::{MigrationPlan, Step, index_name};
 use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, TableDef};
 use fastauth_core::value::Value;
 use sqlx::{AssertSqlSafe, SqlSafeStr, SqlStr};
 
-use crate::driver::{Driver, Param};
+use crate::driver::{Driver, Param, stored_type};
 
 /// How logical table names (`user`) map to stored ones (`"auth"."fa_user"`).
 #[derive(Clone, Debug, Default)]
@@ -148,7 +150,7 @@ impl Sql {
             .columns
             .iter()
             .zip(q.values)
-            .map(|(column, value)| Param::write(value, column.ty))
+            .map(|(column, value)| Param::write(value, stored_type(table, column.ty)))
             .collect();
         Statement { sql, params }
     }
@@ -238,7 +240,9 @@ impl Sql {
         let mut params: Vec<Param> = q
             .set
             .into_iter()
-            .map(|(column, value)| Param::write(value, table.columns[column].ty))
+            .map(|(column, value)| {
+                Param::write(value, stored_type(table, table.columns[column].ty))
+            })
             .collect();
         filter_params::<DB>(table, q.filter, &mut params);
         Statement { sql, params }
@@ -321,6 +325,8 @@ fn filter_shape(filter: &Filter) -> String {
             Filter::In { column, values } => write!(out, "i{column}:{};", values.len()),
             Filter::Null { column, is_null } => write!(out, "n{column}{is_null};"),
             Filter::StartsWith { column, .. } => write!(out, "s{column};"),
+            Filter::Contains { column, .. } => write!(out, "t{column};"),
+            Filter::EndsWith { column, .. } => write!(out, "e{column};"),
             Filter::And(filters) | Filter::Or(filters) => {
                 out.push_str(if matches!(filter, Filter::And(_)) {
                     "&("
@@ -332,6 +338,7 @@ fn filter_shape(filter: &Filter) -> String {
                 }
                 write!(out, ")")
             }
+            _ => unreachable!("check_filter rejects unknown filters"),
         };
     }
     let mut out = String::new();
@@ -371,8 +378,10 @@ fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, o
             out.push_str(&column(*c));
             out.push_str(if *is_null { " IS NULL" } else { " IS NOT NULL" });
         }
-        Filter::StartsWith { column: c, .. } => {
-            let (op, suffix) = DB::PREFIX_MATCH;
+        Filter::StartsWith { column: c, .. }
+        | Filter::Contains { column: c, .. }
+        | Filter::EndsWith { column: c, .. } => {
+            let (op, suffix) = DB::TEXT_MATCH;
             let _ = write!(out, "{} {op} ", column(*c));
             next_param::<DB>(n, out);
             out.push_str(suffix);
@@ -394,6 +403,7 @@ fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, o
             }
             out.push(')');
         }
+        _ => unreachable!("check_filter rejects unknown filters"),
     }
 }
 
@@ -401,21 +411,63 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
     match filter {
         Filter::All | Filter::Null { .. } => {}
         Filter::Cmp { column, value, .. } => {
-            out.push(Param::filter(value, table.columns[column].ty));
+            out.push(Param::filter(
+                value,
+                stored_type(table, table.columns[column].ty),
+            ));
         }
         Filter::In { column, values } => {
-            let ty = table.columns[column].ty;
+            let ty = stored_type(table, table.columns[column].ty);
             out.extend(values.into_iter().map(|value| Param::filter(value, ty)));
         }
-        Filter::StartsWith { prefix, .. } => out.push(Param::write(
-            Value::Text(DB::prefix_pattern(&prefix)),
-            ColumnType::Text,
-        )),
+        Filter::StartsWith { prefix, .. } => {
+            out.push(text_pattern::<DB>(DB::escape_pattern(&prefix), false, true));
+        }
+        Filter::Contains { substring, .. } => {
+            out.push(text_pattern::<DB>(
+                DB::escape_pattern(&substring),
+                true,
+                true,
+            ));
+        }
+        Filter::EndsWith { suffix, .. } => {
+            out.push(text_pattern::<DB>(DB::escape_pattern(&suffix), true, false));
+        }
         Filter::And(filters) | Filter::Or(filters) => {
             for filter in filters {
                 filter_params::<DB>(table, filter, out);
             }
         }
+        _ => unreachable!("check_filter rejects unknown filters"),
+    }
+}
+
+/// The `TEXT_MATCH` parameter for an escaped pattern, with wildcards before and after.
+fn text_pattern<DB: Driver>(escaped: String, before: bool, after: bool) -> Param {
+    let mut pattern = String::with_capacity(escaped.len() + 2);
+    if before {
+        pattern.push(DB::WILDCARD);
+    }
+    pattern.push_str(&escaped);
+    if after {
+        pattern.push(DB::WILDCARD);
+    }
+    Param::write(Value::Text(pattern), ColumnType::Text)
+}
+
+/// Fails on a filter variant this adapter doesn't render, which a newer `fastauth-core` may
+/// add, instead of running a query that means something else.
+pub(crate) fn check_filter(filter: &Filter) -> DbResult<()> {
+    match filter {
+        Filter::All
+        | Filter::Cmp { .. }
+        | Filter::In { .. }
+        | Filter::Null { .. }
+        | Filter::StartsWith { .. }
+        | Filter::Contains { .. }
+        | Filter::EndsWith { .. } => Ok(()),
+        Filter::And(filters) | Filter::Or(filters) => filters.iter().try_for_each(check_filter),
+        _ => Err(DbError::Unsupported("this filter (update fastauth-sqlx)")),
     }
 }
 
@@ -479,7 +531,11 @@ fn column_def<DB: Driver>(
     adding: bool,
 ) -> String {
     let physical = names.physical(table.name);
-    let mut def = format!("{} {}", quote(column.name), DB::sql_type(column.ty));
+    let mut def = format!(
+        "{} {}",
+        quote(column.name),
+        DB::sql_type(stored_type(table, column.ty))
+    );
     if !column.nullable {
         def.push_str(" NOT NULL");
     }
@@ -518,6 +574,7 @@ fn column_def<DB: Driver>(
 #[cfg(all(test, feature = "sqlite"))]
 mod tests {
     use fastauth_core::adapter::{Filter, Op, Select};
+    use fastauth_core::config::IdStrategy;
     use fastauth_core::testing::conformance_schema;
     use fastauth_core::value::Value;
     use sqlx::Sqlite;
@@ -526,7 +583,7 @@ mod tests {
 
     #[test]
     fn query_text_is_cached_per_shape_not_per_value() {
-        let schema = conformance_schema(false);
+        let schema = conformance_schema(&IdStrategy::default(), false);
         let user = schema.expect("user");
         let sql = Sql::new(Names::default());
         let select = |filter: Filter| Select {

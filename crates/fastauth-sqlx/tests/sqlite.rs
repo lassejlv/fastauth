@@ -1,6 +1,7 @@
 mod common;
 
 use fastauth_core::adapter::{Adapter, Delete, Filter, Insert, Op, Queries, Select};
+use fastauth_core::config::IdStrategy;
 use fastauth_core::migrate::MigrationPlan;
 use fastauth_core::schema::Schema;
 use fastauth_core::testing::{conformance_schema, run_adapter_conformance};
@@ -35,7 +36,23 @@ async fn conformance_with_a_table_prefix() {
 
 #[tokio::test]
 async fn sign_up_sign_in_get_session() {
-    common::http_flow(adapter().await).await;
+    common::http_flow(adapter().await, IdStrategy::Ulid).await;
+}
+
+#[tokio::test]
+async fn sign_up_sign_in_get_session_with_uuid_v7() {
+    common::http_flow(adapter().await, IdStrategy::UuidV7).await;
+}
+
+#[tokio::test]
+async fn sqlite_stores_ids_as_text_under_every_strategy() {
+    let db = adapter().await;
+    let uuid_schema = conformance_schema(&IdStrategy::UuidV7, false);
+    let sql = db.render_sql(&plan(&db, &uuid_schema).await).unwrap();
+    assert!(sql.contains("\"id\" text NOT NULL"), "{sql}");
+    migrate(&db, &uuid_schema).await;
+    let switched = plan(&db, &conformance_schema(&IdStrategy::Ulid, false)).await;
+    assert_eq!(switched, MigrationPlan::default());
 }
 
 #[tokio::test]
@@ -45,6 +62,7 @@ async fn sign_up_sign_in_get_session_with_renamed_tables() {
             .await
             .table_prefix("fa_")
             .rename("user", "accounts"),
+        IdStrategy::default(),
     )
     .await;
 }
@@ -52,7 +70,7 @@ async fn sign_up_sign_in_get_session_with_renamed_tables() {
 #[tokio::test]
 async fn added_columns_get_their_defaults_on_existing_rows() {
     let db = adapter().await;
-    let v1 = conformance_schema(false);
+    let v1 = conformance_schema(&IdStrategy::default(), false);
     migrate(&db, &v1).await;
     let item = v1.expect("item");
     let mut values = vec![Value::Null; item.columns.len()];
@@ -73,7 +91,7 @@ async fn added_columns_get_their_defaults_on_existing_rows() {
     .unwrap();
 
     let before = OffsetDateTime::now_utc() - time::Duration::seconds(1);
-    let v2 = conformance_schema(true);
+    let v2 = conformance_schema(&IdStrategy::default(), true);
     migrate(&db, &v2).await;
     let item = v2.expect("item");
     let row = db
@@ -99,7 +117,7 @@ async fn added_columns_get_their_defaults_on_existing_rows() {
 #[tokio::test]
 async fn deleting_a_user_cascades_to_sessions() {
     let db = adapter().await;
-    let schema = conformance_schema(false);
+    let schema = conformance_schema(&IdStrategy::default(), false);
     migrate(&db, &schema).await;
     let (user, session) = (schema.expect("user"), schema.expect("session"));
     let now = Value::Timestamp(OffsetDateTime::now_utc());
@@ -158,7 +176,7 @@ async fn deleting_a_user_cascades_to_sessions() {
 #[tokio::test]
 async fn render_sql_matches_what_apply_runs() {
     let db = adapter().await.table_prefix("fa_");
-    let schema = conformance_schema(false);
+    let schema = conformance_schema(&IdStrategy::default(), false);
     let first = plan(&db, &schema).await;
     let sql = db.render_sql(&first).unwrap();
     for expected in [

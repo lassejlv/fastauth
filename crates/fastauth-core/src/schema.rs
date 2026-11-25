@@ -12,6 +12,18 @@ pub enum ColumnType {
     Bytes,
 }
 
+/// How [`ColumnType::Id`] columns are stored. The configured
+/// [`IdStrategy`](crate::config::IdStrategy) decides it, and adapters read it from
+/// [`Schema::id_storage`] or [`TableDef::id_storage`] when they create columns and bind ids.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum IdStorage {
+    /// The database's native UUID type where it has one (Postgres `uuid`), else text.
+    Uuid,
+    /// Text on every database.
+    #[default]
+    Text,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DefaultValue {
     Bool(bool),
@@ -127,6 +139,7 @@ pub struct TableDef {
     pub owner: &'static str,
     pub columns: Vec<ColumnDef>,
     positions: HashMap<&'static str, usize>,
+    id_storage: IdStorage,
 }
 
 impl TableDef {
@@ -136,7 +149,14 @@ impl TableDef {
             owner,
             columns: Vec::new(),
             positions: HashMap::new(),
+            id_storage: IdStorage::default(),
         }
+    }
+
+    /// How this table's [`ColumnType::Id`] columns are stored; the same for every table
+    /// in a schema.
+    pub fn id_storage(&self) -> IdStorage {
+        self.id_storage
     }
 
     pub fn position(&self, column: &str) -> Option<usize> {
@@ -158,9 +178,15 @@ impl TableDef {
 pub struct Schema {
     tables: Vec<Arc<TableDef>>,
     by_name: HashMap<&'static str, usize>,
+    id_storage: IdStorage,
 }
 
 impl Schema {
+    /// How [`ColumnType::Id`] columns are stored, from the configured id strategy.
+    pub fn id_storage(&self) -> IdStorage {
+        self.id_storage
+    }
+
     pub fn tables(&self) -> &[Arc<TableDef>] {
         &self.tables
     }
@@ -235,7 +261,7 @@ impl SchemaBuilder {
         self.table(M::TABLE, M::columns())
     }
 
-    pub(crate) fn finish(self) -> Result<Schema, Vec<String>> {
+    pub(crate) fn finish(self, id_storage: IdStorage) -> Result<Schema, Vec<String>> {
         let mut errors = self.errors;
         for table in &self.tables {
             for column in &table.columns {
@@ -260,8 +286,16 @@ impl SchemaBuilder {
             .map(|(i, t)| (t.name, i))
             .collect();
         Ok(Schema {
-            tables: self.tables.into_iter().map(Arc::new).collect(),
+            tables: self
+                .tables
+                .into_iter()
+                .map(|mut table| {
+                    table.id_storage = id_storage;
+                    Arc::new(table)
+                })
+                .collect(),
             by_name,
+            id_storage,
         })
     }
 }

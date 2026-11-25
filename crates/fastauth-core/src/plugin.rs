@@ -11,7 +11,7 @@ use http::Method;
 use crate::adapter::Adapter;
 use crate::endpoint::{
     After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
-    ErasedEventHandler, ErasedGate, ErasedResolver, Gate, HookCtx, SessionResolver, SignInAttempt,
+    ErasedEventHandler, ErasedResolver, Gate, HookCtx, OwnedGate, SessionResolver, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
@@ -58,7 +58,7 @@ pub struct Registry<D> {
     pub(crate) routes: Vec<RouteDef<D>>,
     pub(crate) hooks: HashMap<TypeId, EndpointHooks<D>>,
     pub(crate) hook_targets: Vec<(TypeId, &'static str, &'static str)>,
-    pub(crate) gates: Vec<ErasedGate<D>>,
+    pub(crate) gates: Vec<OwnedGate<D>>,
     pub(crate) resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
@@ -164,14 +164,19 @@ impl<D: Adapter> PluginBuilder<'_, D> {
     }
 
     /// Runs after credentials check out and before a session exists, for every sign-in method.
+    /// Gates run in registration order. The gate belongs to [`owner`](Self::owner): when it
+    /// answers [`Gate::Challenge`], this plugin finishes the sign-in with
+    /// [`Internal::complete_sign_in`](crate::internal::Internal::complete_sign_in) and its own id.
     pub fn sign_in_gate<F, Fut>(&mut self, gate: F) -> &mut Self
     where
         F: Fn(HookCtx<D>, SignInAttempt) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Gate, AuthError>> + Send + 'static,
     {
-        self.registry
-            .gates
-            .push(Arc::new(move |ctx, attempt| Box::pin(gate(ctx, attempt))));
+        let owner = self.registry.owner;
+        self.registry.gates.push(OwnedGate {
+            owner,
+            gate: Arc::new(move |ctx, attempt| Box::pin(gate(ctx, attempt))),
+        });
         self
     }
 

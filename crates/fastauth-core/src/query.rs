@@ -17,6 +17,8 @@ enum Expr {
     In(&'static str, Vec<Value>),
     Null(&'static str, bool),
     StartsWith(&'static str, String),
+    Contains(&'static str, String),
+    EndsWith(&'static str, String),
     And(Vec<Expr>),
     Or(Vec<Expr>),
 }
@@ -54,6 +56,14 @@ impl<M> Where<M> {
 
     pub(crate) fn starts_with(column: &'static str, prefix: String) -> Self {
         Self::wrap(Expr::StartsWith(column, prefix))
+    }
+
+    pub(crate) fn contains(column: &'static str, substring: String) -> Self {
+        Self::wrap(Expr::Contains(column, substring))
+    }
+
+    pub(crate) fn ends_with(column: &'static str, suffix: String) -> Self {
+        Self::wrap(Expr::EndsWith(column, suffix))
     }
 
     pub fn and(self, other: Where<M>) -> Self {
@@ -94,6 +104,14 @@ fn resolve(expr: &Expr, table: &TableDef) -> DbResult<Filter> {
         Expr::StartsWith(c, p) => Filter::StartsWith {
             column: position(table, c)?,
             prefix: p.clone(),
+        },
+        Expr::Contains(c, s) => Filter::Contains {
+            column: position(table, c)?,
+            substring: s.clone(),
+        },
+        Expr::EndsWith(c, s) => Filter::EndsWith {
+            column: position(table, c)?,
+            suffix: s.clone(),
         },
         Expr::And(es) => Filter::And(
             es.iter()

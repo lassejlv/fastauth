@@ -1,6 +1,8 @@
 //! Core operations shared by core endpoints and plugins: users, accounts, sessions,
 //! sign-in with gates, verification values, email.
 
+use std::borrow::Cow;
+
 use http::StatusCode;
 use time::{Duration, OffsetDateTime};
 
@@ -118,11 +120,15 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .map_err(AuthError::internal)
     }
 
-    fn account_values(&self, user_id: &Id, account: NewAccount) -> Vec<(&'static str, Value)> {
+    fn account_values(
+        &self,
+        user_id: &Id,
+        account: NewAccount,
+    ) -> Result<Vec<(&'static str, Value)>, AuthError> {
         let keys = self.ctx.keys();
         let seal = |t: Option<String>| t.map(|t| keys.encrypt(t.as_bytes()));
-        vec![
-            ("id", self.ctx.new_id().into_value()),
+        Ok(vec![
+            ("id", self.ctx.new_id()?.into_value()),
             ("user_id", user_id.clone().into_value()),
             ("provider_id", account.provider_id.into_value()),
             (
@@ -145,7 +151,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
                 account.refresh_token_expires_at.into_value(),
             ),
             ("scope", account.scope.into_value()),
-        ]
+        ])
     }
 
     /// Creates a user (and optionally its first account) in one transaction.
@@ -155,7 +161,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         user: NewUser,
         account: Option<NewAccount>,
     ) -> Result<UserView, AuthError> {
-        let id = self.ctx.new_id();
+        let id = self.ctx.new_id()?;
         let mut values = vec![
             ("id", id.clone().into_value()),
             ("email", user.email.trim().to_lowercase().into_value()),
@@ -164,12 +170,14 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             ("image", user.image.into_value()),
         ];
         values.extend(user.extra);
+        let account = account
+            .map(|account| self.account_values(&id, account))
+            .transpose()?;
         let tx = self.ctx.adapter().begin().await?;
         let db = self.ctx.db_on(&tx);
         let row = db.insert_row::<User>(values).await.map_err(user_exists)?;
         if let Some(account) = account {
-            db.insert_row::<Account>(self.account_values(&id, account))
-                .await?;
+            db.insert_row::<Account>(account).await?;
         }
         tx.commit().await?;
         let view = UserView::from_row(row).map_err(AuthError::internal)?;
@@ -189,7 +197,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let row = self
             .ctx
             .db()
-            .insert_row::<Account>(self.account_values(user_id, account))
+            .insert_row::<Account>(self.account_values(user_id, account)?)
             .await?;
         self.ctx.emit(AccountLinked {
             user_id: user_id.clone(),
@@ -274,8 +282,10 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         Ok(())
     }
 
-    /// Creates a session and sets its cookies. Skips sign-in gates; use `sign_in` for a
-    /// sign-in, and this to finish one after a challenge.
+    /// Creates a session and sets its cookies, running no sign-in gate at all. This is the
+    /// low-level primitive: sign a user in with [`sign_in`](Self::sign_in), and finish a
+    /// challenged sign-in with [`complete_sign_in`](Self::complete_sign_in). Finishing one
+    /// with this would skip every other plugin's gates, so a banned user would get a session.
     pub async fn create_session(
         &self,
         user_id: &Id,
@@ -284,7 +294,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let now = self.ctx.now();
         let token = random_token();
         let session = Session {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             token_hash: Hash::sha256(&token),
             user_id: user_id.clone(),
             expires_at: now + self.ctx.config().session.expires_in,
@@ -329,20 +339,70 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         })
     }
 
-    /// Runs every sign-in gate, then creates the session.
+    /// Runs every sign-in gate in registration order, then creates the session. The first
+    /// gate that denies or challenges ends the sign-in without a session.
     pub async fn sign_in(
         &self,
         user: UserView,
-        method: &'static str,
+        method: impl Into<Cow<'static, str>>,
         remember_me: bool,
+    ) -> Result<SignInResult, AuthError> {
+        self.run_gates(user, method.into(), remember_me, None).await
+    }
+
+    /// Finishes a sign-in that a gate of plugin `challenger` answered with
+    /// [`Gate::Challenge`], once the user has met the challenge (e.g. a correct TOTP code).
+    /// Pass the plugin's own id (`TwoFactor::ID`, or `"app"` for a gate the app registered)
+    /// and the method the sign-in started with.
+    ///
+    /// Runs every gate except `challenger`'s, in registration order, whether they come before
+    /// or after it, then creates the session. A remaining gate can still deny, which returns
+    /// its error with no session. It can also challenge, which returns
+    /// [`SignInResult::Challenge`] with no session; answer with its body. That gate's plugin
+    /// finishes the sign-in with its own `complete_sign_in`, which runs `challenger`'s gates
+    /// again, so two gates that both challenge the same user keep challenging each other.
+    ///
+    /// A 500 when no gate belongs to `challenger`: a wrong id would run the challenger's
+    /// own gate again and challenge forever.
+    pub async fn complete_sign_in(
+        &self,
+        challenger: &str,
+        user: UserView,
+        method: impl Into<Cow<'static, str>>,
+        remember_me: bool,
+    ) -> Result<SignInResult, AuthError> {
+        if !self
+            .ctx
+            .shared
+            .gates
+            .iter()
+            .any(|gate| gate.owner == challenger)
+        {
+            return Err(AuthError::internal(format!(
+                "complete_sign_in: no sign-in gate belongs to `{challenger}`"
+            )));
+        }
+        self.run_gates(user, method.into(), remember_me, Some(challenger))
+            .await
+    }
+
+    async fn run_gates(
+        &self,
+        user: UserView,
+        method: Cow<'static, str>,
+        remember_me: bool,
+        skip: Option<&str>,
     ) -> Result<SignInResult, AuthError> {
         let attempt = SignInAttempt {
             user: user.clone(),
             method,
             remember_me,
         };
-        for gate in &self.ctx.shared.gates {
-            match gate(self.ctx.retype(), attempt.clone()).await? {
+        for owned in &self.ctx.shared.gates {
+            if skip == Some(owned.owner) {
+                continue;
+            }
+            match (owned.gate)(self.ctx.retype(), attempt.clone()).await? {
                 Gate::Allow => {}
                 Gate::Deny(err) => return Err(err),
                 Gate::Challenge(body) => return Ok(SignInResult::Challenge(body)),
@@ -402,7 +462,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let token = random_token();
         let now = self.ctx.now();
         let verification = Verification {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             identifier: identifier.to_owned(),
             value_hash: Hash::sha256(&token),
             data,
@@ -428,7 +488,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .await?;
         let now = self.ctx.now();
         let verification = Verification {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             identifier: identifier.to_owned(),
             value_hash: Hash::sha256(format!("{identifier}:{value}")),
             data,

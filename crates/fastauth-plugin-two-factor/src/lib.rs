@@ -37,7 +37,9 @@
 //! `{ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] }` (`"otp"` only with a
 //! mailer) and sets a
 //! signed `{prefix}.two_factor` cookie naming the pending user. One of `verify-totp`,
-//! `verify-otp` (after `send-otp`) or `verify-backup-code` then creates the session.
+//! `verify-otp` (after `send-otp`) or `verify-backup-code` then finishes the sign-in: the
+//! other plugins' sign-in gates still run, so one that denies (a ban) or challenges answers
+//! instead of a session.
 
 mod endpoints;
 mod error;

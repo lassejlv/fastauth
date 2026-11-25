@@ -1,4 +1,4 @@
-use fastauth_core::schema::{ColumnType, TableDef};
+use fastauth_core::schema::{ColumnType, IdStorage, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::{BoxDynError, DatabaseError};
 use sqlx::postgres::{PgArguments, PgConnection, PgRow};
@@ -50,7 +50,8 @@ fn get<'r, T: Decode<'r, Postgres> + Type<Postgres>>(
 }
 
 impl Driver for Postgres {
-    const PREFIX_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '\\'");
+    const TEXT_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '\\'");
+    const WILDCARD: char = '%';
     const UNIQUE_ON_ADD_COLUMN: bool = true;
 
     fn param(n: usize, out: &mut String) {
@@ -58,15 +59,14 @@ impl Driver for Postgres {
         out.push_str(&n.to_string());
     }
 
-    fn prefix_pattern(prefix: &str) -> String {
-        let mut pattern = String::with_capacity(prefix.len() + 1);
-        for ch in prefix.chars() {
+    fn escape_pattern(text: &str) -> String {
+        let mut pattern = String::with_capacity(text.len());
+        for ch in text.chars() {
             if matches!(ch, '\\' | '%' | '_') {
                 pattern.push('\\');
             }
             pattern.push(ch);
         }
-        pattern.push('%');
         pattern
     }
 
@@ -128,14 +128,28 @@ impl Driver for Postgres {
     }
 
     async fn introspect(conn: &mut PgConnection, schema: Option<String>) -> sqlx::Result<Catalog> {
-        let columns = sqlx::query_as(
-            "SELECT table_name::text, column_name::text FROM information_schema.columns \
+        let typed: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT table_name::text, column_name::text, data_type::text \
+             FROM information_schema.columns \
              WHERE table_schema::text = COALESCE($1::text, current_schema()::text) \
              ORDER BY table_name, ordinal_position",
         )
         .bind(schema.clone())
         .fetch_all(&mut *conn)
         .await?;
+        let mut columns = Vec::with_capacity(typed.len());
+        let mut id_storage = Vec::new();
+        for (table, column, data_type) in typed {
+            let storage = match data_type.as_str() {
+                "uuid" => Some(IdStorage::Uuid),
+                "text" => Some(IdStorage::Text),
+                _ => None,
+            };
+            if let Some(storage) = storage {
+                id_storage.push((table.clone(), column.clone(), storage));
+            }
+            columns.push((table, column));
+        }
         let indexes = sqlx::query_as(
             "SELECT tablename::text, indexname::text FROM pg_indexes \
              WHERE schemaname::text = COALESCE($1::text, current_schema()::text)",
@@ -143,7 +157,11 @@ impl Driver for Postgres {
         .bind(schema)
         .fetch_all(conn)
         .await?;
-        Ok(Catalog { columns, indexes })
+        Ok(Catalog {
+            columns,
+            indexes,
+            id_storage,
+        })
     }
 
     fn decode(row: &PgRow, index: usize, ty: ColumnType) -> Result<Value, String> {
