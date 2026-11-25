@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use fastauth_core::schema::{ColumnType, TableDef};
+use fastauth_core::schema::{ColumnType, IdStorage, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::DatabaseError;
 use sqlx::{Database, SqlStr};
@@ -42,17 +42,32 @@ pub struct Catalog {
     pub columns: Vec<(String, String)>,
     /// `(table, index name)`.
     pub indexes: Vec<(String, String)>,
+    /// `(table, column, storage)` for columns whose type an id column can have. Empty where
+    /// every strategy stores ids the same way.
+    pub id_storage: Vec<(String, String, IdStorage)>,
+}
+
+/// The type `ty` is stored as in `table`: drivers read `ColumnType::Id` as a native UUID,
+/// so ids stored as text become `ColumnType::Text`.
+pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
+    match (ty, table.id_storage()) {
+        (ColumnType::Id, IdStorage::Text) => ColumnType::Text,
+        _ => ty,
+    }
 }
 
 pub trait Driver: Database {
-    /// The operator for a prefix match, and what follows its parameter.
-    const PREFIX_MATCH: (&'static str, &'static str);
+    /// The case-sensitive pattern-match operator for text filters, and what follows its
+    /// parameter.
+    const TEXT_MATCH: (&'static str, &'static str);
+    /// The `TEXT_MATCH` wildcard for any run of characters.
+    const WILDCARD: char;
     /// Whether `ALTER TABLE .. ADD COLUMN` accepts an inline UNIQUE constraint.
     const UNIQUE_ON_ADD_COLUMN: bool;
 
     fn param(n: usize, out: &mut String);
-    /// The pattern for `PREFIX_MATCH` that matches strings starting with `prefix`.
-    fn prefix_pattern(prefix: &str) -> String;
+    /// `text` as a `TEXT_MATCH` pattern that matches it literally.
+    fn escape_pattern(text: &str) -> String;
     /// An identifier as the database stores it (Postgres truncates to 63 bytes).
     fn ident(name: String) -> String;
     fn sql_type(ty: ColumnType) -> &'static str;

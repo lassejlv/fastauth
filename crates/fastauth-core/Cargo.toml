@@ -42,7 +42,7 @@ time = { version = "0.3.45", features = ["serde", "formatting", "parsing", "macr
 tokio = { version = "1.54.1", features = ["rt", "sync", "time"] }
 tracing = "0.1.44"
 url = "2.5.9"
-uuid = { version = "1.26.1", features = ["v7"] }
+uuid = { version = "1.26.1", features = ["v4", "v7"] }
 zeroize = "1.9.2"
 
 [dev-dependencies]

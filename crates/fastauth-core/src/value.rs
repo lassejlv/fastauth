@@ -143,12 +143,16 @@ impl<T: Serialize + DeserializeOwned + Send + Sync + 'static> ColumnValue for Js
     }
 }
 
-/// A primary or foreign key. UUIDv7 text by default.
+/// A primary or foreign key: an opaque string. fastauth creates ids with the configured
+/// [`IdStrategy`](crate::config::IdStrategy) (ULIDs by default); handlers get one from
+/// `ctx.new_id()`.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Id(String);
 
 impl Id {
+    /// A UUIDv7, whatever the configured strategy. Rows fastauth stores should get their
+    /// id from `ctx.new_id()` instead, so they match the configured strategy and storage.
     pub fn new_v7() -> Self {
         Id(uuid::Uuid::now_v7().to_string())
     }

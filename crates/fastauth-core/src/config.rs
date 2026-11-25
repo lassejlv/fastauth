@@ -5,8 +5,11 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 
 use crate::crypto::{Argon2id, PasswordHasher};
+use crate::error::AuthError;
 use crate::models::Session;
 use crate::rate_limit::RateLimit;
+use crate::schema::IdStorage;
+use crate::value::Id;
 
 type PasswordPolicy = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
@@ -245,6 +248,113 @@ pub enum ClientIp {
     Header(String),
 }
 
+type IdGenerator = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// How fastauth generates the ids of the rows it creates: users, sessions, accounts,
+/// verifications and every row a plugin creates through `ctx.new_id()`.
+///
+/// Set it with `FastAuth::builder().ids(..)`. The strategy also picks how id columns are
+/// stored ([`IdStrategy::storage`]): the UUID strategies use Postgres' native `uuid` type,
+/// the others `text`. Switching strategies on an existing database doesn't convert its
+/// columns; the migrator warns about the mismatch instead.
+///
+/// ```
+/// use fastauth_core::config::IdStrategy;
+///
+/// let id = IdStrategy::default().generate().unwrap();
+/// assert_eq!(id.as_str().len(), 26);
+///
+/// let custom = IdStrategy::custom(|| {
+///     format!("usr_{}", fastauth_core::crypto::random_string(12, b"0123456789abcdef"))
+/// });
+/// assert!(custom.generate().unwrap().as_str().starts_with("usr_"));
+/// ```
+#[derive(Clone, Default)]
+pub enum IdStrategy {
+    /// A [ULID](https://github.com/ulid/spec): 26 characters of Crockford base32, sortable
+    /// by creation time. Stored as `text`. The default.
+    #[default]
+    Ulid,
+    /// A UUIDv7 in hyphenated form, sortable by creation time. Stored as `uuid` on Postgres.
+    UuidV7,
+    /// A random UUIDv4 in hyphenated form. Stored as `uuid` on Postgres.
+    UuidV4,
+    /// Ids from your own function, stored as `text`. Every id is checked when it's
+    /// generated: an empty one, or one longer than [`IdStrategy::MAX_LEN`] bytes, fails the
+    /// request with a 500 and an error log line. Ids must be unique; fastauth doesn't retry.
+    Custom(IdGenerator),
+}
+
+impl IdStrategy {
+    /// The longest id, in bytes, a custom generator may return.
+    pub const MAX_LEN: usize = 255;
+
+    /// `IdStrategy::Custom` from a closure.
+    pub fn custom(generate: impl Fn() -> String + Send + Sync + 'static) -> Self {
+        IdStrategy::Custom(Arc::new(generate))
+    }
+
+    /// A new id. Only a custom generator can fail: with a 500 `INTERNAL_SERVER_ERROR`
+    /// whose detail is logged, never sent to the client.
+    pub fn generate(&self) -> Result<Id, AuthError> {
+        let id = match self {
+            IdStrategy::Ulid => ulid(OffsetDateTime::now_utc()),
+            IdStrategy::UuidV7 => uuid::Uuid::now_v7().to_string(),
+            IdStrategy::UuidV4 => uuid::Uuid::new_v4().to_string(),
+            IdStrategy::Custom(generate) => {
+                let id = generate();
+                if id.is_empty() {
+                    return Err(AuthError::internal(
+                        "the custom id generator (IdStrategy::Custom) returned an empty id",
+                    ));
+                }
+                if id.len() > Self::MAX_LEN {
+                    return Err(AuthError::internal(format_args!(
+                        "the custom id generator (IdStrategy::Custom) returned a {}-byte id; ids are at most {} bytes",
+                        id.len(),
+                        Self::MAX_LEN
+                    )));
+                }
+                id
+            }
+        };
+        Ok(Id::from(id))
+    }
+
+    /// How id columns are stored for this strategy.
+    pub fn storage(&self) -> IdStorage {
+        match self {
+            IdStrategy::UuidV7 | IdStrategy::UuidV4 => IdStorage::Uuid,
+            IdStrategy::Ulid | IdStrategy::Custom(_) => IdStorage::Text,
+        }
+    }
+}
+
+impl fmt::Debug for IdStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IdStrategy::Ulid => f.write_str("Ulid"),
+            IdStrategy::UuidV7 => f.write_str("UuidV7"),
+            IdStrategy::UuidV4 => f.write_str("UuidV4"),
+            IdStrategy::Custom(_) => f.write_str("Custom(..)"),
+        }
+    }
+}
+
+const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// A ULID for `at`: 48 bits of Unix milliseconds, then 80 random bits, as 26 base32 digits.
+fn ulid(at: OffsetDateTime) -> String {
+    let millis = (at.unix_timestamp_nanos() / 1_000_000) as u128 & ((1 << 48) - 1);
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random[6..]).expect("the OS random number generator is available");
+    let value = millis << 80 | u128::from_be_bytes(random);
+    (0..26)
+        .rev()
+        .map(|digit| CROCKFORD[(value >> (digit * 5)) as usize & 31] as char)
+        .collect()
+}
+
 /// Everything the builder collected, frozen at `.build()`.
 #[derive(Clone, Debug)]
 pub struct CoreConfig {
@@ -258,6 +368,7 @@ pub struct CoreConfig {
     pub email_verification: EmailVerification,
     pub rate_limit: RateLimit,
     pub client_ip: ClientIp,
+    pub ids: IdStrategy,
     pub(crate) secure_cookies: bool,
 }
 
@@ -295,5 +406,80 @@ impl CoreConfig {
     pub fn cookie_name(&self, name: &str) -> String {
         let secure = if self.secure_cookies { "__Secure-" } else { "" };
         format!("{secure}{}.{name}", self.cookies.prefix)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode_ulid_millis(id: &str) -> i128 {
+        let value = id.bytes().fold(0u128, |acc, ch| {
+            let digit = CROCKFORD
+                .iter()
+                .position(|&c| c == ch)
+                .expect("crockford digit");
+            acc << 5 | digit as u128
+        });
+        (value >> 80) as i128
+    }
+
+    #[test]
+    fn ulid_is_26_crockford_characters_with_the_current_time() {
+        let before = OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+        let id = IdStrategy::Ulid.generate().unwrap();
+        let after = OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+        let id = id.as_str();
+        assert_eq!(id.len(), 26, "{id}");
+        assert!(id.bytes().all(|b| CROCKFORD.contains(&b)), "{id}");
+        assert!(id.as_bytes()[0] <= b'7', "a ULID fits in 128 bits: {id}");
+        assert!((before..=after).contains(&decode_ulid_millis(id)), "{id}");
+        assert_ne!(id, IdStrategy::Ulid.generate().unwrap().as_str());
+    }
+
+    #[test]
+    fn ulids_sort_by_time() {
+        let base = OffsetDateTime::now_utc();
+        let ids: Vec<String> = (0..50)
+            .map(|ms| ulid(base + Duration::milliseconds(ms)))
+            .collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(ids, sorted);
+
+        let first = IdStrategy::Ulid.generate().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second = IdStrategy::Ulid.generate().unwrap();
+        assert!(first < second, "{first:?} < {second:?}");
+    }
+
+    #[test]
+    fn uuid_strategies_have_their_version_nibble() {
+        for (strategy, version) in [(IdStrategy::UuidV7, '7'), (IdStrategy::UuidV4, '4')] {
+            let id = strategy.generate().unwrap();
+            let id = id.as_str();
+            assert_eq!(id.len(), 36, "{id}");
+            assert_eq!(id.as_bytes()[14] as char, version, "{id}");
+            assert!(
+                matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+                "{id}"
+            );
+            assert_eq!(strategy.storage(), IdStorage::Uuid);
+        }
+    }
+
+    #[test]
+    fn custom_ids_are_validated() {
+        let ok = IdStrategy::custom(|| "x".repeat(IdStrategy::MAX_LEN));
+        assert_eq!(ok.generate().unwrap().as_str().len(), 255);
+        assert_eq!(ok.storage(), IdStorage::Text);
+
+        for bad in [String::new(), "x".repeat(IdStrategy::MAX_LEN + 1)] {
+            let strategy = IdStrategy::custom(move || bad.clone());
+            let err = strategy.generate().unwrap_err();
+            assert_eq!(err.status(), http::StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(err.code(), crate::error::codes::INTERNAL);
+        }
+        assert_eq!(format!("{ok:?}"), "Custom(..)");
     }
 }

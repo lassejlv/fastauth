@@ -14,7 +14,8 @@ use url::Url;
 
 use crate::adapter::{Adapter, Transaction};
 use crate::config::{
-    ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, Secure, SessionConfig,
+    ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, IdStrategy, Secure,
+    SessionConfig,
 };
 use crate::crypto::{Argon2id, Keys, Passwords, Secret, SignPurpose};
 use crate::endpoint::{
@@ -64,6 +65,7 @@ impl FastAuth {
             email_verification: EmailVerification::default(),
             rate_limit: RateLimit::default(),
             client_ip: ClientIp::Socket,
+            ids: IdStrategy::default(),
             mailer: None,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -89,6 +91,7 @@ pub struct Builder<D, U, P, S, B> {
     email_verification: EmailVerification,
     rate_limit: RateLimit,
     client_ip: ClientIp,
+    ids: IdStrategy,
     mailer: Option<Arc<dyn DynMailer>>,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
@@ -120,6 +123,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             email_verification: self.email_verification,
             rate_limit: self.rate_limit,
             client_ip: self.client_ip,
+            ids: self.ids,
             mailer: self.mailer,
             app_init: self.app_init,
             _state: PhantomData,
@@ -198,6 +202,15 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// How ids are generated and stored; [`IdStrategy::Ulid`] unless set.
+    ///
+    /// Apps upgrading a Postgres database created by fastauth 0.1 (`uuid` id columns)
+    /// keep it working with `.ids(IdStrategy::UuidV7)`.
+    pub fn ids(mut self, strategy: IdStrategy) -> Self {
+        self.ids = strategy;
+        self
+    }
+
     pub fn mailer(mut self, mailer: impl Mailer) -> Self {
         self.mailer = Some(Arc::new(mailer));
         self
@@ -234,6 +247,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             email_verification: self.email_verification,
             rate_limit: self.rate_limit,
             client_ip: self.client_ip,
+            ids: self.ids,
             mailer: self.mailer,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -334,7 +348,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             }
         }
 
-        let schema = match registry.schema.finish() {
+        let schema = match registry.schema.finish(self.ids.storage()) {
             Ok(schema) => schema,
             Err(mut errors) => {
                 problems.append(&mut errors);
@@ -371,6 +385,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             email_verification: self.email_verification,
             rate_limit: rate_limit.clone(),
             client_ip: self.client_ip,
+            ids: self.ids,
             secure_cookies,
         };
         let shared = Shared {
@@ -617,6 +632,10 @@ pub trait AuthInstance: Clone + Send + Sync + 'static {
 
     fn config(&self) -> &CoreConfig;
     fn api(&self) -> Api<'_, Self::Db>;
+    /// A registered plugin's config, or `None` when `P` isn't registered. For code generic
+    /// over `AuthInstance` (an axum extractor) that can't name the `HasPlugin` index; with a
+    /// concrete `Auth`, a plugin's extension trait is the compile-checked way.
+    fn try_plugin<P: Plugin>(&self) -> Option<&P>;
     fn handle(&self, request: http::Request<Bytes>) -> impl Future<Output = Response> + Send;
     #[allow(clippy::type_complexity)]
     fn session_with_cookies(
@@ -641,6 +660,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> AuthInstance for Auth<D, U, P> {
 
     fn api(&self) -> Api<'_, D> {
         Auth::api(self)
+    }
+
+    fn try_plugin<Pl: Plugin>(&self) -> Option<&Pl> {
+        self.shared
+            .plugins
+            .get(&std::any::TypeId::of::<Pl>())
+            .and_then(|plugin| plugin.downcast_ref::<Pl>())
     }
 
     fn handle(&self, request: http::Request<Bytes>) -> impl Future<Output = Response> + Send {

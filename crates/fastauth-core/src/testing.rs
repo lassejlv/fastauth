@@ -9,6 +9,7 @@
 //! ```
 //!
 //! Every case gets a fresh adapter from `make`, so each one must start from an empty database.
+//! The suite runs twice: with ids stored as text (ULIDs) and with ids stored as UUIDs (UUIDv7).
 //! The suite's timestamps have millisecond precision, the coarsest any adapter stores.
 
 use std::sync::Arc;
@@ -21,15 +22,16 @@ use crate::adapter::{
     Adapter, DbError, Delete, Filter, Insert, Op, Order, Queries, Select, SessionWithUser,
     Transaction, Update,
 };
+use crate::config::IdStrategy;
 use crate::crypto::Hash;
 use crate::migrate::{Migrator, Step};
 use crate::model::Model;
 use crate::models::{Session, User};
 use crate::query::full_row;
 use crate::schema::{
-    ColumnDef, ColumnType as T, DefaultValue, OnDelete, Schema, SchemaBuilder, TableDef,
+    ColumnDef, ColumnType as T, DefaultValue, IdStorage, OnDelete, Schema, SchemaBuilder, TableDef,
 };
-use crate::value::{Id, Row, Value};
+use crate::value::{Row, Value};
 
 const ITEM: &str = "item";
 
@@ -68,9 +70,10 @@ const SEED: [(&str, Option<&str>); 7] = [
     ("abc", Some("z")),
 ];
 
-/// The schema the suite runs on: core's tables plus `item`, which has a column of every type.
-/// `v2` adds columns to `item`, for the migration round trip.
-pub fn conformance_schema(v2: bool) -> Schema {
+/// The schema the suite runs on: core's tables plus `item`, which has a column of every type,
+/// with id columns stored as `ids` stores them. `v2` adds columns to `item`, for the
+/// migration round trip.
+pub fn conformance_schema(ids: &IdStrategy, v2: bool) -> Schema {
     let mut builder = SchemaBuilder::new();
     crate::models::register(&mut builder);
     builder.owner = "conformance";
@@ -78,24 +81,41 @@ pub fn conformance_schema(v2: bool) -> Schema {
     if v2 {
         builder.extend(ITEM, ITEM_V2_COLUMNS);
     }
-    builder.finish().expect("the conformance schema is valid")
+    builder
+        .finish(ids.storage())
+        .expect("the conformance schema is valid")
 }
 
-/// Runs every conformance case, each on a fresh adapter from `make`. Panics on the first
-/// failure, naming what differed.
+/// Runs every conformance case, each on a fresh adapter from `make`, once with ULIDs
+/// (`text` ids) and once with UUIDv7s (`uuid` ids where the database has the type).
+/// Panics on the first failure, naming what differed.
 pub async fn run_adapter_conformance<D: Adapter>(make: impl AsyncFn() -> D) {
-    migrations(make().await).await;
-    Fixture::new(make().await).await.round_trip().await;
-    Fixture::new(make().await).await.filters().await;
-    Fixture::new(make().await).await.ordering_and_paging().await;
-    Fixture::new(make().await).await.update_and_delete().await;
-    Fixture::new(make().await).await.unique_violations().await;
-    Fixture::new(make().await).await.transactions().await;
-    Fixture::new(make().await).await.session_with_user().await;
+    for ids in [IdStrategy::Ulid, IdStrategy::UuidV7] {
+        migrations(&ids, make().await).await;
+        Fixture::new(&ids, make().await).await.round_trip().await;
+        Fixture::new(&ids, make().await).await.filters().await;
+        Fixture::new(&ids, make().await)
+            .await
+            .ordering_and_paging()
+            .await;
+        Fixture::new(&ids, make().await)
+            .await
+            .update_and_delete()
+            .await;
+        Fixture::new(&ids, make().await)
+            .await
+            .unique_violations()
+            .await;
+        Fixture::new(&ids, make().await).await.transactions().await;
+        Fixture::new(&ids, make().await)
+            .await
+            .session_with_user()
+            .await;
+    }
 }
 
-async fn migrations<D: Adapter>(db: D) {
-    let v1 = conformance_schema(false);
+async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
+    let v1 = conformance_schema(ids, false);
     let migrator = Migrator::new(&db, &v1);
     let plan = migrator.run().await.expect("first migration");
     let created = plan
@@ -132,7 +152,7 @@ async fn migrations<D: Adapter>(db: D) {
     .await
     .expect("insert before adding columns");
 
-    let v2 = conformance_schema(true);
+    let v2 = conformance_schema(ids, true);
     let migrator = Migrator::new(&db, &v2);
     let plan = migrator.plan().await.expect("plan for v2");
     let added: Vec<&str> = plan
@@ -167,11 +187,20 @@ fn position(table: &TableDef, column: &str) -> usize {
         .unwrap_or_else(|| panic!("{}.{column} missing", table.name))
 }
 
+/// A new id in the format the table's id storage expects.
+fn new_id(table: &TableDef) -> Value {
+    let ids = match table.id_storage() {
+        IdStorage::Uuid => IdStrategy::UuidV7,
+        IdStorage::Text => IdStrategy::Ulid,
+    };
+    Value::Text(ids.generate().expect("built-in ids are valid").to_string())
+}
+
 fn item_values(table: &TableDef, name: &str, rank: i64, note: Option<&str>) -> Vec<Value> {
     full_row(
         table,
         vec![
-            ("id", Value::Text(Id::new_v7().to_string())),
+            ("id", new_id(table)),
             ("name", Value::Text(name.to_owned())),
             ("rank", Value::Int(rank)),
             ("active", Value::Bool(rank % 2 == 0)),
@@ -189,7 +218,7 @@ fn user_values(table: &TableDef, email: &str) -> Vec<Value> {
     full_row(
         table,
         vec![
-            ("id", Value::Text(Id::new_v7().to_string())),
+            ("id", new_id(table)),
             ("email", Value::Text(email.to_owned())),
             ("name", Value::Text("Conformance".to_owned())),
             ("created_at", Value::Timestamp(BASE)),
@@ -203,7 +232,7 @@ fn session_values(table: &TableDef, token: &str, user_id: &Value) -> Vec<Value> 
     full_row(
         table,
         vec![
-            ("id", Value::Text(Id::new_v7().to_string())),
+            ("id", new_id(table)),
             (
                 "token_hash",
                 Value::Bytes(Hash::sha256(token).as_bytes().to_vec()),
@@ -236,8 +265,8 @@ struct Fixture<D> {
 }
 
 impl<D: Adapter> Fixture<D> {
-    async fn new(db: D) -> Self {
-        let schema = conformance_schema(false);
+    async fn new(ids: &IdStrategy, db: D) -> Self {
+        let schema = conformance_schema(ids, false);
         Migrator::new(&db, &schema)
             .run()
             .await
@@ -479,6 +508,33 @@ impl<D: Adapter> Fixture<D> {
         self.check(starts("a_"), &["a_c"]).await;
         self.check(starts("A"), &["Alpha"]).await;
         self.check(starts(""), &all).await;
+
+        let contains = |substring: &str| Filter::Contains {
+            column: name,
+            substring: substring.to_owned(),
+        };
+        self.check(contains("lph"), &["alpha", "Alpha"]).await;
+        self.check(contains("Al"), &["Alpha"]).await;
+        self.check(contains("ALPHA"), &[]).await;
+        self.check(contains("%"), &["al%pha"]).await;
+        self.check(contains("l%p"), &["al%pha"]).await;
+        self.check(contains("_"), &["a_c"]).await;
+        self.check(contains("a_c"), &["a_c"]).await;
+        for literal in ["*", "?", "[", "\\", "%%"] {
+            self.check(contains(literal), &[]).await;
+        }
+        self.check(contains(""), &all).await;
+
+        let ends = |suffix: &str| Filter::EndsWith {
+            column: name,
+            suffix: suffix.to_owned(),
+        };
+        self.check(ends("pha"), &["alpha", "Alpha", "al%pha"]).await;
+        self.check(ends("%pha"), &["al%pha"]).await;
+        self.check(ends("_c"), &["a_c"]).await;
+        self.check(ends("C"), &[]).await;
+        self.check(ends("*"), &[]).await;
+        self.check(ends(""), &all).await;
 
         self.check(
             Filter::And(vec![self.cmp("rank", Op::Gt, Value::Int(1)), null(true)]),
