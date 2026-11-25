@@ -146,7 +146,7 @@ when the table wants them.
 #[derive(Fields, Clone, Serialize)]
 #[fields(table = User)]
 pub struct TwoFactorUser {
-    #[field(default = false, input = false)]
+    #[field(default = false)]
     pub two_factor_enabled: bool,
 }
 
@@ -161,9 +161,9 @@ adding the same column is a `BuildError` naming both.
 
 `#[fields(table = ..)]` names the model the columns extend (`User` when omitted), so the
 generated `TwoFactorUser::TWO_FACTOR_ENABLED` filters `find::<User>`. Field attributes:
-`default = ..` (as for models), `input` / `input = false` (whether sign-up and update-user
-bodies may set it; **default true**, as in Better Auth), `returned = false`, `unique`, `index`
-and `rename = "column_name"`.
+`default = ..` (as for models), `input` (sign-up and update-user bodies may set it; without
+it no client can, so `two_factor_enabled` above is server-only), `returned = false`, `unique`,
+`index` and `rename = "column_name"`.
 
 ### Endpoints
 

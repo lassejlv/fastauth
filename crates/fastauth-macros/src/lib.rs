@@ -24,7 +24,7 @@ mod column;
 /// #[derive(Fields, Clone)]
 /// #[fields(table = User)]
 /// pub struct TwoFactorUser {
-///     #[field(default = false, input = false)]
+///     #[field(default = false)]
 ///     pub two_factor_enabled: bool,
 /// }
 ///
@@ -35,7 +35,8 @@ mod column;
 /// Field attributes, all inside `#[field(..)]`:
 ///
 /// - `default = ..`: a bool, integer or string literal, or `now` for timestamps.
-/// - `input`, `input = false`: whether sign-up and update-user bodies may set it. Default true.
+/// - `input`: sign-up and update-user bodies may set it. Without it, clients never can.
+///   `input = false` spells out the default.
 /// - `returned = false`: never serialized to clients.
 /// - `unique`, `index`.
 /// - `rename = ".."`: the column name, when it differs from the field name.

@@ -228,7 +228,7 @@ impl<'a> Column<'a> {
             primary_key: false,
             unique: false,
             index: false,
-            input: derive == Derive::Fields,
+            input: false,
             hidden: false,
             references: None,
             on_delete: None,

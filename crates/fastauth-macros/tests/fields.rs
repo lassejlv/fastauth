@@ -37,21 +37,21 @@ impl HandBetaUser {
 #[derive(Fields, Clone, Debug, PartialEq)]
 #[fields(table = User)]
 struct BetaUser {
-    #[field(default = false, input = false)]
+    #[field(default = false)]
     beta: bool,
 }
 
 #[derive(Fields, Clone, Debug, PartialEq)]
 struct Profile {
-    #[field(default = "free")]
+    #[field(default = "free", input)]
     plan: String,
-    #[field(input = false, unique)]
+    #[field(unique)]
     stripe_customer_id: Option<String>,
-    #[field(returned = false)]
+    #[field(input = true, returned = false)]
     internal_notes: Option<String>,
-    #[field(rename = "login_count", default = -1, index, input)]
+    #[field(rename = "login_count", default = -1, index, input = false)]
     logins: i64,
-    #[field(default = now, input = false)]
+    #[field(default = now)]
     seen_at: OffsetDateTime,
 }
 
@@ -119,8 +119,7 @@ fn attributes_map_to_column_builders() {
             .hidden(),
         ColumnDef::new("login_count", ColumnType::Int)
             .default(DefaultValue::Int(-1))
-            .index()
-            .input(),
+            .index(),
         ColumnDef::new("seen_at", ColumnType::Timestamp).default(DefaultValue::Now),
     ];
     assert_eq!(Profile::columns(), expected);
@@ -166,11 +165,17 @@ async fn derived_fields_decode_on_the_session() {
 }
 
 #[tokio::test]
-async fn input_false_fields_reject_client_values() {
-    let err = app()
-        .api()
-        .sign_up_email(sign_up("i@acme.dk", json!({ "beta": true })))
-        .await
-        .unwrap_err();
-    assert_eq!(err.code(), "INVALID_FIELD");
+async fn fields_without_input_reject_client_values() {
+    for extra in [
+        json!({ "beta": true }),
+        json!({ "stripeCustomerId": "cus_1" }),
+        json!({ "loginCount": 5 }),
+    ] {
+        let err = app()
+            .api()
+            .sign_up_email(sign_up("i@acme.dk", extra))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), "INVALID_FIELD");
+    }
 }
