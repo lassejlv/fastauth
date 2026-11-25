@@ -48,7 +48,9 @@ This differs from Better Auth, which stores tokens as they are. See
 
 `SameSite=Lax` already blocks cross-site `POST`s from carrying the cookie in current
 browsers. On top of that, every non-`GET` request that carries a session cookie must send an
-`Origin` (or, failing that, `Referer`) matching `base_url` or a trusted origin. Callback URLs
+`Origin` (or, failing that, `Referer`) matching `base_url` or a trusted origin: 403
+`INVALID_ORIGIN` for an untrusted one, 403 `MISSING_OR_NULL_ORIGIN` when it's missing or
+`null`, as in Better Auth. Callback URLs
 (`callbackURL`, `redirectTo`) are checked against the same list, which closes open redirects.
 
 ## Passwords

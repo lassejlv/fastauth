@@ -35,6 +35,8 @@ pub struct EnableInput {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnableOutput {
+    /// Always `"totp"`; Better Auth's client also knows `"otp"`.
+    pub method: &'static str,
     #[serde(rename = "totpURI")]
     pub totp_uri: String,
     /// Shown once; only their hashes are stored.
@@ -113,6 +115,7 @@ impl<D: Adapter> Endpoint<D> for Enable {
             &secret,
         );
         Ok(EnableOutput {
+            method: "totp",
             totp_uri,
             backup_codes,
         })
@@ -419,7 +422,15 @@ pub(crate) async fn gate<D: Adapter>(
         [attempt.user.id.as_str(), remember_me],
         plugin.two_factor_cookie_max_age,
     );
-    Ok(Gate::Challenge(json!({ "twoFactorRedirect": true })))
+    let methods: &[&str] = if ctx.internal().can_send_email() {
+        &["totp", "otp"]
+    } else {
+        &["totp"]
+    };
+    Ok(Gate::Challenge(json!({
+        "twoFactorRedirect": true,
+        "twoFactorMethods": methods,
+    })))
 }
 
 /// Who a verify endpoint acts for.

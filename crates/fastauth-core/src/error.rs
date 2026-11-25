@@ -15,6 +15,7 @@ pub mod codes {
     pub const INVALID_BODY: &str = "INVALID_REQUEST_BODY";
     pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
     pub const INVALID_ORIGIN: &str = "INVALID_ORIGIN";
+    pub const MISSING_OR_NULL_ORIGIN: &str = "MISSING_OR_NULL_ORIGIN";
     pub const INVALID_CALLBACK_URL: &str = "INVALID_CALLBACK_URL";
     pub const SESSION_NOT_FRESH: &str = "SESSION_NOT_FRESH";
     pub const INVALID_EMAIL: &str = "INVALID_EMAIL";
@@ -24,6 +25,7 @@ pub mod codes {
     pub const PASSWORD_TOO_LONG: &str = "PASSWORD_TOO_LONG";
     pub const PASSWORD_TOO_WEAK: &str = "PASSWORD_TOO_WEAK";
     pub const USER_ALREADY_EXISTS: &str = "USER_ALREADY_EXISTS";
+    pub const USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: &str = "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
     pub const EMAIL_NOT_VERIFIED: &str = "EMAIL_NOT_VERIFIED";
     pub const EMAIL_ALREADY_VERIFIED: &str = "EMAIL_ALREADY_VERIFIED";

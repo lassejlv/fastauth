@@ -481,13 +481,24 @@ fn value_type(value: &Value) -> Option<ColumnType> {
     })
 }
 
-/// The callback URL with a gate's challenge as query parameters, e.g. `?twoFactorRedirect=true`.
+/// The callback URL with a gate's challenge as query parameters, e.g.
+/// `?twoFactorRedirect=true&twoFactorMethods=totp,otp`. Arrays become comma-separated lists.
 fn with_challenge(url: String, challenge: &serde_json::Value) -> String {
     let Some(fields) = challenge.as_object() else {
         return url;
     };
     fields.iter().fold(url, |url, (key, value)| match value {
         serde_json::Value::String(s) => with_query(&url, key, s),
+        serde_json::Value::Array(items) => {
+            let items: Vec<String> = items
+                .iter()
+                .map(|item| match item {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            with_query(&url, key, &items.join(","))
+        }
         other => with_query(&url, key, &other.to_string()),
     })
 }

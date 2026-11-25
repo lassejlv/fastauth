@@ -1,0 +1,11 @@
+{
+  "name": "fastauth-better-auth-compat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun run compat.ts"
+  },
+  "dependencies": {
+    "better-auth": "1.7.28"
+  }
+}

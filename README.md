@@ -79,6 +79,7 @@ stops compiling and tells you which plugin is missing.
 | [Internals](docs/08-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
 | [Security](docs/09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
 | [Open questions](docs/10-open-questions.md) | Decisions that need an owner before v0.1 |
+| [Better Auth's client](docs/11-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested version, known gaps |
 
 ## Agent skill
 

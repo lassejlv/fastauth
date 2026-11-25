@@ -63,7 +63,7 @@ pub async fn http_flow<D: Adapter>(db: D) {
     let (status, body, _) =
         send(&auth, Method::POST, "/sign-up/email", Some(credentials), "").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_eq!(body["code"], "USER_ALREADY_EXISTS");
+    assert_eq!(body["code"], "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL");
 
     let (status, body, cookies) = send(
         &auth,

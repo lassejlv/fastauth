@@ -156,7 +156,8 @@ FastAuth::builder()
 Run `cargo run --bin fastauth -- generate` again to get the `two_factor` table and the
 `user.two_factor_enabled` column. The plugin's routes (`/api/auth/two-factor/*`) are now
 mounted, `session.user.plugin::<TwoFactor, _>()` compiles, and sign-in returns
-`{"twoFactorRedirect": true}` for users who turned it on.
+`{"twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"]}` for users who turned it on
+(`"otp"` only when a mailer is configured).
 
 Next: [Configuration](03-configuration.md) for everything the builder takes, or
 [Plugins](05-plugins.md) to write your own.

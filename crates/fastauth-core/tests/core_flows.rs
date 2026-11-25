@@ -95,7 +95,7 @@ async fn duplicate_sign_up_is_422_and_short_password_is_400() {
     client.sign_up("a@acme.dk", "correct horse").await;
     let again = client.sign_up("a@acme.dk", "correct horse").await;
     assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(again.json["code"], "USER_ALREADY_EXISTS");
+    assert_eq!(again.json["code"], "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL");
     let short = client.sign_up("b@acme.dk", "short").await;
     assert_eq!(short.json["code"], "PASSWORD_TOO_SHORT");
 }
@@ -106,7 +106,11 @@ async fn cookie_requests_from_untrusted_origins_are_rejected() {
     let mut client = Client::new(auth.clone());
     client.sign_up("a@acme.dk", "correct horse").await;
     let cookies = client.cookie_header().unwrap();
-    for origin in [Some("https://evil.example"), None] {
+    for (origin, code) in [
+        (Some("https://evil.example"), "INVALID_ORIGIN"),
+        (Some("null"), "MISSING_OR_NULL_ORIGIN"),
+        (None, "MISSING_OR_NULL_ORIGIN"),
+    ] {
         let mut req = Request::builder()
             .method(Method::POST)
             .uri("/api/auth/sign-out")
@@ -116,6 +120,8 @@ async fn cookie_requests_from_untrusted_origins_are_rejected() {
         }
         let res = auth.handle(req.body(Default::default()).unwrap()).await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN, "origin {origin:?}");
+        let body: serde_json::Value = serde_json::from_slice(res.body()).unwrap();
+        assert_eq!(body["code"], code, "origin {origin:?}");
     }
     assert_eq!(
         client.get("/get-session").await.json["user"]["email"],

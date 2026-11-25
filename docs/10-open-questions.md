@@ -16,6 +16,9 @@ test suite against fastauth in CI. Plugins we don't mirror would need our own TS
 **Recommendation:** yes, for core and the first-party plugins that exist in both, pinned to
 one Better Auth minor and tested in CI.
 
+**Status:** pinned to `better-auth` 1.7.28 and tested by `compat/better-auth/run.sh`, run by
+hand for now ([Better Auth's client](11-better-auth-client.md)).
+
 ## 2. Adapter as a type parameter
 
 `Auth<D, U, P>` is generic over the adapter. That gives `.in_tx(&mut sqlx::Transaction)`

@@ -182,7 +182,10 @@ async fn enable_verify_then_sign_in_through_the_challenge() {
 
     client.sign_out().await;
     let res = client.sign_in().await;
-    assert_eq!(res.json, json!({ "twoFactorRedirect": true }));
+    assert_eq!(
+        res.json,
+        json!({ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] })
+    );
     assert!(client.has_cookie("two_factor"));
     assert!(!client.has_cookie("session_token"));
     assert_eq!(client.get("/get-session").await.json, Value::Null);
@@ -420,7 +423,7 @@ async fn a_trusted_device_skips_the_challenge() {
     client.sign_out().await;
     assert_eq!(
         client.sign_in_as("bob@acme.dk").await.json,
-        json!({ "twoFactorRedirect": true }),
+        json!({ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] }),
         "the trusted device is Ada's, not Bob's"
     );
 }
@@ -444,7 +447,7 @@ async fn re_enabling_forgets_trusted_devices() {
     client.sign_out().await;
     assert_eq!(
         client.sign_in().await.json,
-        json!({ "twoFactorRedirect": true })
+        json!({ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] })
     );
     let res = client.verify("/two-factor/verify-totp", &app.code()).await;
     assert_eq!(res.status, StatusCode::OK, "{}", res.json);
@@ -497,7 +500,7 @@ async fn the_pending_sign_in_expires() {
     client.sign_out().await;
     assert_eq!(
         client.sign_in().await.json,
-        json!({ "twoFactorRedirect": true })
+        json!({ "twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"] })
     );
     tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
     assert!(

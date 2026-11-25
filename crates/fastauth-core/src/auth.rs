@@ -521,17 +521,17 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
             let origin = header_str(&parts.headers, ORIGIN)
                 .filter(|o| o != "null")
                 .or_else(|| header_str(&parts.headers, REFERER).and_then(|r| origin_of(&r)));
-            let allowed = match &origin {
-                Some(origin) => config.is_trusted_origin(origin),
-                None => !parts.headers.contains_key(COOKIE),
+            let rejected = match &origin {
+                Some(origin) if !config.is_trusted_origin(origin) => {
+                    Some((codes::INVALID_ORIGIN, "invalid origin"))
+                }
+                None if parts.headers.contains_key(COOKIE) => {
+                    Some((codes::MISSING_OR_NULL_ORIGIN, "missing or null origin"))
+                }
+                _ => None,
             };
-            if !allowed {
-                return AuthError::new(
-                    StatusCode::FORBIDDEN,
-                    codes::INVALID_ORIGIN,
-                    "invalid origin",
-                )
-                .into_response();
+            if let Some((code, message)) = rejected {
+                return AuthError::new(StatusCode::FORBIDDEN, code, message).into_response();
             }
         }
 
