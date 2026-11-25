@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::RwLock;
 
-use fastauth_core::adapter::{Delete, Filter, Insert, Op, Order, Select, Update};
+use fastauth_core::adapter::{
+    DbError, DbResult, Delete, Filter, Insert, Op, Order, Select, Update,
+};
 use fastauth_core::migrate::{MigrationPlan, Step, index_name};
 use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, TableDef};
 use fastauth_core::value::Value;
@@ -323,6 +325,8 @@ fn filter_shape(filter: &Filter) -> String {
             Filter::In { column, values } => write!(out, "i{column}:{};", values.len()),
             Filter::Null { column, is_null } => write!(out, "n{column}{is_null};"),
             Filter::StartsWith { column, .. } => write!(out, "s{column};"),
+            Filter::Contains { column, .. } => write!(out, "t{column};"),
+            Filter::EndsWith { column, .. } => write!(out, "e{column};"),
             Filter::And(filters) | Filter::Or(filters) => {
                 out.push_str(if matches!(filter, Filter::And(_)) {
                     "&("
@@ -334,6 +338,7 @@ fn filter_shape(filter: &Filter) -> String {
                 }
                 write!(out, ")")
             }
+            _ => unreachable!("check_filter rejects unknown filters"),
         };
     }
     let mut out = String::new();
@@ -373,8 +378,10 @@ fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, o
             out.push_str(&column(*c));
             out.push_str(if *is_null { " IS NULL" } else { " IS NOT NULL" });
         }
-        Filter::StartsWith { column: c, .. } => {
-            let (op, suffix) = DB::PREFIX_MATCH;
+        Filter::StartsWith { column: c, .. }
+        | Filter::Contains { column: c, .. }
+        | Filter::EndsWith { column: c, .. } => {
+            let (op, suffix) = DB::TEXT_MATCH;
             let _ = write!(out, "{} {op} ", column(*c));
             next_param::<DB>(n, out);
             out.push_str(suffix);
@@ -396,6 +403,7 @@ fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, o
             }
             out.push(')');
         }
+        _ => unreachable!("check_filter rejects unknown filters"),
     }
 }
 
@@ -412,15 +420,54 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
             let ty = stored_type(table, table.columns[column].ty);
             out.extend(values.into_iter().map(|value| Param::filter(value, ty)));
         }
-        Filter::StartsWith { prefix, .. } => out.push(Param::write(
-            Value::Text(DB::prefix_pattern(&prefix)),
-            ColumnType::Text,
-        )),
+        Filter::StartsWith { prefix, .. } => {
+            out.push(text_pattern::<DB>(DB::escape_pattern(&prefix), false, true));
+        }
+        Filter::Contains { substring, .. } => {
+            out.push(text_pattern::<DB>(
+                DB::escape_pattern(&substring),
+                true,
+                true,
+            ));
+        }
+        Filter::EndsWith { suffix, .. } => {
+            out.push(text_pattern::<DB>(DB::escape_pattern(&suffix), true, false));
+        }
         Filter::And(filters) | Filter::Or(filters) => {
             for filter in filters {
                 filter_params::<DB>(table, filter, out);
             }
         }
+        _ => unreachable!("check_filter rejects unknown filters"),
+    }
+}
+
+/// The `TEXT_MATCH` parameter for an escaped pattern, with wildcards before and after.
+fn text_pattern<DB: Driver>(escaped: String, before: bool, after: bool) -> Param {
+    let mut pattern = String::with_capacity(escaped.len() + 2);
+    if before {
+        pattern.push(DB::WILDCARD);
+    }
+    pattern.push_str(&escaped);
+    if after {
+        pattern.push(DB::WILDCARD);
+    }
+    Param::write(Value::Text(pattern), ColumnType::Text)
+}
+
+/// Fails on a filter variant this adapter doesn't render, which a newer `fastauth-core` may
+/// add, instead of running a query that means something else.
+pub(crate) fn check_filter(filter: &Filter) -> DbResult<()> {
+    match filter {
+        Filter::All
+        | Filter::Cmp { .. }
+        | Filter::In { .. }
+        | Filter::Null { .. }
+        | Filter::StartsWith { .. }
+        | Filter::Contains { .. }
+        | Filter::EndsWith { .. } => Ok(()),
+        Filter::And(filters) | Filter::Or(filters) => filters.iter().try_for_each(check_filter),
+        _ => Err(DbError::Unsupported("this filter (update fastauth-sqlx)")),
     }
 }
 

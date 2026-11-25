@@ -509,6 +509,33 @@ impl<D: Adapter> Fixture<D> {
         self.check(starts("A"), &["Alpha"]).await;
         self.check(starts(""), &all).await;
 
+        let contains = |substring: &str| Filter::Contains {
+            column: name,
+            substring: substring.to_owned(),
+        };
+        self.check(contains("lph"), &["alpha", "Alpha"]).await;
+        self.check(contains("Al"), &["Alpha"]).await;
+        self.check(contains("ALPHA"), &[]).await;
+        self.check(contains("%"), &["al%pha"]).await;
+        self.check(contains("l%p"), &["al%pha"]).await;
+        self.check(contains("_"), &["a_c"]).await;
+        self.check(contains("a_c"), &["a_c"]).await;
+        for literal in ["*", "?", "[", "\\", "%%"] {
+            self.check(contains(literal), &[]).await;
+        }
+        self.check(contains(""), &all).await;
+
+        let ends = |suffix: &str| Filter::EndsWith {
+            column: name,
+            suffix: suffix.to_owned(),
+        };
+        self.check(ends("pha"), &["alpha", "Alpha", "al%pha"]).await;
+        self.check(ends("%pha"), &["al%pha"]).await;
+        self.check(ends("_c"), &["a_c"]).await;
+        self.check(ends("C"), &[]).await;
+        self.check(ends("*"), &[]).await;
+        self.check(ends(""), &all).await;
+
         self.check(
             Filter::And(vec![self.cmp("rank", Op::Gt, Value::Int(1)), null(true)]),
             &["beta", "Alpha", "a_c"],

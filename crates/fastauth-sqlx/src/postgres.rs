@@ -50,7 +50,8 @@ fn get<'r, T: Decode<'r, Postgres> + Type<Postgres>>(
 }
 
 impl Driver for Postgres {
-    const PREFIX_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '\\'");
+    const TEXT_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '\\'");
+    const WILDCARD: char = '%';
     const UNIQUE_ON_ADD_COLUMN: bool = true;
 
     fn param(n: usize, out: &mut String) {
@@ -58,15 +59,14 @@ impl Driver for Postgres {
         out.push_str(&n.to_string());
     }
 
-    fn prefix_pattern(prefix: &str) -> String {
-        let mut pattern = String::with_capacity(prefix.len() + 1);
-        for ch in prefix.chars() {
+    fn escape_pattern(text: &str) -> String {
+        let mut pattern = String::with_capacity(text.len());
+        for ch in text.chars() {
             if matches!(ch, '\\' | '%' | '_') {
                 pattern.push('\\');
             }
             pattern.push(ch);
         }
-        pattern.push('%');
         pattern
     }
 

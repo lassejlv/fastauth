@@ -79,6 +79,12 @@ fn matches(filter: &Filter, row: &[Value]) -> bool {
         Filter::StartsWith { column, prefix } => {
             matches!(&row[*column], Value::Text(s) if s.starts_with(prefix.as_str()))
         }
+        Filter::Contains { column, substring } => {
+            matches!(&row[*column], Value::Text(s) if s.contains(substring.as_str()))
+        }
+        Filter::EndsWith { column, suffix } => {
+            matches!(&row[*column], Value::Text(s) if s.ends_with(suffix.as_str()))
+        }
         Filter::And(fs) => fs.iter().all(|f| matches(f, row)),
         Filter::Or(fs) => fs.iter().any(|f| matches(f, row)),
     }

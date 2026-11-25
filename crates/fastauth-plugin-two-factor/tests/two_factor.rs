@@ -2,13 +2,19 @@ mod common;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
 use common::{Client, Res, secret};
+use fastauth_core::PluginSet;
 use fastauth_core::crypto::Argon2id;
 use fastauth_core::mail::AuthEmail;
 use fastauth_core::model::Model;
+use fastauth_core::plugin_prelude::{Adapter, Gate, Plugin, PluginBuilder};
 use fastauth_core::prelude::*;
 use fastauth_plugin_two_factor::{
-    EnableInput, PasswordInput, TwoFactor, TwoFactorExt, TwoFactorRow, VerifyInput, totp,
+    EnableInput, PasswordInput, TwoFactor, TwoFactorExt, TwoFactorRow, VerifyInput, VerifyOutput,
+    totp,
 };
 use http::{HeaderMap, StatusCode, header};
 use serde_json::{Value, json};
@@ -114,7 +120,7 @@ trait TwoFactorClient {
     async fn two_factor_enabled(&mut self) -> Value;
 }
 
-impl TwoFactorClient for Client<MemoryAdapter, (), plugins![TwoFactor]> {
+impl<P: PluginSet> TwoFactorClient for Client<MemoryAdapter, (), P> {
     async fn sign_in_as(&mut self, email: &str) -> Res {
         self.post(
             "/sign-in/email",
@@ -575,7 +581,10 @@ async fn server_api_enables_verifies_and_disables() {
         .await
         .unwrap()
         .data;
-    assert_eq!(verified.user["twoFactorEnabled"], true);
+    let VerifyOutput::Verified { user, .. } = verified else {
+        panic!("not challenged when signed in");
+    };
+    assert_eq!(user["twoFactorEnabled"], true);
 
     let replay = auth
         .two_factor()
@@ -600,4 +609,134 @@ async fn server_api_enables_verifies_and_disables() {
         .await
         .unwrap();
     assert_eq!(client.two_factor_enabled().await, false);
+}
+
+// ------------------------------------------------- other plugins' gates after the challenge
+
+/// Denies banned emails at sign-in, like the admin plugin.
+#[derive(Clone, Default)]
+struct Ban(Arc<Mutex<HashSet<String>>>);
+
+impl Ban {
+    fn ban(&self, email: &str) {
+        self.0.lock().unwrap().insert(email.to_owned());
+    }
+}
+
+impl Plugin for Ban {
+    const ID: &'static str = "ban";
+    type Requires = ();
+    type UserFields = ();
+    type SessionFields = ();
+
+    fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        let banned = self.0.clone();
+        app.sign_in_gate(move |_ctx, attempt| {
+            let banned = banned.lock().unwrap().contains(&attempt.user.email);
+            async move {
+                Ok(if banned {
+                    Gate::Deny(AuthError::new(
+                        StatusCode::FORBIDDEN,
+                        "BANNED_USER",
+                        "you have been banned",
+                    ))
+                } else {
+                    Gate::Allow
+                })
+            }
+        });
+    }
+}
+
+macro_rules! with_ban {
+    ($($plugin:expr),+) => {
+        Client::new(
+            FastAuth::builder()
+                .secret(secret())
+                .base_url("http://localhost:3000")
+                .database(MemoryAdapter::new())
+                .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+                .rate_limit(RateLimit::disabled())
+                $(.plugin($plugin))+
+                .build()
+                .expect("valid config"),
+        )
+    };
+}
+
+/// Enables two-factor, bans the user, signs in up to the challenge and answers it.
+async fn banned_after_challenge(
+    client: &mut impl TwoFactorClient,
+    ban: &Ban,
+    path: &str,
+    code: impl AsyncFnOnce(&mut Authenticator, &[String]) -> String,
+) -> Res {
+    let (mut app, codes) = client.enable().await;
+    client.sign_out().await;
+    let res = client.sign_in().await;
+    assert_eq!(res.json["twoFactorRedirect"], true, "{}", res.json);
+    ban.ban(EMAIL);
+    let code = code(&mut app, &codes).await;
+    client.verify(path, &code).await
+}
+
+#[tokio::test]
+async fn a_ban_gate_registered_after_two_factor_denies_a_correct_code() {
+    let ban = Ban::default();
+    let mut client = with_ban!(TwoFactor::new(), ban.clone());
+    let res = banned_after_challenge(
+        &mut client,
+        &ban,
+        "/two-factor/verify-totp",
+        async |app, _| app.code(),
+    )
+    .await;
+    assert_eq!(res.status, StatusCode::FORBIDDEN, "{}", res.json);
+    assert_eq!(res.json["code"], "BANNED_USER");
+    assert!(!client.has_cookie("session_token"));
+    assert!(!client.has_cookie("two_factor"), "pending sign-in gone");
+}
+
+#[tokio::test]
+async fn a_ban_gate_registered_before_two_factor_denies_a_correct_code() {
+    let ban = Ban::default();
+    let mut client = with_ban!(ban.clone(), TwoFactor::new());
+    let res = banned_after_challenge(
+        &mut client,
+        &ban,
+        "/two-factor/verify-totp",
+        async |app, _| app.code(),
+    )
+    .await;
+    assert_eq!(res.status, StatusCode::FORBIDDEN, "{}", res.json);
+    assert_eq!(res.json["code"], "BANNED_USER");
+    assert!(!client.has_cookie("session_token"));
+}
+
+#[tokio::test]
+async fn a_ban_gate_denies_a_correct_backup_code() {
+    let ban = Ban::default();
+    let mut client = with_ban!(TwoFactor::new(), ban.clone());
+    let res = banned_after_challenge(
+        &mut client,
+        &ban,
+        "/two-factor/verify-backup-code",
+        async |_, codes| codes[0].clone(),
+    )
+    .await;
+    assert_eq!(res.json["code"], "BANNED_USER", "{}", res.json);
+    assert!(!client.has_cookie("session_token"));
+}
+
+#[tokio::test]
+async fn an_unbanned_user_still_signs_in_through_both_gates() {
+    let ban = Ban::default();
+    let mut client = with_ban!(TwoFactor::new(), ban.clone());
+    let (mut app, _) = client.enable().await;
+    client.sign_out().await;
+    client.sign_in().await;
+    let res = client.verify("/two-factor/verify-totp", &app.code()).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    assert_eq!(res.json["user"]["email"], EMAIL);
+    assert!(client.has_cookie("session_token"));
 }

@@ -2,6 +2,7 @@
 //! requests and server-side API calls.
 
 use std::any::{Any, TypeId};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -161,6 +162,12 @@ pub(crate) type ErasedAfter<D> = Arc<
 pub(crate) type ErasedGate<D> = Arc<
     dyn Fn(HookCtx<D>, SignInAttempt) -> BoxFuture<'static, Result<Gate, AuthError>> + Send + Sync,
 >;
+
+/// A sign-in gate and the id of the plugin that registered it (`"app"` for the app's own).
+pub(crate) struct OwnedGate<D> {
+    pub owner: &'static str,
+    pub gate: ErasedGate<D>,
+}
 pub(crate) type ErasedEventHandler<D> = Arc<
     dyn Fn(Arc<dyn Any + Send + Sync>, Ctx<D>) -> BoxFuture<'static, Result<(), AuthError>>
         + Send
@@ -201,6 +208,8 @@ pub enum Gate {
     Allow,
     Deny(AuthError),
     /// Answer the sign-in with this JSON (e.g. `{"twoFactorRedirect": true}`), no session.
+    /// Gates registered after this one don't run yet: the plugin that challenged finishes the
+    /// sign-in with [`Internal::complete_sign_in`], which runs every gate but its own.
     Challenge(serde_json::Value),
 }
 
@@ -208,8 +217,9 @@ pub enum Gate {
 #[derive(Clone, Debug)]
 pub struct SignInAttempt {
     pub user: UserView,
-    /// `"email"`, `"social"`, `"magic-link"`, ...
-    pub method: &'static str,
+    /// `"email"`, `"social"`, `"magic-link"`, ... A sign-in finished after a challenge keeps
+    /// the method it started with.
+    pub method: Cow<'static, str>,
     pub remember_me: bool,
 }
 
@@ -264,7 +274,7 @@ pub(crate) struct Shared<D> {
     pub mailer: Option<Arc<dyn DynMailer>>,
     pub plugins: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     pub hooks: HashMap<TypeId, EndpointHooks<D>>,
-    pub gates: Vec<ErasedGate<D>>,
+    pub gates: Vec<OwnedGate<D>>,
     pub resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub router: matchit::Router<MethodTable<D>>,
