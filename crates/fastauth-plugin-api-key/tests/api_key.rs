@@ -430,7 +430,7 @@ fn me_with(header: Option<(&str, &str)>) -> Request<Body> {
 
 #[tokio::test]
 async fn resolver_turns_keys_into_sessions_through_axum() {
-    let mut c = client(ApiKeys::new());
+    let mut c = client(ApiKeys::new().sessions(true));
     let user_id = c.sign_up("ada@acme.dk").await;
     let auth = c.auth.clone();
     let app = Router::new()
@@ -496,7 +496,11 @@ async fn resolver_turns_keys_into_sessions_through_axum() {
 
 #[tokio::test]
 async fn custom_header_and_getter() {
-    let mut c = client(ApiKeys::new().header(HeaderName::from_static("x-acme-key")));
+    let mut c = client(
+        ApiKeys::new()
+            .sessions(true)
+            .header(HeaderName::from_static("x-acme-key")),
+    );
     let user_id = c.sign_up("ada@acme.dk").await;
     let created = server_key(&c.auth, &user_id, CreateApiKeyInput::default()).await;
     let mut headers = http::HeaderMap::new();
@@ -506,7 +510,7 @@ async fn custom_header_and_getter() {
     let session = c.auth.get_session(&headers).await.unwrap().unwrap();
     assert_eq!(session.user.id.as_str(), user_id);
 
-    let mut c = client(ApiKeys::new().key_getter(|headers| {
+    let mut c = client(ApiKeys::new().sessions(true).key_getter(|headers| {
         headers
             .get(header::AUTHORIZATION)?
             .to_str()
@@ -524,10 +528,23 @@ async fn custom_header_and_getter() {
     let session = c.auth.get_session(&headers).await.unwrap().unwrap();
     assert_eq!(session.user.id.as_str(), user_id);
 
-    let c = client(ApiKeys::new().sessions(false));
+    let mut c = client(ApiKeys::new());
+    let user_id = c.sign_up("ada@acme.dk").await;
+    let created = server_key(&c.auth, &user_id, CreateApiKeyInput::default()).await;
     let mut headers = http::HeaderMap::new();
-    headers.insert("x-api-key", "x".repeat(64).parse().unwrap());
-    assert!(c.auth.get_session(&headers).await.unwrap().is_none());
+    headers.insert("x-api-key", created.key.parse().unwrap());
+    assert!(
+        c.auth.get_session(&headers).await.unwrap().is_none(),
+        "sessions from keys are opt-in"
+    );
+    assert_eq!(
+        row(&c.auth, &created.api_key.id)
+            .await
+            .unwrap()
+            .request_count,
+        0,
+        "an ignored header doesn't count as a use"
+    );
 }
 
 #[tokio::test]

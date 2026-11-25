@@ -292,6 +292,7 @@ await step("requestPasswordReset + resetPassword", async () => {
   check("the reset password signs in", !signIn.error, signIn.error);
 });
 
+// The server must register `ApiKeys::new().sessions(true)` for the x-api-key session check.
 await step("apiKey (skipped when the server has no api-key plugin)", async () => {
   const probe = await fetch(`${BASE_URL}/api/auth/api-key/list`);
   if (probe.status === 404) {
@@ -329,7 +330,7 @@ await step("apiKey (skipped when the server has no api-key plugin)", async () =>
     fetchOptions: { headers: { "x-api-key": key } },
   });
   const session = await keyed.getSession();
-  check("getSession with x-api-key: the key's user", session.data?.user.email === email, session);
+  check("getSession with x-api-key (sessions(true)): the key's user", session.data?.user.email === email, session);
 
   const deleted = await alice.client.apiKey.delete({ keyId: id });
   check("delete: success", deleted.data?.success === true, deleted);

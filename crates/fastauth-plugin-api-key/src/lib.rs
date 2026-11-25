@@ -2,10 +2,11 @@
 //! usage limits that refill, per-key rate limits and permissions. The routes, JSON and error
 //! codes match Better Auth's `apiKey` plugin, so its `apiKeyClient` works unchanged.
 //!
-//! Only the SHA-256 of a key is stored; `/api-key/create` returns the key once. A request
-//! carrying a key in `x-api-key` (or the configured header) gets a session for the key's
-//! owner that exists only for that request, so every `Session<AppAuth>` extractor accepts
-//! API keys with no handler changes.
+//! Only the SHA-256 of a key is stored; `/api-key/create` returns the key once. With
+//! `.sessions(true)`, a request carrying a key in `x-api-key` (or the configured header) gets
+//! a session for the key's owner that exists only for that request, so every
+//! `Session<AppAuth>` extractor accepts API keys with no handler changes. Each such request
+//! counts against the key's rate limit (10 per day by default; see `ApiKeys::rate_limit`).
 //!
 //! ```
 //! use fastauth_core::prelude::*;
@@ -92,7 +93,8 @@ struct RateLimitDefaults {
 ///
 /// Defaults match Better Auth: 64-character keys with no prefix, the first 6 characters
 /// stored as `start`, no default expiry, `expiresIn` between 1 and 365 days, metadata off,
-/// and a rate limit of 10 verifications per day per key.
+/// a rate limit of 10 verifications per day per key, and no sessions from keys until
+/// `.sessions(true)`.
 #[derive(Clone)]
 pub struct ApiKeys {
     key_length: usize,
@@ -140,7 +142,7 @@ impl Default for ApiKeys {
             },
             header: HeaderName::from_static("x-api-key"),
             getter: None,
-            sessions: true,
+            sessions: false,
         }
     }
 }
@@ -237,8 +239,10 @@ impl ApiKeys {
         self
     }
 
-    /// Whether requests carrying a key get a session for its owner (default on). Off, keys
-    /// are only checked through `auth.api_keys().verify(..)`.
+    /// Whether requests carrying a key get a session for its owner, like Better Auth's
+    /// `enableSessionForAPIKeys` (default off). Off, keys are only checked through
+    /// `auth.api_keys().verify(..)`. On, every such request is a verification and counts
+    /// against the key's rate limit and `remaining`.
     pub fn sessions(mut self, enabled: bool) -> Self {
         self.sessions = enabled;
         self
