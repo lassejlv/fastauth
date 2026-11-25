@@ -79,3 +79,11 @@ stops compiling and tells you which plugin is missing.
 | [Internals](docs/08-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
 | [Security](docs/09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
 | [Open questions](docs/10-open-questions.md) | Decisions that need an owner before v0.1 |
+
+## Agent skill
+
+[`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
+in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
+API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
+compiles against `main`. Copy the folder into your agent's skills directory (for Claude Code,
+`.claude/skills/use-fastauth/`).
