@@ -3,8 +3,7 @@ name = "fastauth-sqlx"
 description = "sqlx adapter for fastauth: Postgres and SQLite, with migrations."
 version.workspace = true
 edition.workspace = true
-# sqlx 0.9 needs Rust 1.94; the rest of the workspace stays at 1.88.
-rust-version = "1.94"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

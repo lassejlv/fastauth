@@ -51,27 +51,27 @@ fastauth-cli          `fastauth secret`, plus the helpers behind your project's 
 
 ```toml
 [dependencies]
-fastauth = "0.1" # default = ["axum", "postgres", "argon2", "reqwest"]
+fastauth = "0.1" # default = ["axum", "postgres", "macros"]
 
-# SQLite instead of Postgres, plus two plugins:
+# SQLite instead of Postgres, plus social sign-in and two-factor:
 fastauth = { version = "0.1", default-features = false, features = [
-    "axum", "sqlite", "argon2", "reqwest",
-    "two-factor", "organization",
+    "axum", "sqlite", "macros", "oauth", "two-factor",
 ] }
 ```
 
+Shipped in v0.1:
+
 | Flag | Pulls in |
 |---|---|
-| `axum` | `fastauth-axum` |
-| `actix` | `fastauth-actix` |
-| `postgres`, `sqlite`, `mysql` | `fastauth-sqlx` with that sqlx driver |
-| `redis` | `fastauth-redis` |
-| `argon2` | argon2id password hashing (the default hasher) |
-| `scrypt` | scrypt verification, for importing Better Auth password hashes |
-| `reqwest` | the default outgoing HTTP client for OAuth |
-| `lettre` | SMTP mailer |
-| `two-factor`, `organization`, `passkey`, `magic-link`, `api-key`, `admin`, `username`, `jwt` | the matching `fastauth-plugin-*` crate, re-exported under `fastauth::plugins` |
-| `openapi` | an OpenAPI 3.1 document for every registered endpoint |
+| `axum` | `fastauth-axum`, as `fastauth::axum` |
+| `postgres`, `sqlite` | `fastauth-sqlx` with that sqlx driver, as `fastauth::sqlx`; `Sqlx` and the pool types join the prelude |
+| `macros` | `#[derive(Fields, Model, AuthError)]` |
+| `oauth` | `fastauth-oauth` (with the reqwest client), as `fastauth::social` |
+| `two-factor` | `fastauth-plugin-two-factor`, as `fastauth::plugins::two_factor` |
+
+Planned: `actix`, `mysql`, `redis`, `scrypt` (importing Better Auth password hashes),
+`lettre`, `openapi`, and the `organization`, `passkey`, `magic-link`, `api-key`, `admin`,
+`username` and `jwt` plugins. argon2id is always on; it isn't a feature.
 
 ## The decisions that shape everything else
 
