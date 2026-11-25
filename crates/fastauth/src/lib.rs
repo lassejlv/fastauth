@@ -10,6 +10,7 @@
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
 //! | `two-factor` | [`fastauth::plugins::two_factor`](crate::plugins): TOTP, email OTP, backup codes |
+//! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
 
@@ -40,6 +41,9 @@ pub use fastauth_sqlx as sqlx;
 /// Social sign-in: `.plugin(Social::new().provider(Github::new(id, secret)))`.
 #[cfg(feature = "oauth")]
 pub use fastauth_oauth as social;
+
+#[cfg(feature = "cli")]
+pub mod cli;
 
 /// First-party plugins.
 pub mod plugins {

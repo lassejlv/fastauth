@@ -18,17 +18,23 @@ postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
 oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
 two-factor = ["dep:fastauth-plugin-two-factor"]
+cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 
 [dependencies]
+anyhow = { version = "1.0.104", optional = true }
+clap = { version = "4.6.10", features = ["derive", "env"], optional = true }
+dotenvy = { version = "0.15.7", optional = true }
 fastauth-axum = { path = "../fastauth-axum", optional = true }
 fastauth-core = { path = "../fastauth-core" }
 fastauth-oauth = { path = "../fastauth-oauth", default-features = false, optional = true }
 fastauth-plugin-two-factor = { path = "../fastauth-plugin-two-factor", optional = true }
 fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, optional = true }
+time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
 
 [dev-dependencies]
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
 tracing-subscriber = "0.3.23"
 
@@ -39,3 +45,11 @@ required-features = ["axum"]
 [[example]]
 name = "axum_sqlite"
 required-features = ["axum", "sqlite", "macros", "two-factor"]
+
+[[example]]
+name = "cli_sqlite"
+required-features = ["cli", "sqlite", "macros", "two-factor"]
+
+[[test]]
+name = "cli"
+required-features = ["cli", "sqlite", "macros"]

@@ -41,7 +41,7 @@ fastauth-actix        actix-web scope and extractor
 fastauth-redis        SecondaryStorage on fred, for sessions and rate limits
 fastauth-oauth        Social plugin: OAuth providers (GitHub, Google), the outgoing HttpClient
 fastauth-plugin-*     first-party plugins, one crate each (two-factor, organization, passkey, ...)
-fastauth-cli          `fastauth secret`, plus the helpers behind your project's migrate binary
+fastauth-cli          `fastauth secret`; schema and migrations run from your app's binary (`cli` feature)
 ```
 
 `fastauth-core` depends on neither sqlx nor axum. It speaks `http` 1.x types and the
@@ -68,6 +68,7 @@ Shipped in v0.1:
 | `macros` | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | `fastauth-oauth` (with the reqwest client), as `fastauth::social` |
 | `two-factor` | `fastauth-plugin-two-factor`, as `fastauth::plugins::two_factor` |
+| `cli` | `fastauth::cli::run` for your app's `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
 
 Planned: `actix`, `mysql`, `redis`, `scrypt` (importing Better Auth password hashes),
 `lettre`, `openapi`, and the `organization`, `passkey`, `magic-link`, `api-key`, `admin`,

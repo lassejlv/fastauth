@@ -7,9 +7,9 @@ and one protected route. The defaults cover everything not shown.
 
 ```toml
 [dependencies]
-fastauth = "0.1"
+fastauth = { version = "0.1", features = ["cli"] }
 axum = "0.8"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
@@ -19,7 +19,7 @@ anyhow = "1"
 
 ```bash
 cargo install fastauth-cli
-fastauth secret >> .env          # FASTAUTH_SECRET=<64 random bytes, base64url>
+fastauth secret >> .env          # FASTAUTH_SECRET=<64 random bytes, base64url>; --raw prints only the value
 echo 'DATABASE_URL=postgres://localhost/acme' >> .env
 ```
 
@@ -67,9 +67,14 @@ migration. Add a three-line binary to your project:
 // src/bin/fastauth.rs
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    fastauth::cli::run(|pool| acme::auth::build(pool)).await
+    fastauth::cli::run(async |pool| acme::auth::build(pool)).await
 }
 ```
+
+`run` loads `.env`, connects to `DATABASE_URL` (or `--database-url`), and hands the pool
+to your closure. The closure's argument type picks the database: `build` takes a `PgPool`,
+so the CLI opens one; a `SqlitePool` works the same way. It's an async closure so setup
+that awaits (fetching a secret, say) fits in it.
 
 ```bash
 cargo run --bin fastauth -- generate --out migrations   # writes migrations/<ts>_fastauth.sql
