@@ -106,7 +106,7 @@ impl<D: Adapter> Endpoint<D> for InviteMember {
             None => {
                 ctx.db()
                     .insert(&Invitation {
-                        id: ctx.new_id(),
+                        id: ctx.new_id()?,
                         organization_id,
                         email,
                         role,

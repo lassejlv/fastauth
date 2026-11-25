@@ -87,7 +87,7 @@ pub(crate) async fn create<D: Adapter, A>(
     }
     let now = ctx.now();
     let organization = OrganizationRow {
-        id: ctx.new_id(),
+        id: ctx.new_id()?,
         name: input.name,
         slug: input.slug,
         logo: input.logo,
@@ -95,7 +95,7 @@ pub(crate) async fn create<D: Adapter, A>(
         created_at: now,
     };
     let member = Member {
-        id: ctx.new_id(),
+        id: ctx.new_id()?,
         organization_id: organization.id.clone(),
         user_id: user_id.clone(),
         role: OWNER.to_owned(),

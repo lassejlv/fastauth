@@ -214,7 +214,7 @@ async fn insert_member<D: Adapter, A>(
     let member = ctx
         .db()
         .insert(&Member {
-            id: ctx.new_id(),
+            id: ctx.new_id()?,
             organization_id: organization_id.clone(),
             user_id: user_id.clone(),
             role,
