@@ -58,11 +58,18 @@ pub struct VerifyInput {
     pub trust_device: Option<bool>,
 }
 
-/// What a successful verification answers: the session token and the user.
+/// What a successful verification answers.
 #[derive(Debug, Serialize)]
-pub struct VerifyOutput {
-    pub token: String,
-    pub user: Map<String, serde_json::Value>,
+#[serde(untagged)]
+pub enum VerifyOutput {
+    /// The session token and the user.
+    Verified {
+        token: String,
+        user: Map<String, serde_json::Value>,
+    },
+    /// The code finished a sign-in, and a sign-in gate of another plugin challenged it in
+    /// turn: answer with its JSON. No session exists yet.
+    Challenge(serde_json::Value),
 }
 
 #[derive(Debug, Serialize)]
@@ -419,7 +426,7 @@ pub(crate) async fn gate<D: Adapter>(
         &ctx,
         PENDING_COOKIE,
         "pending",
-        [attempt.user.id.as_str(), remember_me],
+        [attempt.user.id.as_str(), remember_me, &attempt.method],
         plugin.two_factor_cookie_max_age,
     );
     let methods: &[&str] = if ctx.internal().can_send_email() {
@@ -435,8 +442,13 @@ pub(crate) async fn gate<D: Adapter>(
 
 /// Who a verify endpoint acts for.
 enum Subject {
-    /// Signing in: the pending cookie names the user, and verifying creates the session.
-    Pending { user: UserView, remember_me: bool },
+    /// Signing in: the pending cookie names the user and the sign-in method, and verifying
+    /// finishes the sign-in.
+    Pending {
+        user: UserView,
+        remember_me: bool,
+        method: String,
+    },
     /// Already signed in, e.g. confirming the authenticator after `/two-factor/enable`.
     Session(Box<SessionView>),
 }
@@ -452,12 +464,13 @@ impl Subject {
 
 /// The pending sign-in when its cookie is valid, else the session.
 async fn subject<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>) -> Result<Subject, AuthError> {
-    if let Some([user_id, remember_me]) = read_payload(ctx, PENDING_COOKIE, "pending")
+    if let Some([user_id, remember_me, method]) = read_payload(ctx, PENDING_COOKIE, "pending")
         && let Some(user) = ctx.internal().find_user_by_id(&Id::from(user_id)).await?
     {
         return Ok(Subject::Pending {
             user,
             remember_me: remember_me == "1",
+            method,
         });
     }
     ctx.session()
@@ -465,7 +478,8 @@ async fn subject<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>) -> Result<Subject
         .ok_or_else(|| TwoFactorError::InvalidTwoFactorCookie.into())
 }
 
-/// Creates the session for a pending sign-in and trusts the device when asked.
+/// Finishes a pending sign-in through the other plugins' gates, and trusts the device when
+/// asked.
 async fn finish<D: Adapter>(
     plugin: &TwoFactor,
     ctx: &Ctx<D, MaybeAuthenticated>,
@@ -473,9 +487,20 @@ async fn finish<D: Adapter>(
     trust_device: Option<bool>,
 ) -> Result<VerifyOutput, AuthError> {
     let session = match subject {
-        Subject::Pending { user, remember_me } => {
+        Subject::Pending {
+            user,
+            remember_me,
+            method,
+        } => {
             ctx.delete_cookie(PENDING_COOKIE);
-            ctx.internal().create_session(&user.id, remember_me).await?
+            match ctx
+                .internal()
+                .complete_sign_in(TwoFactor::ID, user, method, remember_me)
+                .await?
+            {
+                SignInResult::SignedIn(session) => *session,
+                SignInResult::Challenge(body) => return Ok(VerifyOutput::Challenge(body)),
+            }
         }
         Subject::Session(session) => *session,
     };
@@ -491,7 +516,7 @@ async fn finish<D: Adapter>(
         );
     }
     let user = session.user.to_json();
-    Ok(VerifyOutput {
+    Ok(VerifyOutput::Verified {
         token: session.token.unwrap_or_default(),
         user,
     })
@@ -511,26 +536,41 @@ async fn is_trusted<D: Adapter, A>(ctx: &Ctx<D, A>, user_id: &Id) -> Result<bool
         .is_some_and(|row| row.id.as_str() == row_id))
 }
 
-/// Sets the signed cookie `{prefix}.{cookie}` to `kind|a|b|expires`.
-fn write_payload<D: Adapter, A>(
+/// Sets the signed cookie `{prefix}.{cookie}` to `kind|field|..|expires`.
+fn write_payload<D: Adapter, A, const N: usize>(
     ctx: &Ctx<D, A>,
     cookie: &str,
     kind: &str,
-    [a, b]: [&str; 2],
+    fields: [&str; N],
     max_age: Duration,
 ) {
     let expires = (ctx.now() + max_age).unix_timestamp();
-    ctx.set_signed_cookie(cookie, &format!("{kind}|{a}|{b}|{expires}"), Some(max_age));
+    let value = format!("{kind}|{}|{expires}", fields.join("|"));
+    ctx.set_signed_cookie(cookie, &value, Some(max_age));
 }
 
-/// Reads a cookie written by `write_payload`, when its signature, kind and expiry check out.
-fn read_payload<D: Adapter, A>(ctx: &Ctx<D, A>, cookie: &str, kind: &str) -> Option<[String; 2]> {
+/// Reads a cookie written by `write_payload`, when its signature, kind, field count and
+/// expiry check out.
+fn read_payload<D: Adapter, A, const N: usize>(
+    ctx: &Ctx<D, A>,
+    cookie: &str,
+    kind: &str,
+) -> Option<[String; N]> {
     let value = ctx.signed_cookie(cookie)?;
-    let [found, a, b, expires] = value.split('|').collect::<Vec<_>>()[..] else {
+    let parts: Vec<&str> = value.split('|').collect();
+    let [found, fields @ .., expires] = &parts[..] else {
         return None;
     };
     let expires: i64 = expires.parse().ok()?;
-    (found == kind && expires > ctx.now().unix_timestamp()).then(|| [a.to_owned(), b.to_owned()])
+    if *found != kind || expires <= ctx.now().unix_timestamp() {
+        return None;
+    }
+    fields
+        .iter()
+        .map(|field| (*field).to_owned())
+        .collect::<Vec<_>>()
+        .try_into()
+        .ok()
 }
 
 async fn check_password<D: Adapter, A>(

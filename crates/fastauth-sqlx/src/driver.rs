@@ -57,14 +57,17 @@ pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
 }
 
 pub trait Driver: Database {
-    /// The operator for a prefix match, and what follows its parameter.
-    const PREFIX_MATCH: (&'static str, &'static str);
+    /// The case-sensitive pattern-match operator for text filters, and what follows its
+    /// parameter.
+    const TEXT_MATCH: (&'static str, &'static str);
+    /// The `TEXT_MATCH` wildcard for any run of characters.
+    const WILDCARD: char;
     /// Whether `ALTER TABLE .. ADD COLUMN` accepts an inline UNIQUE constraint.
     const UNIQUE_ON_ADD_COLUMN: bool;
 
     fn param(n: usize, out: &mut String);
-    /// The pattern for `PREFIX_MATCH` that matches strings starting with `prefix`.
-    fn prefix_pattern(prefix: &str) -> String;
+    /// `text` as a `TEXT_MATCH` pattern that matches it literally.
+    fn escape_pattern(text: &str) -> String;
     /// An identifier as the database stores it (Postgres truncates to 63 bytes).
     fn ident(name: String) -> String;
     fn sql_type(ty: ColumnType) -> &'static str;

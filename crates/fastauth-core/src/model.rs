@@ -130,8 +130,18 @@ impl<O: OnTable, T: ColumnValue> Col<O, T> {
     }
 }
 
+/// Case-sensitive text matches. The string matches literally: `%`, `_` and `*` are not
+/// wildcards.
 impl<O: OnTable> Col<O, String> {
     pub fn starts_with(self, prefix: impl Into<String>) -> Where<O::Table> {
         Where::starts_with(self.name, prefix.into())
+    }
+
+    pub fn contains(self, substring: impl Into<String>) -> Where<O::Table> {
+        Where::contains(self.name, substring.into())
+    }
+
+    pub fn ends_with(self, suffix: impl Into<String>) -> Where<O::Table> {
+        Where::ends_with(self.name, suffix.into())
     }
 }

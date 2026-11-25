@@ -58,13 +58,20 @@ pub enum Order {
 }
 
 /// A resolved filter: columns are positions in the query's table.
+///
+/// The text matches (`StartsWith`, `Contains`, `EndsWith`) are case-sensitive and match
+/// their string literally: `%`, `_` and other pattern characters are not wildcards. Adapters
+/// answer a variant they don't know with [`DbError::Unsupported`].
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Filter {
     All,
     Cmp { column: usize, op: Op, value: Value },
     In { column: usize, values: Vec<Value> },
     Null { column: usize, is_null: bool },
     StartsWith { column: usize, prefix: String },
+    Contains { column: usize, substring: String },
+    EndsWith { column: usize, suffix: String },
     And(Vec<Filter>),
     Or(Vec<Filter>),
 }
