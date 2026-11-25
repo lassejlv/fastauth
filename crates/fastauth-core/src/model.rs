@@ -69,6 +69,11 @@ impl<O: OnTable, T: ColumnValue> Col<O, T> {
         self.name
     }
 
+    /// The column paired with a value, for raw column lists such as a social profile mapping.
+    pub fn value(self, value: impl Into<T>) -> (&'static str, Value) {
+        (self.name, value.into().into_value())
+    }
+
     pub fn eq(self, value: impl Into<T>) -> Where<O::Table> {
         Where::cmp(self.name, crate::adapter::Op::Eq, value.into().into_value())
     }
