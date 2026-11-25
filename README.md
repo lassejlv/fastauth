@@ -1,0 +1,81 @@
+# fastauth
+
+Authentication for Rust web apps, modelled on [Better Auth](https://www.better-auth.com):
+one builder call gives you email and password sign-in, social login, sessions, and a
+plugin system for two-factor, organizations, passkeys, API keys and the rest. It
+runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
+
+> **Status: design.** This repository holds the design and a spike, not a usable crate yet.
+> The docs describe the API we intend to ship. `spike/typed-plugins` is a small
+> crate that compiles and tests the type-level parts of that API (see
+> [Internals](docs/08-internals.md#what-the-spike-proves)).
+
+```rust
+use fastauth::prelude::*;
+use fastauth::plugins::{organization::Organization, two_factor::TwoFactor};
+use fastauth::social::Github;
+
+pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![TwoFactor, Organization]>;
+
+#[derive(Fields, Serialize, Clone)]
+pub struct Profile {
+    #[field(default = "free")]
+    pub plan: String,
+}
+
+pub fn auth(pool: PgPool) -> Result<AppAuth, BuildError> {
+    FastAuth::builder()
+        .secret(Secret::from_env("FASTAUTH_SECRET")?)
+        .base_url("http://localhost:3000")
+        .database(Sqlx::new(pool))
+        .email_password(EmailPassword::default())
+        .social(Github::from_env()?)
+        .user_fields::<Profile>()
+        .plugin(TwoFactor::new().issuer("Acme"))
+        .plugin(Organization::default())
+        .build()
+}
+
+async fn me(session: Session<AppAuth>) -> Json<Value> {
+    let tfa = session.user.plugin::<TwoFactor, _>();
+    Json(json!({
+        "email": session.user.email,
+        "plan": session.user.fields.plan,
+        "twoFactor": tfa.two_factor_enabled,
+    }))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let pool = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
+    let auth = auth(pool)?;
+    auth.migrator().run().await?;
+
+    let app = Router::new()
+        .route("/me", get(me))
+        .merge(auth.router()) // serves /api/auth/*
+        .with_state(auth);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+```
+
+If you remove `TwoFactor` from the builder, `session.user.plugin::<TwoFactor, _>()`
+stops compiling and tells you which plugin is missing.
+
+## Docs
+
+| Page | What it covers |
+|---|---|
+| [Overview](docs/01-overview.md) | Goals, non-goals, crate layout, feature flags, the main design decisions |
+| [Quickstart](docs/02-quickstart.md) | From `cargo new` to sign-up, sign-in and a protected route |
+| [Configuration](docs/03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits |
+| [Sessions and the server API](docs/04-sessions.md) | Extractors, typed user fields, calling auth from your own code |
+| [Plugins](docs/05-plugins.md) | Using plugins, and writing one: schema, endpoints, hooks, events, errors, dependencies |
+| [Databases](docs/06-database.md) | The adapter trait, typed models, sqlx, migrations, writing an adapter |
+| [HTTP integrations](docs/07-http.md) | axum, actix-web, raw `tower`, the outgoing HTTP client, writing an integration |
+| [Internals](docs/08-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
+| [Security](docs/09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
+| [Open questions](docs/10-open-questions.md) | Decisions that need an owner before v0.1 |
