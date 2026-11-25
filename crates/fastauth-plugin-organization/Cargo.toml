@@ -1,0 +1,41 @@
+[package]
+name = "fastauth-plugin-organization"
+description = "Organizations for fastauth: members, invitations, roles and permissions, wire-compatible with Better Auth."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[lints]
+workspace = true
+
+[features]
+## axum extractors: `ActiveMember`, `OrgMember` and `RequirePermission`.
+axum = ["dep:axum", "dep:fastauth-axum"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, optional = true }
+fastauth-axum = { version = "0.1.0", path = "../fastauth-axum", optional = true }
+fastauth-core = { version = "0.1.0", path = "../fastauth-core", features = ["macros"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }
+
+[dev-dependencies]
+axum = { version = "0.8.9", features = ["macros"] }
+bytes = "1.12.2"
+fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, features = ["sqlite"] }
+http = "1.5.0"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
+tower = { version = "0.5.3", features = ["util"] }
+
+[[example]]
+name = "compat_server"
+required-features = ["axum"]

@@ -686,6 +686,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastauth-plugin-organization"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "http",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "fastauth-plugin-two-factor"
 version = "0.1.0"
 dependencies = [
