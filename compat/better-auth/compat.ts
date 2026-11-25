@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createAuthClient } from "better-auth/client";
 import { twoFactorClient } from "better-auth/client/plugins";
+import { apiKeyClient } from "@better-auth/api-key/client";
 
 const BASE_URL = process.env.FASTAUTH_URL ?? "http://localhost:3000";
 const SERVER_LOG = process.env.FASTAUTH_LOG;
@@ -48,7 +49,7 @@ function newClient() {
   const { jar, fetchImpl } = cookieJarFetch();
   const client = createAuthClient({
     baseURL: BASE_URL,
-    plugins: [twoFactorClient()],
+    plugins: [twoFactorClient(), apiKeyClient()],
     fetchOptions: { customFetchImpl: fetchImpl },
   });
   return { client, jar };
@@ -289,6 +290,52 @@ await step("requestPasswordReset + resetPassword", async () => {
   check("a used token: error.code INVALID_TOKEN", reused.error?.code === "INVALID_TOKEN", reused.error);
   const signIn = await alice.client.signIn.email({ email, password });
   check("the reset password signs in", !signIn.error, signIn.error);
+});
+
+// The server must register `ApiKeys::new().sessions(true)` for the x-api-key session check.
+await step("apiKey (skipped when the server has no api-key plugin)", async () => {
+  const probe = await fetch(`${BASE_URL}/api/auth/api-key/list`);
+  if (probe.status === 404) {
+    console.log("  skip: /api-key/list is 404, the server doesn't register the api-key plugin");
+    return;
+  }
+  const created = await alice.client.apiKey.create({ name: "compat", prefix: "ck_" });
+  check("create: no error", !created.error, created.error);
+  const key = created.data?.key ?? "";
+  check("create: returns the key once", key.startsWith("ck_") && key.length > 64, created.data);
+  check("create: start is the key's first characters", key.startsWith(created.data?.start ?? "-"), created.data);
+  check("create: referenceId is the user", typeof created.data?.referenceId === "string", created.data);
+  check("create: rateLimitMax defaults to 10", created.data?.rateLimitMax === 10, created.data);
+  const id = created.data?.id ?? "";
+
+  const serverOnly = await alice.client.apiKey.create({ remaining: 5 } as never);
+  check("create with remaining: status 400", serverOnly.error?.status === 400, serverOnly.error);
+  check("create with remaining: SERVER_ONLY_PROPERTY", serverOnly.error?.code === "SERVER_ONLY_PROPERTY", serverOnly.error);
+
+  const list = await alice.client.apiKey.list();
+  check("list: no error", !list.error, list.error);
+  check("list: one key, total 1", list.data?.apiKeys.length === 1 && list.data.total === 1, list.data);
+  check("list: no key or hash", list.data?.apiKeys.every((k) => !("key" in k) && !("keyHash" in k)), list.data);
+
+  const got = await alice.client.apiKey.get({ query: { id } });
+  check("get: no error", !got.error, got.error);
+  check("get: same key", got.data?.id === id && got.data.name === "compat", got.data);
+
+  const updated = await alice.client.apiKey.update({ keyId: id, name: "renamed" });
+  check("update: no error", !updated.error, updated.error);
+  check("update: new name", updated.data?.name === "renamed", updated.data);
+
+  const keyed = createAuthClient({
+    baseURL: BASE_URL,
+    fetchOptions: { headers: { "x-api-key": key } },
+  });
+  const session = await keyed.getSession();
+  check("getSession with x-api-key (sessions(true)): the key's user", session.data?.user.email === email, session);
+
+  const deleted = await alice.client.apiKey.delete({ keyId: id });
+  check("delete: success", deleted.data?.success === true, deleted);
+  const gone = await alice.client.apiKey.get({ query: { id } });
+  check("get after delete: KEY_NOT_FOUND", gone.error?.code === "KEY_NOT_FOUND", gone.error);
 });
 
 let totpURI = "";
