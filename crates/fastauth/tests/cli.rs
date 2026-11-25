@@ -26,7 +26,7 @@ async fn fastauth(url: &str, args: &[&str]) -> anyhow::Result<()> {
     let argv = ["fastauth", "--database-url", url]
         .into_iter()
         .chain(args.iter().copied());
-    Cli::parse_from(argv).run(async |pool| build(pool)).await
+    Cli::parse_from(argv).run(build).await
 }
 
 fn migrations(dir: &Path) -> Vec<String> {
@@ -85,7 +85,7 @@ async fn missing_database_url_is_reported() {
     if std::env::var_os("DATABASE_URL").is_some() {
         return;
     }
-    let err = cli.run(async |pool| build(pool)).await.unwrap_err();
+    let err = cli.run(build).await.unwrap_err();
     assert!(
         err.to_string().starts_with("DATABASE_URL is not set"),
         "{err}"

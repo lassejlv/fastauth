@@ -32,7 +32,7 @@ fn help_explains_where_the_schema_commands_live() {
         help.contains("only a binary compiled\nfrom your code can know it"),
         "{help}"
     );
-    assert!(help.contains("fastauth::cli::run(async |pool| my_app::auth::build(pool))"));
+    assert!(help.contains("fastauth::cli::run(|pool| my_app::auth::build(pool))"));
 }
 
 #[test]

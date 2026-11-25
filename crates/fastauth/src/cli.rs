@@ -5,7 +5,7 @@
 //! // src/bin/fastauth.rs
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     fastauth::cli::run(async |pool| acme::auth::build(pool)).await
+//!     fastauth::cli::run(|pool| acme::auth::build(pool)).await
 //! }
 //! ```
 //!
@@ -48,15 +48,14 @@ impl<DB: Database> Connect for Pool<DB> {
 /// (or `--database-url`), passes the pool to `build` and runs the command on the
 /// `Auth` it returns. `status` returns an error when migrations are pending, so the
 /// binary exits with 1.
-pub async fn run<C, D, U, P, E, F, Fut>(build: F) -> anyhow::Result<()>
+pub async fn run<C, D, U, P, E, F>(build: F) -> anyhow::Result<()>
 where
     C: Connect,
     D: Adapter,
     U: Fields,
     P: PluginSet,
     E: Into<anyhow::Error>,
-    F: FnOnce(C) -> Fut,
-    Fut: Future<Output = Result<Auth<D, U, P>, E>>,
+    F: FnOnce(C) -> Result<Auth<D, U, P>, E>,
 {
     let _ = dotenvy::dotenv();
     Cli::parse().run(build).await
@@ -95,15 +94,14 @@ enum Command {
 
 impl Cli {
     /// Connects, builds the `Auth` and runs the command, printing to stdout.
-    pub async fn run<C, D, U, P, E, F, Fut>(self, build: F) -> anyhow::Result<()>
+    pub async fn run<C, D, U, P, E, F>(self, build: F) -> anyhow::Result<()>
     where
         C: Connect,
         D: Adapter,
         U: Fields,
         P: PluginSet,
         E: Into<anyhow::Error>,
-        F: FnOnce(C) -> Fut,
-        Fut: Future<Output = Result<Auth<D, U, P>, E>>,
+        F: FnOnce(C) -> Result<Auth<D, U, P>, E>,
     {
         let Some(url) = self.database_url else {
             bail!("DATABASE_URL is not set; set it, put it in .env, or pass --database-url");
@@ -111,7 +109,7 @@ impl Cli {
         let pool = C::connect(&url)
             .await
             .context("connecting to DATABASE_URL")?;
-        let auth = build(pool).await.map_err(Into::into)?;
+        let auth = build(pool).map_err(Into::into)?;
         self.command
             .execute(&auth, &mut std::io::stdout().lock())
             .await

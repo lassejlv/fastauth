@@ -35,5 +35,5 @@ fn build(pool: SqlitePool) -> Result<AppAuth, BuildError> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    fastauth::cli::run(async |pool| build(pool)).await
+    fastauth::cli::run(build).await
 }
