@@ -10,6 +10,9 @@
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
 //! | `two-factor` | [`fastauth::plugins::two_factor`](crate::plugins): TOTP, email OTP, backup codes |
+//! | `organization` | [`fastauth::plugins::organization`](crate::plugins): organizations, members, invitations, roles |
+//! | `admin` | [`fastauth::plugins::admin`](crate::plugins): roles, bans, impersonation, user management |
+//! | `api-key` | [`fastauth::plugins::api_key`](crate::plugins): per-user API keys |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
@@ -50,6 +53,18 @@ pub mod plugins {
     /// Two-factor authentication: `.plugin(TwoFactor::new().issuer("Acme"))`.
     #[cfg(feature = "two-factor")]
     pub use fastauth_plugin_two_factor as two_factor;
+
+    /// Organizations, members, invitations, roles: `.plugin(Organization::default())`.
+    #[cfg(feature = "organization")]
+    pub use fastauth_plugin_organization as organization;
+
+    /// Roles, bans, impersonation and user management: `.plugin(Admin::new())`.
+    #[cfg(feature = "admin")]
+    pub use fastauth_plugin_admin as admin;
+
+    /// Per-user API keys: `.plugin(ApiKeys::new())`.
+    #[cfg(feature = "api-key")]
+    pub use fastauth_plugin_api_key as api_key;
 }
 
 /// Paths the derive macros expand to. Not public API.
