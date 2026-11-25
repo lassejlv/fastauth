@@ -2,11 +2,16 @@
 
 Authentication for Rust web apps, modelled on [Better Auth](https://www.better-auth.com):
 one builder call gives you email and password sign-in, social login, sessions, and a
-plugin system for two-factor, organizations, passkeys, API keys and the rest. It
-runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
+plugin system for two-factor, organizations, admin tools, API keys and your own plugins.
+It runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
 
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
+
+**Status:** 0.1.0 is on crates.io. `main` is 0.2, not released yet: it adds the
+organization, admin and API key plugins and makes ids ULIDs by default, which is a breaking
+change for Postgres databases created with 0.1 ([CHANGELOG](CHANGELOG.md)). The docs in
+`docs/` describe `main`.
 
 ## Install
 
@@ -17,7 +22,8 @@ cargo install fastauth-cli   # `fastauth secret` for FASTAUTH_SECRET
 
 Default features are `axum`, `postgres` and `macros`. Use `sqlite` instead of (or as well as)
 `postgres`, and add `oauth` for GitHub and Google sign-in, `two-factor` for TOTP, email codes and
-backup codes, and `cli` for the migration commands. Requires Rust 1.94 or newer.
+backup codes, `organization`, `admin` and `api-key` for those plugins, and `cli` for the
+migration commands. Requires Rust 1.94 or newer.
 
 ## Example
 
@@ -86,7 +92,7 @@ If you remove `TwoFactor` from the builder, `session.user.plugin::<TwoFactor, _>
 stops compiling and tells you which plugin is missing. `crates/fastauth/examples/` has runnable
 apps on SQLite and in memory.
 
-## What's in 0.1
+## Crates
 
 | Crate | What |
 |---|---|
@@ -97,37 +103,43 @@ apps on SQLite and in memory.
 | [`fastauth-macros`](https://crates.io/crates/fastauth-macros) | `#[derive(Fields, Model, AuthError)]` |
 | [`fastauth-oauth`](https://crates.io/crates/fastauth-oauth) | The `Social` plugin: GitHub and Google |
 | [`fastauth-plugin-two-factor`](https://crates.io/crates/fastauth-plugin-two-factor) | TOTP, email codes, backup codes, trusted devices |
+| [`fastauth-plugin-organization`](https://crates.io/crates/fastauth-plugin-organization) | Organizations, members, invitations, roles and permissions, axum extractors (0.2) |
+| [`fastauth-plugin-admin`](https://crates.io/crates/fastauth-plugin-admin) | User management, roles and permissions, bans, impersonation, `RequireRole` (0.2) |
+| [`fastauth-plugin-api-key`](https://crates.io/crates/fastauth-plugin-api-key) | Hashed API keys with expiry, usage and rate limits, permissions, optional sessions from keys (0.2) |
 | [`fastauth-cli`](https://crates.io/crates/fastauth-cli) | `fastauth secret`; schema and migration commands run from your app via `fastauth::cli::run` |
 
 The HTTP API is compatible with Better Auth's TypeScript client (tested against
 `better-auth` 1.7.28, see [docs/11](docs/11-better-auth-client.md)), so its React, Vue and
 Svelte clients work against a fastauth server.
 
-Not built yet, though some `docs/` pages describe them: the organization, admin, passkey,
-magic link, API key and JWT plugins, actix-web, Redis and MySQL.
+Not built yet: passkey, magic link, JWT and other plugins, teams in organizations, actix-web,
+Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
 
 ## Docs
 
 | Page | What it covers |
 |---|---|
-| [Overview](docs/01-overview.md) | Goals, non-goals, crate layout, feature flags, the main design decisions |
+| [Overview](docs/01-overview.md) | Goals, non-goals, crate layout, feature flags, the main design decisions, what's planned |
 | [Quickstart](docs/02-quickstart.md) | From `cargo new` to sign-up, sign-in and a protected route |
-| [Configuration](docs/03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits |
+| [Configuration](docs/03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits, ids |
 | [Sessions and the server API](docs/04-sessions.md) | Extractors, typed user fields, calling auth from your own code |
 | [Plugins](docs/05-plugins.md) | Using plugins, and writing one: schema, endpoints, hooks, events, errors, dependencies |
-| [Databases](docs/06-database.md) | The adapter trait, typed models, sqlx, migrations, writing an adapter |
-| [HTTP integrations](docs/07-http.md) | axum, actix-web, raw `tower`, the outgoing HTTP client, writing an integration |
+| [Databases](docs/06-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
+| [HTTP integrations](docs/07-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
 | [Internals](docs/08-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
 | [Security](docs/09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
-| [Open questions](docs/10-open-questions.md) | Design decisions, what was decided, and what's planned next |
-| [Better Auth's client](docs/11-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested version, known gaps |
+| [Decisions](docs/10-open-questions.md) | The design decisions, including the ones made since 0.1 |
+| [Better Auth's client](docs/11-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
+| [Organization](docs/12-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
+| [Admin](docs/13-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
+| [API keys](docs/14-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
 
 ## Agent skill
 
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against fastauth 0.1. Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.2). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License

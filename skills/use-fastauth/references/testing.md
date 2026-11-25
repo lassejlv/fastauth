@@ -16,7 +16,7 @@ use fastauth::endpoint::Before;
 use fastauth::prelude::*;
 use fastauth::routes::{SignUpEmail, SignUpEmailInput};
 
-use crate::api_keys::{ApiKeys, Bans, KeyAudit};
+use crate::access_tokens::{AccessTokens, Bans, TokenAudit};
 
 #[derive(Fields, Clone, Debug)]
 pub struct Profile {
@@ -25,7 +25,7 @@ pub struct Profile {
     pub stripe_customer_id: Option<String>,
 }
 
-pub type AppAuth<D> = Auth<D, Profile, plugins![ApiKeys, KeyAudit, Bans]>;
+pub type AppAuth<D> = Auth<D, Profile, plugins![AccessTokens, TokenAudit, Bans]>;
 
 pub fn build<D: Adapter>(db: D, secret: Secret, mailer: impl Mailer) -> Result<AppAuth<D>, BuildError> {
     FastAuth::builder()
@@ -35,8 +35,8 @@ pub fn build<D: Adapter>(db: D, secret: Secret, mailer: impl Mailer) -> Result<A
         .email_password(EmailPassword::default())
         .mailer(mailer)
         .user_fields::<Profile>()
-        .plugin(ApiKeys::new().ttl(Duration::days(90)))
-        .plugin(KeyAudit)
+        .plugin(AccessTokens::new().ttl(Duration::days(90)))
+        .plugin(TokenAudit)
         .plugin(Bans)
         .configure(|app| {
             app.hook::<SignUpEmail>()
@@ -85,7 +85,7 @@ use fastauth::query::Db;
 use fastauth::routes::{SignInEmailInput, SignUpEmailInput};
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use use_fastauth_check::api_keys::{ApiKeysExt, BanFields, CreateKeyInput};
+use use_fastauth_check::access_tokens::{AccessTokensExt, BanFields, CreateTokenInput};
 use use_fastauth_check::testable::{app, build};
 
 const ORIGIN: &str = "http://localhost:3000";

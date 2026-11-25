@@ -1,6 +1,28 @@
 # Changelog
 
-## Unreleased
+## Unreleased (0.2.0)
+
+### New plugins
+
+- **fastauth-plugin-organization** (feature `organization`, `fastauth::plugins::organization`):
+  organizations, members, invitations by email, the active organization on the session,
+  owner/admin/member roles with custom roles and typed permissions, `OrganizationExt`, and
+  the axum extractors `ActiveMember`, `OrgMember<A, FromPath<P>>` and
+  `RequirePermission<A, P, S>`. Wire-compatible with Better Auth's `organizationClient`
+  (`compat/better-auth/run-organization.sh`). ([docs/12](docs/12-organization.md), #19)
+- **fastauth-plugin-admin** (feature `admin`, `fastauth::plugins::admin`): Better Auth's 15
+  `/admin/*` routes, statement-based roles and permissions, bans enforced by a sign-in gate,
+  impersonation, case-sensitive user search in SQL, `AdminExt`, and the `RequireRole<A, R>`
+  extractor. Wire-compatible with `adminClient` (`compat/better-auth/run-admin.sh`).
+  ([docs/13](docs/13-admin.md), #18)
+- **fastauth-plugin-api-key** (feature `api-key`, `fastauth::plugins::api_key`): hashed API
+  keys with expiry, usage limits and refills, per-key rate limits and permissions,
+  server-only verify and cleanup, atomic counters, `ApiKeysExt`, and sessions from
+  `x-api-key`, opt-in with `ApiKeys::new().sessions(true)`. Wire-compatible with
+  `@better-auth/api-key`'s `apiKeyClient`. ([docs/14](docs/14-api-keys.md), #17)
+- The facade gains the `organization`, `admin` and `api-key` features; with `axum` on, they
+  turn on the plugins' extractors. The `axum_sqlite` example registers all three, and
+  `compat/better-auth/run.sh` checks the API key flow. (#21)
 
 ### Breaking
 
@@ -14,8 +36,9 @@
   when the live id columns don't match the configured strategy. SQLite stores ids as `text`
   either way.
 - `ctx.new_id()` returns `Result<Id, AuthError>`: use `ctx.new_id()?`.
-- `fastauth_core::testing::conformance_schema` takes the `IdStrategy` to store ids with, and
-  `run_adapter_conformance` runs every case with text ids and with UUID ids.
+- `fastauth_core::testing::conformance_schema` and `http_flow` take the `IdStrategy` to
+  store ids with, and `run_adapter_conformance` runs every case with text ids and with
+  UUID ids.
 - **Sign-in gates still run after a challenge.** Finishing a challenged sign-in with
   `ctx.internal().create_session(..)` skipped every other gate, so a banned user who answered
   a TOTP challenge got a session. Gates now belong to the plugin that registered them, and
@@ -41,6 +64,11 @@
   conformance suite.
 - `AuthInstance::try_plugin::<P>()`, for code generic over `AuthInstance` (an axum extractor)
   that can't name the `HasPlugin` index.
+- `Api::db()`: typed queries outside a request, for the same kind of code.
+- `IdStorage`, with `Schema::id_storage()`, `TableDef::id_storage()` and
+  `LiveSchema::id_storage` for adapters that store ids per strategy.
+- Docs: every page rewritten to match `main`, new pages for the three plugins, and the
+  agent skill updated; every Rust sample compiles.
 
 ## 0.1.0 (2026-11-25)
 

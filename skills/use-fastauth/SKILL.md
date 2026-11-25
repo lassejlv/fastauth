@@ -5,18 +5,20 @@ description: Use fastauth, Better Auth for Rust, in an app. Use in any Rust proj
 
 # Using fastauth in an app
 
-fastauth gives a Rust web app email and password sign-in, sessions, social login and
-two-factor, with Better Auth's routes and JSON. The whole configuration is one value,
+fastauth gives a Rust web app email and password sign-in, sessions, social login,
+two-factor, organizations, admin tools and API keys, with Better Auth's routes and JSON. The whole configuration is one value,
 `Auth<D, U, P>`: the database adapter, the app's own user columns and the plugin list. The
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches the code on `main`. The repo's `docs/` is the design spec and runs
-ahead of the code: `fastauth-cli` and `fastauth::cli`, `#[endpoint]`, `TestAuth`,
-`.in_tx(..)`, `.meta(..)`, `.secondary_storage(..)`, `.session_fields`, and the
-organization, admin, passkey, magic-link and API-key plugins don't exist yet. Use only what
-this skill shows or what you find in `crates/*/src`; read `docs/` for the reasons behind
-the design.
+This skill matches the code on `main` (0.2, not yet released; 0.1.0 is on crates.io), and so
+does the repo's `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built
+yet: passkey, magic link, JWT and other plugins, organization teams, `TestAuth`,
+`#[endpoint]`, secondary storage (Redis), actix-web and MySQL
+(`docs/01-overview.md#planned`).
+
+Ids are opaque strings, ULIDs by default (`.ids(IdStrategy::UuidV7)` and others on the
+builder). Never parse them or assume a format.
 
 ## Setup
 
@@ -24,7 +26,7 @@ the design.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.1", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.2", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -38,6 +40,10 @@ serde = { version = "1", features = ["derive"] }
 | `macros` | yes | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | no | `fastauth::social`: `Social`, `Github`, `Google` |
 | `two-factor` | no | `fastauth::plugins::two_factor`: `TwoFactor` |
+| `organization` | no | `fastauth::plugins::organization`: `Organization`, its extractors with `axum` |
+| `admin` | no | `fastauth::plugins::admin`: `Admin`, `RequireRole` with `axum` |
+| `api-key` | no | `fastauth::plugins::api_key`: `ApiKeys` |
+| `cli` | no | `fastauth::cli::run` for a `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
 
 For SQLite only, set `default-features = false, features = ["axum", "sqlite", "macros"]`.
 axum's `macros` feature is only needed for `#[derive(FromRef)]`. fastauth is built on
@@ -156,6 +162,9 @@ Read the reference for the task in front of you:
 | Handlers, extractors, `FromRef` state, CORS and CSRF, errors in handlers | [references/axum.md](references/axum.md) |
 | Postgres or SQLite, migrations or generated SQL, app columns on `user` | [references/database.md](references/database.md) |
 | GitHub and Google sign-in, two-factor, plugin data on the user | [references/plugins.md](references/plugins.md) |
+| Organizations, members, invitations, org roles and extractors | [references/organization.md](references/organization.md) |
+| Admin routes, user roles, bans, impersonation, `RequireRole` | [references/admin.md](references/admin.md) |
+| API keys, sessions from `x-api-key` | [references/api-keys.md](references/api-keys.md) |
 | Calling sign-up, sign-in or any endpoint from Rust; app-level hooks and events | [references/server-api.md](references/server-api.md) |
 | A custom plugin: tables, endpoints, hooks, gates, resolvers, events | [references/custom-plugins.md](references/custom-plugins.md) |
 | Tests with `MemoryAdapter` and `MemoryMailer` | [references/testing.md](references/testing.md) |
@@ -193,10 +202,11 @@ error[E0308]: mismatched types
 dependency at the `.plugin(..)` call; register the dependency first:
 
 ```text
-error[E0277]: plugin `ApiKeys` is not registered on this auth instance
-  |         .plugin(KeyAudit)
-  |          ------ ^^^^^^^^ `ApiKeys` is not in this plugin list
-  = note: required for `(ApiKeys,)` to implement `Satisfied<fastauth::Nil, (_,)>`
+error[E0277]: plugin `AccessTokens` is not registered on this auth instance
+  |         .plugin(TokenAudit)
+  |          ------ ^^^^^^^^^^ `AccessTokens` is not in this plugin list
+  = help: the trait `Has<AccessTokens, _>` is not implemented for `fastauth::Nil`
+  = note: register it with `.plugin(...)` on the builder, before any plugin that requires it, and list it in your `plugins![..]` alias
 ```
 
 **`router` or `session_layer` not found.** They come from the `AuthRouter` trait, which

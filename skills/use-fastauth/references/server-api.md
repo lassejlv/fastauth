@@ -97,7 +97,10 @@ impl Mailer for ConsoleMailer {
   `input` rule applies there too.
 - `auth.get_session(&headers)` and `auth.get_session_by_token(&token)` read the current
   session. Plugin server APIs are extension traits: `auth.two_factor()`.
-- `.in_tx(..)` and `.meta(..)` from `docs/04-sessions.md` don't exist yet.
+- With sqlx, `.in_tx(&tx)` runs calls on the app's transaction: wrap it in
+  `SharedTx::new(pool.begin().await?)`, commit with `tx.commit()`, and events fire after the
+  commit (`docs/04-sessions.md#sharing-a-transaction`). `auth.api().create_user(..)` is
+  server-only.
 
 ## App-level hooks and events
 

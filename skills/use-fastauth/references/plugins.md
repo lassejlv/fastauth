@@ -1,5 +1,8 @@
 # First-party plugins
 
+This file covers `Social` and `TwoFactor`. The others have their own references:
+[organization.md](organization.md), [admin.md](admin.md) and [api-keys.md](api-keys.md).
+
 ```rust
 use axum::http::HeaderMap;
 use fastauth::plugins::two_factor::{EnableInput, TwoFactor, TwoFactorExt, TwoFactorUser};
