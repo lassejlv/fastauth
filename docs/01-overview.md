@@ -39,7 +39,7 @@ fastauth-sqlx         Adapter for sqlx: Postgres, SQLite, MySQL; migrations
 fastauth-axum         Router, Session extractor, tower layer
 fastauth-actix        actix-web scope and extractor
 fastauth-redis        SecondaryStorage on fred, for sessions and rate limits
-fastauth-plugins-*    first-party plugins, one crate each (two-factor, organization, passkey, ...)
+fastauth-plugin-*     first-party plugins, one crate each (two-factor, organization, passkey, ...)
 fastauth-cli          `fastauth secret`, plus the helpers behind your project's migrate binary
 ```
 
@@ -69,7 +69,7 @@ fastauth = { version = "0.1", default-features = false, features = [
 | `scrypt` | scrypt verification, for importing Better Auth password hashes |
 | `reqwest` | the default outgoing HTTP client for OAuth |
 | `lettre` | SMTP mailer |
-| `two-factor`, `organization`, `passkey`, `magic-link`, `api-key`, `admin`, `username`, `jwt` | the matching `fastauth-plugins-*` crate, re-exported under `fastauth::plugins` |
+| `two-factor`, `organization`, `passkey`, `magic-link`, `api-key`, `admin`, `username`, `jwt` | the matching `fastauth-plugin-*` crate, re-exported under `fastauth::plugins` |
 | `openapi` | an OpenAPI 3.1 document for every registered endpoint |
 
 ## The decisions that shape everything else

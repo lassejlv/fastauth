@@ -54,6 +54,7 @@ two_factor
   user_id             id          two-factor -> user.id on delete cascade, index
   secret              encrypted   two-factor
   backup_codes        encrypted   two-factor
+  last_used_step      int         two-factor nullable
 ```
 
 ### Column types
