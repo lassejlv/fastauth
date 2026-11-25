@@ -342,7 +342,7 @@ async fn list_users_searches_filters_sorts_and_pages() {
     assert!(res.json.get("limit").is_none());
 
     let res = admin
-        .get("/admin/list-users?searchValue=ACME&sortBy=email&sortDirection=desc&limit=2&offset=1")
+        .get("/admin/list-users?searchValue=acme&sortBy=email&sortDirection=desc&limit=2&offset=1")
         .await;
     assert_eq!(res.json["total"], 4);
     assert_eq!(emails(&res), ["dot@acme.dk", "bob@acme.dk"]);
@@ -350,7 +350,7 @@ async fn list_users_searches_filters_sorts_and_pages() {
     assert_eq!(res.json["offset"], 1);
 
     let res = admin
-        .get("/admin/list-users?searchValue=c&searchField=name&searchOperator=starts_with")
+        .get("/admin/list-users?searchValue=C&searchField=name&searchOperator=starts_with")
         .await;
     assert_eq!(emails(&res), ["cat@other.io"]);
     let res = admin
@@ -377,7 +377,22 @@ async fn list_users_searches_filters_sorts_and_pages() {
     let res = admin
         .get("/admin/list-users?filterField=name&filterValue=T&filterOperator=contains&searchValue=acme")
         .await;
-    assert_eq!(emails(&res), ["root@acme.dk", "bob@acme.dk", "dot@acme.dk"]);
+    assert_eq!(
+        emails(&res),
+        ["root@acme.dk", "bob@acme.dk"],
+        "case-sensitive: Dot has no T"
+    );
+    assert_eq!(res.json["total"], 2);
+    let res = admin.get("/admin/list-users?searchValue=ACME").await;
+    assert_eq!(res.json["total"], 0, "search is case-sensitive");
+    let res = admin
+        .get("/admin/list-users?searchValue=c&searchField=name&searchOperator=starts_with")
+        .await;
+    assert_eq!(res.json["total"], 0);
+    let res = admin
+        .get("/admin/list-users?filterField=banned&filterValue=t&filterOperator=contains")
+        .await;
+    assert_error(&res, 400, "INVALID_FIELD");
 
     let res = admin.get("/admin/list-users?sortBy=password").await;
     assert_error(&res, 400, "INVALID_FIELD");

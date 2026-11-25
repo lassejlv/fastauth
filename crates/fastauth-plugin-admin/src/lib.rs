@@ -31,9 +31,7 @@
 //! the same operations from server code without a session.
 //!
 //! A sign-in gate refuses banned users with `403 BANNED_USER` for every sign-in method,
-//! and lifts expired bans. Register `Admin` before plugins whose gates challenge (such as
-//! two-factor): a challenge that finishes later creates the session without the gates, so
-//! the plugin also drops any session a banned user ends up with.
+//! and lifts expired bans.
 //!
 //! With the `axum` feature, [`RequireRole`] guards your own routes by role.
 
@@ -47,7 +45,7 @@ mod model;
 use std::collections::BTreeMap;
 
 use fastauth_core::ApiResponse;
-use fastauth_core::events::{SessionCreated, UserCreated};
+use fastauth_core::events::UserCreated;
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::routes::ListSessions;
 use serde_json::{Map, Value as Json};
@@ -255,22 +253,6 @@ impl Plugin for Admin {
                         None => Gate::Allow,
                     },
                 )
-            }
-        });
-
-        let plugin = self.clone();
-        app.on(move |event: SessionCreated, ctx: Ctx<D>| {
-            let plugin = plugin.clone();
-            async move {
-                let Some(user) = ctx.internal().find_user_by_id(&event.user_id).await? else {
-                    return Ok(());
-                };
-                if endpoints::ban_error(&plugin, &ctx, &user).await?.is_some() {
-                    ctx.internal()
-                        .revoke_session(&event.user_id, &event.session_id)
-                        .await?;
-                }
-                Ok(())
             }
         });
 

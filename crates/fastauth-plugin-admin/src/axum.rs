@@ -107,40 +107,13 @@ where
             .fields::<AdminUser>()
             .map_err(AuthError::internal)?
             .role;
-        let check = CheckRole {
-            user_id: user.id.clone(),
-            role,
-            name: R::NAME.to_owned(),
-        };
-        if !A::from_ref(state).api().call(&HoldsRole, check).await?.data {
+        let auth = A::from_ref(state);
+        let plugin = auth
+            .try_plugin::<Admin>()
+            .ok_or_else(|| AuthError::internal("RequireRole needs the admin plugin registered"))?;
+        if !plugin.has_role(&user.id, role.as_deref(), R::NAME) {
             return Err(AuthError::forbidden());
         }
         Ok(Self(session, PhantomData))
-    }
-}
-
-/// Reads the registered `Admin` config through the server API, which knows plugins by type
-/// where the extractor only knows `A: AuthInstance`. Never routed.
-struct HoldsRole;
-
-#[derive(Deserialize)]
-struct CheckRole {
-    user_id: Id,
-    role: Option<String>,
-    name: String,
-}
-
-impl<D: Adapter> Endpoint<D> for HoldsRole {
-    const METHOD: Method = Method::POST;
-    const PATH: &'static str = "/admin/require-role";
-    type Access = Public;
-    type Input = CheckRole;
-    type Output = bool;
-
-    async fn call(&self, ctx: Ctx<D, Public>, check: CheckRole) -> Result<bool, AuthError> {
-        let plugin = ctx
-            .try_plugin::<Admin>()
-            .ok_or_else(|| AuthError::internal("RequireRole needs the admin plugin registered"))?;
-        Ok(plugin.has_role(&check.user_id, check.role.as_deref(), &check.name))
     }
 }

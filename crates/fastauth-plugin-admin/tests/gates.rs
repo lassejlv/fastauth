@@ -106,7 +106,7 @@ async fn the_ban_gate_covers_social_sign_in() {
 }
 
 #[tokio::test]
-async fn a_challenge_that_finishes_later_still_cant_sign_a_banned_user_in() {
+async fn a_correct_totp_still_cant_sign_a_banned_user_in() {
     let auth: Auth<MemoryAdapter, (), plugins![TwoFactor, Admin]> = builder()
         .plugin(TwoFactor::new().skip_verification_on_enable(true))
         .plugin(Admin::new())
@@ -126,7 +126,10 @@ async fn a_challenge_that_finishes_later_still_cant_sign_a_banned_user_in() {
             .unwrap(),
     );
 
-    auth.admin().ban(BanUserInput::new(id)).await.unwrap();
+    auth.admin()
+        .ban(BanUserInput::new(id).reason("fraud"))
+        .await
+        .unwrap();
     let mut browser = Client::new(auth.clone());
     let res = browser
         .post(
@@ -148,12 +151,15 @@ async fn a_challenge_that_finishes_later_still_cant_sign_a_banned_user_in() {
             json!({ "code": totp::totp(&secret, now, 30, 6) }),
         )
         .await;
-    assert_eq!(res.status, 200, "{}", res.json);
-    assert_eq!(
-        browser.get("/get-session").await.json,
-        Value::Null,
-        "the session a banned user ends up with is dropped"
+    assert_eq!(res.status, 403, "{}", res.json);
+    assert_eq!(res.json["code"], "BANNED_USER");
+    assert!(
+        res.json["message"]
+            .as_str()
+            .unwrap()
+            .ends_with("Reason: fraud")
     );
+    assert_eq!(browser.get("/get-session").await.json, Value::Null);
 }
 
 fn base32_decode(input: &str) -> Vec<u8> {

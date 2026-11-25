@@ -404,7 +404,7 @@ pub enum SearchField {
     Name,
 }
 
-/// How `searchValue` matches. Case-insensitive.
+/// How `searchValue` matches. Case-sensitive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchOperator {
@@ -424,7 +424,7 @@ pub enum SortDirection {
 }
 
 /// How `filterValue` compares with `filterField`. `in` and `not_in` take a
-/// comma-separated list; the text operators are case-insensitive.
+/// comma-separated list; the text operators are case-sensitive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WhereOperator {
@@ -472,31 +472,29 @@ pub struct UserList {
     pub offset: Option<u64>,
 }
 
-/// `GET /admin/list-users`: needs `user:list`.
-///
-/// Comparisons and sorting run in the database. Text matching (`searchValue`, and the
-/// `contains`, `starts_with` and `ends_with` filters) runs over the rows the other
-/// conditions select, so `total` and the page stay exact.
+/// `GET /admin/list-users`: needs `user:list`. Search, filters, sorting and paging all
+/// run in the database; `total` counts every match.
 pub struct ListUsers(pub(crate) Caller);
 
-struct TextMatch {
-    column: &'static str,
+/// A case-sensitive text match on a text column.
+fn text_match(
+    column: &ColumnDef,
     operator: WhereOperator,
-    needle: String,
-}
-
-impl TextMatch {
-    fn matches(&self, row: &Row) -> bool {
-        let Some(Value::Text(text)) = row.value(self.column) else {
-            return false;
-        };
-        let text = text.to_lowercase();
-        match self.operator {
-            WhereOperator::StartsWith => text.starts_with(&self.needle),
-            WhereOperator::EndsWith => text.ends_with(&self.needle),
-            _ => text.contains(&self.needle),
-        }
+    value: &str,
+) -> Result<Where<User>, AuthError> {
+    use fastauth_core::schema::ColumnType;
+    if !matches!(column.ty, ColumnType::Text | ColumnType::Id) {
+        return Err(invalid_field(format!(
+            "`{}` isn't text",
+            camel_case(column.name)
+        )));
     }
+    let col = Col::<User, String>::new(column.name);
+    Ok(match operator {
+        WhereOperator::StartsWith => col.starts_with(value),
+        WhereOperator::EndsWith => col.ends_with(value),
+        _ => col.contains(value),
+    })
 }
 
 fn parse_filter<T: ColumnValue>(
@@ -577,43 +575,33 @@ impl<D: Adapter> Endpoint<D> for ListUsers {
             "list",
             AdminError::YouAreNotAllowedToListUsers,
         )?;
-        let mut filter: Option<Where<User>> = None;
-        let mut text = Vec::new();
+        let mut conditions = Vec::new();
         if let Some(value) = query.search_value.as_deref().filter(|v| !v.is_empty()) {
-            text.push(TextMatch {
-                column: match query.search_field.unwrap_or_default() {
-                    SearchField::Email => "email",
-                    SearchField::Name => "name",
-                },
-                operator: match query.search_operator.unwrap_or_default() {
-                    SearchOperator::Contains => WhereOperator::Contains,
-                    SearchOperator::StartsWith => WhereOperator::StartsWith,
-                    SearchOperator::EndsWith => WhereOperator::EndsWith,
-                },
-                needle: value.to_lowercase(),
-            });
+            let field = match query.search_field.unwrap_or_default() {
+                SearchField::Email => "email",
+                SearchField::Name => "name",
+            };
+            let operator = match query.search_operator.unwrap_or_default() {
+                SearchOperator::Contains => WhereOperator::Contains,
+                SearchOperator::StartsWith => WhereOperator::StartsWith,
+                SearchOperator::EndsWith => WhereOperator::EndsWith,
+            };
+            conditions.push(text_match(&user_column(&ctx, field)?, operator, value)?);
         }
         if let Some(value) = &query.filter_value {
             let column = user_column(&ctx, query.filter_field.as_deref().unwrap_or("email"))?;
             let operator = query.filter_operator.unwrap_or_default();
-            if matches!(
-                operator,
-                WhereOperator::Contains | WhereOperator::StartsWith | WhereOperator::EndsWith
-            ) {
-                text.push(TextMatch {
-                    column: column.name,
-                    operator,
-                    needle: value.to_lowercase(),
-                });
-            } else {
-                let next = comparison(&column, operator, value)?;
-                filter = Some(match filter {
-                    Some(filter) => filter.and(next),
-                    None => next,
-                });
-            }
+            conditions.push(match operator {
+                WhereOperator::Contains | WhereOperator::StartsWith | WhereOperator::EndsWith => {
+                    text_match(&column, operator, value)?
+                }
+                _ => comparison(&column, operator, value)?,
+            });
         }
-        let filter = filter.unwrap_or_else(Where::all);
+        let filter = conditions
+            .into_iter()
+            .reduce(Where::and)
+            .unwrap_or_else(Where::all);
         let mut find = ctx.db().find::<User>(filter.clone());
         if let Some(sort_by) = &query.sort_by {
             let column = user_column(&ctx, sort_by)?;
@@ -623,27 +611,16 @@ impl<D: Adapter> Endpoint<D> for ListUsers {
                 SortDirection::Desc => col.desc(),
             });
         }
-        let (rows, total) = if text.is_empty() {
-            let total = ctx.db().count::<User>(filter).await?;
-            if let Some(offset) = query.offset {
-                find = find.offset(offset);
-            }
-            if let Some(limit) = query.limit {
-                find = find.limit(limit);
-            }
-            (find.all_rows().await?, total)
-        } else {
-            let mut rows = find.all_rows().await?;
-            rows.retain(|row| text.iter().all(|m| m.matches(row)));
-            let total = rows.len() as u64;
-            let page = rows
-                .into_iter()
-                .skip(query.offset.unwrap_or(0) as usize)
-                .take(query.limit.map_or(usize::MAX, |l| l as usize))
-                .collect();
-            (page, total)
-        };
-        let users = rows
+        let total = ctx.db().count::<User>(filter).await?;
+        if let Some(offset) = query.offset {
+            find = find.offset(offset);
+        }
+        if let Some(limit) = query.limit {
+            find = find.limit(limit);
+        }
+        let users = find
+            .all_rows()
+            .await?
             .into_iter()
             .map(UserView::from_row)
             .collect::<Result<_, _>>()
