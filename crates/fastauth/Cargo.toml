@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [lints]
 workspace = true
@@ -24,11 +30,11 @@ cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.10", features = ["derive", "env"], optional = true }
 dotenvy = { version = "0.15.7", optional = true }
-fastauth-axum = { path = "../fastauth-axum", optional = true }
-fastauth-core = { path = "../fastauth-core" }
-fastauth-oauth = { path = "../fastauth-oauth", default-features = false, optional = true }
-fastauth-plugin-two-factor = { path = "../fastauth-plugin-two-factor", optional = true }
-fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, optional = true }
+fastauth-axum = { version = "0.1.0", path = "../fastauth-axum", optional = true }
+fastauth-core = { version = "0.1.0", path = "../fastauth-core" }
+fastauth-oauth = { version = "0.1.0", path = "../fastauth-oauth", default-features = false, optional = true }
+fastauth-plugin-two-factor = { version = "0.1.0", path = "../fastauth-plugin-two-factor", optional = true }
+fastauth-sqlx = { version = "0.1.0", path = "../fastauth-sqlx", default-features = false, optional = true }
 time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
 
 [dev-dependencies]

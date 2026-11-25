@@ -75,14 +75,24 @@ The design needs return-position `impl Trait` in traits (1.75), `#[diagnostic::o
 `fastauth` is available as this repo's name; check crates.io before the first publish, and
 reserve `fastauth-*` names for the crate layout in [Overview](01-overview.md#crate-layout).
 
-## Suggested v0.1 scope
+## Released: 0.1.0 (2026-11-25)
+
+Shipped as planned, plus a few items pulled forward:
 
 1. `fastauth-core`: builder, plugin list, endpoints with `Access`, hooks, gates, events,
    sessions with all three tiers, argon2id, cookies, CSRF, rate limits.
-2. `fastauth-sqlx` for Postgres and SQLite, with the migrator and the adapter test suite.
+2. `fastauth-sqlx` for Postgres and SQLite, with the migrator, the adapter conformance suite,
+   and shared transactions (`auth.api().in_tx(&tx)`).
 3. `fastauth-axum`.
-4. Email and password, email verification, password reset, GitHub and Google.
-5. One plugin end to end, to prove the plugin API on real code: `two-factor` (it uses user
-   fields, a table, endpoints, a sign-in gate and encryption).
+4. Email and password, email verification, password reset, and GitHub and Google through the
+   `Social` plugin (with profile mapping and per-provider `disable_sign_up`).
+5. `two-factor`: TOTP, email codes, backup codes, trusted devices.
+6. `fastauth-macros` and `fastauth-cli`.
+7. Better Auth client compatibility, tested with `compat/better-auth/run.sh` (docs/11).
 
-Organization, passkey, admin, API keys, actix and Redis follow in 0.2.
+## Next: 0.2
+
+Organization (members, invitations, roles, permissions, and the `RequireMember` and
+`RequirePermission` extractors) comes first, because it puts the most pressure on the plugin
+API. Then admin, API keys, passkey, magic link / email OTP sign-in, Redis secondary storage,
+actix-web and MySQL.

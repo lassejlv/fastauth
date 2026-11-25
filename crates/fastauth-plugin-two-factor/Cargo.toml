@@ -6,12 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true
 
 [dependencies]
-fastauth-core = { path = "../fastauth-core" }
+fastauth-core = { version = "0.1.0", path = "../fastauth-core" }
 hmac = "0.13.0"
 percent-encoding = "2.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
