@@ -35,7 +35,7 @@ server API) and moves the type safety from TypeScript inference into the Rust co
 fastauth              facade: re-exports, prelude, feature flags. The only crate most apps add.
 fastauth-core         Auth, builder, Plugin/Endpoint/Adapter traits, sessions, crypto, schema, router
 fastauth-macros       #[derive(Fields)], #[derive(Model)], #[derive(AuthError)], #[endpoint]
-fastauth-sqlx         Adapter for sqlx: Postgres, SQLite, MySQL; migrations
+fastauth-sqlx         Adapter for sqlx: Postgres, SQLite (MySQL later); migrations
 fastauth-axum         Router, Session extractor, tower layer
 fastauth-actix        actix-web scope and extractor
 fastauth-redis        SecondaryStorage on fred, for sessions and rate limits
