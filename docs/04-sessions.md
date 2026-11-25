@@ -215,7 +215,7 @@ because `Auth` is generic over the adapter: on `Auth<Sqlx<Postgres>, ..>` it acc
 
 `create_user` is server-only (there's no HTTP route). It validates like sign-up, creates a
 `credential` account when `password` is set, takes app and plugin `input` columns in
-`fields`, and answers `USER_ALREADY_EXISTS` (422) for a taken email.
+`fields`, and answers `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` (422) for a taken email.
 
 ## Sessions, listed
 
