@@ -12,10 +12,19 @@ fn fast_hasher() -> EmailPassword {
 }
 
 fn auth_with(email_password: EmailPassword, mailer: MemoryMailer) -> Auth<MemoryAdapter> {
+    auth_with_ids(IdStrategy::default(), email_password, mailer)
+}
+
+fn auth_with_ids(
+    ids: IdStrategy,
+    email_password: EmailPassword,
+    mailer: MemoryMailer,
+) -> Auth<MemoryAdapter> {
     FastAuth::builder()
         .secret(secret())
         .base_url("http://localhost:3000")
         .database(MemoryAdapter::new())
+        .ids(ids)
         .email_password(email_password)
         .mailer(mailer)
         .rate_limit(RateLimit::disabled())
@@ -27,12 +36,51 @@ fn auth() -> Auth<MemoryAdapter> {
     auth_with(fast_hasher(), MemoryMailer::new())
 }
 
+/// Every id strategy, for the flows that must work under each of them.
+fn strategies() -> [IdStrategy; 4] {
+    [
+        IdStrategy::Ulid,
+        IdStrategy::UuidV7,
+        IdStrategy::UuidV4,
+        IdStrategy::custom(|| {
+            format!(
+                "usr_{}",
+                fastauth_core::crypto::random_string(16, b"abcdefghijklmnopqrstuvwxyz0123456789")
+            )
+        }),
+    ]
+}
+
+fn assert_id_format(ids: &IdStrategy, id: &serde_json::Value) {
+    let id = id
+        .as_str()
+        .unwrap_or_else(|| panic!("{id} is not a string"));
+    let ok = match ids {
+        IdStrategy::Ulid => id.len() == 26 && id.bytes().all(|b| b.is_ascii_alphanumeric()),
+        IdStrategy::UuidV7 => id.len() == 36 && id.as_bytes()[14] == b'7',
+        IdStrategy::UuidV4 => id.len() == 36 && id.as_bytes()[14] == b'4',
+        IdStrategy::Custom(_) => id.starts_with("usr_") && id.len() == 20,
+    };
+    assert!(ok, "{id} is not a {ids:?} id");
+}
+
 #[tokio::test]
 async fn sign_up_get_session_sign_out() {
-    let mut client = Client::new(auth());
+    for ids in strategies() {
+        sign_up_get_session_sign_out_with(ids).await;
+    }
+}
+
+async fn sign_up_get_session_sign_out_with(ids: IdStrategy) {
+    let mut client = Client::new(auth_with_ids(
+        ids.clone(),
+        fast_hasher(),
+        MemoryMailer::new(),
+    ));
     let res = client.sign_up("Lasse@Acme.dk", "correct horse").await;
     assert_eq!(res.status, StatusCode::OK, "{}", res.json);
     assert_eq!(res.json["user"]["email"], "lasse@acme.dk");
+    assert_id_format(&ids, &res.json["user"]["id"]);
     assert!(res.json["token"].as_str().unwrap().len() >= 43);
     assert!(res.json["user"].get("passwordHash").is_none());
     let cookie = res
@@ -49,6 +97,9 @@ async fn sign_up_get_session_sign_out() {
     let session = client.get("/get-session").await;
     assert_eq!(session.json["user"]["email"], "lasse@acme.dk");
     assert_eq!(session.json["session"]["token"], res.json["token"]);
+    assert_eq!(session.json["user"]["id"], res.json["user"]["id"]);
+    assert_id_format(&ids, &session.json["session"]["id"]);
+    assert_eq!(session.json["session"]["userId"], res.json["user"]["id"]);
 
     let out = client.post("/sign-out", json!({})).await;
     assert_eq!(out.json, json!({ "success": true }));
@@ -60,7 +111,13 @@ async fn sign_up_get_session_sign_out() {
 
 #[tokio::test]
 async fn wrong_password_and_unknown_email_look_the_same() {
-    let mut client = Client::new(auth());
+    for ids in strategies() {
+        wrong_password_and_unknown_email_look_the_same_with(ids).await;
+    }
+}
+
+async fn wrong_password_and_unknown_email_look_the_same_with(ids: IdStrategy) {
+    let mut client = Client::new(auth_with_ids(ids, fast_hasher(), MemoryMailer::new()));
     client.sign_up("a@acme.dk", "correct horse").await;
     client.jar.clear();
     let wrong = client
@@ -91,7 +148,13 @@ async fn wrong_password_and_unknown_email_look_the_same() {
 
 #[tokio::test]
 async fn duplicate_sign_up_is_422_and_short_password_is_400() {
-    let mut client = Client::new(auth());
+    for ids in strategies() {
+        duplicate_sign_up_is_422_and_short_password_is_400_with(ids).await;
+    }
+}
+
+async fn duplicate_sign_up_is_422_and_short_password_is_400_with(ids: IdStrategy) {
+    let mut client = Client::new(auth_with_ids(ids, fast_hasher(), MemoryMailer::new()));
     client.sign_up("a@acme.dk", "correct horse").await;
     let again = client.sign_up("a@acme.dk", "correct horse").await;
     assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -207,15 +270,35 @@ async fn email_verification_gate() {
 
 #[tokio::test]
 async fn sign_up_with_existing_email_does_not_reveal_it_when_verification_is_required() {
-    let mailer = MemoryMailer::new();
-    let mut client = Client::new(auth_with(
-        fast_hasher().require_email_verification(true),
-        mailer,
-    ));
-    let first = client.sign_up("v@acme.dk", "correct horse").await;
-    let second = client.sign_up("v@acme.dk", "correct horse").await;
-    assert_eq!(first.status, second.status);
-    assert_eq!(second.json["user"]["email"], "v@acme.dk");
+    for ids in strategies() {
+        let mut client = Client::new(auth_with_ids(
+            ids.clone(),
+            fast_hasher().require_email_verification(true),
+            MemoryMailer::new(),
+        ));
+        let first = client.sign_up("v@acme.dk", "correct horse").await;
+        let second = client.sign_up("v@acme.dk", "correct horse").await;
+        assert_eq!(first.status, second.status);
+        assert_eq!(second.json["user"]["email"], "v@acme.dk");
+        assert_id_format(&ids, &first.json["user"]["id"]);
+        assert_id_format(&ids, &second.json["user"]["id"]);
+        assert_ne!(first.json["user"]["id"], second.json["user"]["id"]);
+    }
+}
+
+#[tokio::test]
+async fn a_bad_custom_id_generator_is_a_500_not_a_panic() {
+    for bad in [String::new(), "x".repeat(256)] {
+        let mut client = Client::new(auth_with_ids(
+            IdStrategy::custom(move || bad.clone()),
+            fast_hasher(),
+            MemoryMailer::new(),
+        ));
+        let res = client.sign_up("a@acme.dk", "correct horse").await;
+        assert_eq!(res.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(res.json["code"], "INTERNAL_SERVER_ERROR");
+        assert_eq!(res.json["message"], "internal server error");
+    }
 }
 
 #[tokio::test]

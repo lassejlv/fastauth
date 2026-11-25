@@ -14,7 +14,8 @@ use url::Url;
 
 use crate::adapter::{Adapter, Transaction};
 use crate::config::{
-    ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, Secure, SessionConfig,
+    ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, IdStrategy, Secure,
+    SessionConfig,
 };
 use crate::crypto::{Argon2id, Keys, Passwords, Secret, SignPurpose};
 use crate::endpoint::{
@@ -64,6 +65,7 @@ impl FastAuth {
             email_verification: EmailVerification::default(),
             rate_limit: RateLimit::default(),
             client_ip: ClientIp::Socket,
+            ids: IdStrategy::default(),
             mailer: None,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -89,6 +91,7 @@ pub struct Builder<D, U, P, S, B> {
     email_verification: EmailVerification,
     rate_limit: RateLimit,
     client_ip: ClientIp,
+    ids: IdStrategy,
     mailer: Option<Arc<dyn DynMailer>>,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
@@ -120,6 +123,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             email_verification: self.email_verification,
             rate_limit: self.rate_limit,
             client_ip: self.client_ip,
+            ids: self.ids,
             mailer: self.mailer,
             app_init: self.app_init,
             _state: PhantomData,
@@ -198,6 +202,15 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// How ids are generated and stored; [`IdStrategy::Ulid`] unless set.
+    ///
+    /// Apps upgrading a Postgres database created by fastauth 0.1 (`uuid` id columns)
+    /// keep it working with `.ids(IdStrategy::UuidV7)`.
+    pub fn ids(mut self, strategy: IdStrategy) -> Self {
+        self.ids = strategy;
+        self
+    }
+
     pub fn mailer(mut self, mailer: impl Mailer) -> Self {
         self.mailer = Some(Arc::new(mailer));
         self
@@ -234,6 +247,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             email_verification: self.email_verification,
             rate_limit: self.rate_limit,
             client_ip: self.client_ip,
+            ids: self.ids,
             mailer: self.mailer,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -334,7 +348,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             }
         }
 
-        let schema = match registry.schema.finish() {
+        let schema = match registry.schema.finish(self.ids.storage()) {
             Ok(schema) => schema,
             Err(mut errors) => {
                 problems.append(&mut errors);
@@ -371,6 +385,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             email_verification: self.email_verification,
             rate_limit: rate_limit.clone(),
             client_ip: self.client_ip,
+            ids: self.ids,
             secure_cookies,
         };
         let shared = Shared {

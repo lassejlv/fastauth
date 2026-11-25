@@ -177,7 +177,7 @@ impl<D: Adapter> Endpoint<D> for SignUpEmail {
             ctx.passwords().verify_dummy(&input.password).await;
             let now = time::OffsetDateTime::now_utc();
             let ghost = User {
-                id: Id::new_v7(),
+                id: ctx.new_id()?,
                 email,
                 email_verified: false,
                 name: input.name,

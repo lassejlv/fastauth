@@ -34,12 +34,19 @@ async fn send<D: Adapter>(
     (response.status(), json, set_cookies)
 }
 
-/// Sign-up, sign-in and get-session over HTTP against `db`, after running the migrator.
-pub async fn http_flow<D: Adapter>(db: D) {
+/// Sign-up, sign-in and get-session over HTTP against `db` with ids from `ids`, after
+/// running the migrator.
+pub async fn http_flow<D: Adapter>(db: D, ids: IdStrategy) {
+    let id_len = match ids {
+        IdStrategy::Ulid => 26,
+        IdStrategy::UuidV7 | IdStrategy::UuidV4 => 36,
+        IdStrategy::Custom(_) => panic!("the sqlx flow runs the built-in strategies"),
+    };
     let auth = FastAuth::builder()
         .secret(fastauth_core::crypto::Secret::from_bytes(vec![42u8; 32]))
         .base_url("http://localhost:3000")
         .database(db)
+        .ids(ids)
         .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
         .rate_limit(RateLimit::disabled())
         .build()
@@ -59,6 +66,8 @@ pub async fn http_flow<D: Adapter>(db: D) {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["user"]["email"], "lasse@acme.dk");
+    let user_id = body["user"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(user_id.len(), id_len, "{user_id}");
 
     let (status, body, _) =
         send(&auth, Method::POST, "/sign-up/email", Some(credentials), "").await;
@@ -86,6 +95,9 @@ pub async fn http_flow<D: Adapter>(db: D) {
     assert_eq!(session["user"]["email"], "lasse@acme.dk");
     assert_eq!(session["user"]["name"], "Lasse");
     assert_eq!(session["session"]["token"], body["token"]);
+    assert_eq!(session["user"]["id"], user_id.as_str());
+    assert_eq!(session["session"]["userId"], user_id.as_str());
+    assert_eq!(session["session"]["id"].as_str().unwrap().len(), id_len);
 
     let (_, signed_out, _) = send(
         &auth,
