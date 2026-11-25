@@ -21,7 +21,7 @@ if curl -s -o /dev/null http://127.0.0.1:3000; then
 fi
 
 echo "building the axum_sqlite example"
-cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example axum_sqlite --features sqlite,two-factor
+cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example axum_sqlite --features sqlite,two-factor,organization,admin,api-key
 bin="$root/target/debug/examples/axum_sqlite"
 
 echo "installing the client"

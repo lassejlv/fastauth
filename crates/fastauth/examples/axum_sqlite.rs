@@ -1,7 +1,8 @@
-//! A complete app: SQLite through sqlx, axum, app fields on the user, and two-factor.
+//! A complete app: SQLite through sqlx, axum, app fields on the user, two-factor,
+//! organizations, admin and API keys.
 //!
 //! ```bash
-//! cargo run -p fastauth --example axum_sqlite --features sqlite,two-factor
+//! cargo run -p fastauth --example axum_sqlite --features sqlite,two-factor,organization,admin,api-key
 //!
 //! curl -i -c jar -X POST localhost:3000/api/auth/sign-up/email \
 //!   -H 'content-type: application/json' -H 'origin: http://localhost:3000' \
@@ -15,6 +16,9 @@ use std::net::SocketAddr;
 
 use axum::routing::get;
 use axum::{Json, Router};
+use fastauth::plugins::admin::Admin;
+use fastauth::plugins::api_key::ApiKeys;
+use fastauth::plugins::organization::Organization;
 use fastauth::plugins::two_factor::{TwoFactor, TwoFactorUser};
 use fastauth::prelude::*;
 use serde::Serialize;
@@ -25,7 +29,7 @@ pub struct Profile {
     pub plan: String,
 }
 
-pub type AppAuth = Auth<Sqlx<Sqlite>, Profile, plugins![TwoFactor]>;
+pub type AppAuth = Auth<Sqlx<Sqlite>, Profile, plugins![TwoFactor, Organization, Admin, ApiKeys]>;
 
 fn build(pool: SqlitePool) -> Result<AppAuth, BuildError> {
     let secret = Secret::from_env("FASTAUTH_SECRET")
@@ -39,6 +43,9 @@ fn build(pool: SqlitePool) -> Result<AppAuth, BuildError> {
         .mailer(LogMailer)
         .user_fields::<Profile>()
         .plugin(TwoFactor::new().issuer("Acme"))
+        .plugin(Organization::default())
+        .plugin(Admin::new())
+        .plugin(ApiKeys::new().sessions(true))
         .build()
 }
 

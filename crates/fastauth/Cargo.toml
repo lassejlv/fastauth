@@ -18,12 +18,20 @@ workspace = true
 
 [features]
 default = ["axum", "postgres", "macros"]
-axum = ["dep:fastauth-axum", "fastauth-core/axum"]
+axum = [
+    "dep:fastauth-axum",
+    "fastauth-core/axum",
+    "fastauth-plugin-organization?/axum",
+    "fastauth-plugin-admin?/axum",
+]
 macros = ["fastauth-core/macros"]
 postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
 oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
 two-factor = ["dep:fastauth-plugin-two-factor"]
+organization = ["dep:fastauth-plugin-organization"]
+admin = ["dep:fastauth-plugin-admin"]
+api-key = ["dep:fastauth-plugin-api-key"]
 cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 
 [dependencies]
@@ -33,6 +41,9 @@ dotenvy = { version = "0.15.7", optional = true }
 fastauth-axum = { version = "0.1.0", path = "../fastauth-axum", optional = true }
 fastauth-core = { version = "0.1.0", path = "../fastauth-core" }
 fastauth-oauth = { version = "0.1.0", path = "../fastauth-oauth", default-features = false, optional = true }
+fastauth-plugin-admin = { version = "0.1.0", path = "../fastauth-plugin-admin", optional = true }
+fastauth-plugin-api-key = { version = "0.1.0", path = "../fastauth-plugin-api-key", optional = true }
+fastauth-plugin-organization = { version = "0.1.0", path = "../fastauth-plugin-organization", optional = true }
 fastauth-plugin-two-factor = { version = "0.1.0", path = "../fastauth-plugin-two-factor", optional = true }
 fastauth-sqlx = { version = "0.1.0", path = "../fastauth-sqlx", default-features = false, optional = true }
 time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
@@ -50,7 +61,7 @@ required-features = ["axum"]
 
 [[example]]
 name = "axum_sqlite"
-required-features = ["axum", "sqlite", "macros", "two-factor"]
+required-features = ["axum", "sqlite", "macros", "two-factor", "organization", "admin", "api-key"]
 
 [[example]]
 name = "cli_sqlite"
