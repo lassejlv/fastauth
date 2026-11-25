@@ -1,10 +1,11 @@
 use std::fmt;
 use std::sync::Arc;
 
-use time::Duration;
+use time::{Duration, OffsetDateTime};
 use url::Url;
 
 use crate::crypto::{Argon2id, PasswordHasher};
+use crate::models::Session;
 use crate::rate_limit::RateLimit;
 
 type PasswordPolicy = Arc<dyn Fn(&str) -> bool + Send + Sync>;
@@ -282,6 +283,13 @@ impl CoreConfig {
             return !target.starts_with("//") && !target.starts_with("/\\");
         }
         Url::parse(target).is_ok_and(|u| self.is_trusted_origin(&u.origin().ascii_serialization()))
+    }
+
+    /// Whether `session` was created within `fresh_age`, the rule behind `Fresh` access.
+    /// A zero `fresh_age` makes every session fresh.
+    pub fn is_fresh(&self, session: &Session) -> bool {
+        let fresh_age = self.session.fresh_age;
+        fresh_age.is_zero() || OffsetDateTime::now_utc() - session.created_at <= fresh_age
     }
 
     pub fn cookie_name(&self, name: &str) -> String {

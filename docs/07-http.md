@@ -28,7 +28,7 @@ Extractors (all implement `FromRequestParts`, so they compose with `Json` bodies
 | Extractor | Rejection |
 |---|---|
 | `Session<A>` | `401 UNAUTHORIZED` |
-| `Option<Session<A>>` | none |
+| `Option<Session<A>>` | none (a storage error is still a `500`) |
 | `FreshSession<A>` | `401` or `403 SESSION_NOT_FRESH` |
 | `RequireRole<A, R>` (admin plugin) | `401` or `403 FORBIDDEN` |
 | `RequireMember<A, O>`, `RequirePermission<A, P>` (organization plugin) | `401`, `403` or `404` |
