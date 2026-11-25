@@ -131,7 +131,11 @@ impl Driver for Sqlite {
         )
         .fetch_all(conn)
         .await?;
-        Ok(Catalog { columns, indexes })
+        Ok(Catalog {
+            columns,
+            indexes,
+            id_storage: Vec::new(),
+        })
     }
 
     fn decode(row: &SqliteRow, index: usize, ty: ColumnType) -> Result<Value, String> {

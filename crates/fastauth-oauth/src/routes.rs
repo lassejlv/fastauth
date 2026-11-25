@@ -528,7 +528,7 @@ async fn claim_unverified_user<D: Adapter>(
     let now = ctx.now();
     let provider_id = account.provider_id.clone();
     let row = Account {
-        id: ctx.new_id(),
+        id: ctx.new_id()?,
         user_id: user_id.clone(),
         provider_id: account.provider_id,
         account_id: account.account_id.unwrap_or_else(|| user_id.to_string()),

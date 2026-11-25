@@ -98,7 +98,7 @@ impl<D: Adapter> Endpoint<D> for Enable {
             .await?;
         ctx.db()
             .insert(&TwoFactorRow {
-                id: ctx.new_id(),
+                id: ctx.new_id()?,
                 user_id: user.id.clone(),
                 secret: ctx.keys().encrypt(&secret),
                 backup_codes: seal_codes(ctx.keys(), &backup_codes),

@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use fastauth_core::schema::{ColumnType, TableDef};
+use fastauth_core::schema::{ColumnType, IdStorage, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::DatabaseError;
 use sqlx::{Database, SqlStr};
@@ -42,6 +42,18 @@ pub struct Catalog {
     pub columns: Vec<(String, String)>,
     /// `(table, index name)`.
     pub indexes: Vec<(String, String)>,
+    /// `(table, column, storage)` for columns whose type an id column can have. Empty where
+    /// every strategy stores ids the same way.
+    pub id_storage: Vec<(String, String, IdStorage)>,
+}
+
+/// The type `ty` is stored as in `table`: drivers read `ColumnType::Id` as a native UUID,
+/// so ids stored as text become `ColumnType::Text`.
+pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
+    match (ty, table.id_storage()) {
+        (ColumnType::Id, IdStorage::Text) => ColumnType::Text,
+        _ => ty,
+    }
 }
 
 pub trait Driver: Database {

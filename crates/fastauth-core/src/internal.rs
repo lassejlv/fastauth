@@ -118,11 +118,15 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .map_err(AuthError::internal)
     }
 
-    fn account_values(&self, user_id: &Id, account: NewAccount) -> Vec<(&'static str, Value)> {
+    fn account_values(
+        &self,
+        user_id: &Id,
+        account: NewAccount,
+    ) -> Result<Vec<(&'static str, Value)>, AuthError> {
         let keys = self.ctx.keys();
         let seal = |t: Option<String>| t.map(|t| keys.encrypt(t.as_bytes()));
-        vec![
-            ("id", self.ctx.new_id().into_value()),
+        Ok(vec![
+            ("id", self.ctx.new_id()?.into_value()),
             ("user_id", user_id.clone().into_value()),
             ("provider_id", account.provider_id.into_value()),
             (
@@ -145,7 +149,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
                 account.refresh_token_expires_at.into_value(),
             ),
             ("scope", account.scope.into_value()),
-        ]
+        ])
     }
 
     /// Creates a user (and optionally its first account) in one transaction.
@@ -155,7 +159,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         user: NewUser,
         account: Option<NewAccount>,
     ) -> Result<UserView, AuthError> {
-        let id = self.ctx.new_id();
+        let id = self.ctx.new_id()?;
         let mut values = vec![
             ("id", id.clone().into_value()),
             ("email", user.email.trim().to_lowercase().into_value()),
@@ -164,12 +168,14 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             ("image", user.image.into_value()),
         ];
         values.extend(user.extra);
+        let account = account
+            .map(|account| self.account_values(&id, account))
+            .transpose()?;
         let tx = self.ctx.adapter().begin().await?;
         let db = self.ctx.db_on(&tx);
         let row = db.insert_row::<User>(values).await.map_err(user_exists)?;
         if let Some(account) = account {
-            db.insert_row::<Account>(self.account_values(&id, account))
-                .await?;
+            db.insert_row::<Account>(account).await?;
         }
         tx.commit().await?;
         let view = UserView::from_row(row).map_err(AuthError::internal)?;
@@ -189,7 +195,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let row = self
             .ctx
             .db()
-            .insert_row::<Account>(self.account_values(user_id, account))
+            .insert_row::<Account>(self.account_values(user_id, account)?)
             .await?;
         self.ctx.emit(AccountLinked {
             user_id: user_id.clone(),
@@ -284,7 +290,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let now = self.ctx.now();
         let token = random_token();
         let session = Session {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             token_hash: Hash::sha256(&token),
             user_id: user_id.clone(),
             expires_at: now + self.ctx.config().session.expires_in,
@@ -402,7 +408,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let token = random_token();
         let now = self.ctx.now();
         let verification = Verification {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             identifier: identifier.to_owned(),
             value_hash: Hash::sha256(&token),
             data,
@@ -428,7 +434,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .await?;
         let now = self.ctx.now();
         let verification = Verification {
-            id: self.ctx.new_id(),
+            id: self.ctx.new_id()?,
             identifier: identifier.to_owned(),
             value_hash: Hash::sha256(format!("{identifier}:{value}")),
             data,
