@@ -7,10 +7,11 @@ use fastauth_core::AuthError;
 use fastauth_core::adapter::Adapter;
 use fastauth_core::error::ErrorCodes;
 use fastauth_core::plugin::{Plugin, PluginBuilder};
+use fastauth_core::value::Value;
 use http::StatusCode;
 
 use crate::http::{DynHttpClient, Http, HttpClient};
-use crate::provider::{DynProvider, OAuthProvider};
+use crate::provider::{DynProvider, OAuthProfile, OAuthProvider};
 use crate::routes::{LinkSocial, ListAccounts, SignInSocial, SocialCallback, UnlinkAccount};
 
 /// Whether a social sign-in may attach to an existing user with the same email.
@@ -24,21 +25,96 @@ pub enum AccountLinking {
     Off,
 }
 
+/// Extra `user` columns for a user created by a social sign-in, from the provider's profile
+/// and the provider id. See [`Social::map_profile`].
+pub type MapProfile =
+    dyn Fn(&OAuthProfile, &str) -> Result<Vec<(&'static str, Value)>, AuthError> + Send + Sync;
+
+/// A provider with its own sign-up options, from [`OAuthProviderExt`]:
+/// `Github::new(..).map_profile(..)` or `Github::new(..).disable_sign_up(true)`.
+pub struct ConfiguredProvider {
+    pub(crate) provider: Arc<dyn DynProvider>,
+    pub(crate) map_profile: Option<Arc<MapProfile>>,
+    pub(crate) disable_sign_up: bool,
+}
+
+impl fmt::Debug for ConfiguredProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfiguredProvider")
+            .field("id", &self.provider.id())
+            .field("map_profile", &self.map_profile.is_some())
+            .field("disable_sign_up", &self.disable_sign_up)
+            .finish()
+    }
+}
+
+impl<P: OAuthProvider> From<P> for ConfiguredProvider {
+    fn from(provider: P) -> Self {
+        Self {
+            provider: Arc::new(provider),
+            map_profile: None,
+            disable_sign_up: false,
+        }
+    }
+}
+
+impl ConfiguredProvider {
+    /// Maps the profile to extra `user` columns for users created through this provider. It
+    /// replaces [`Social::map_profile`] for this provider; the two are not merged.
+    pub fn map_profile<F>(mut self, map: F) -> Self
+    where
+        F: Fn(&OAuthProfile, &str) -> Result<Vec<(&'static str, Value)>, AuthError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.map_profile = Some(Arc::new(map));
+        self
+    }
+
+    /// Refuses to create users through this provider (`?error=signup_disabled`). Existing
+    /// users still sign in with it, including ones linked by verified email.
+    pub fn disable_sign_up(mut self, disable: bool) -> Self {
+        self.disable_sign_up = disable;
+        self
+    }
+}
+
+/// Per-provider sign-up options on every [`OAuthProvider`], built-in or your own.
+pub trait OAuthProviderExt: OAuthProvider + Sized {
+    /// See [`ConfiguredProvider::map_profile`].
+    fn map_profile<F>(self, map: F) -> ConfiguredProvider
+    where
+        F: Fn(&OAuthProfile, &str) -> Result<Vec<(&'static str, Value)>, AuthError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        ConfiguredProvider::from(self).map_profile(map)
+    }
+
+    /// See [`ConfiguredProvider::disable_sign_up`].
+    fn disable_sign_up(self, disable: bool) -> ConfiguredProvider {
+        ConfiguredProvider::from(self).disable_sign_up(disable)
+    }
+}
+
+impl<P: OAuthProvider> OAuthProviderExt for P {}
+
 /// Social sign-in as a plugin: `.plugin(Social::new().provider(Github::from_env()?))`.
 pub struct Social {
-    pub(crate) providers: Vec<Arc<dyn DynProvider>>,
+    pub(crate) providers: Vec<ConfiguredProvider>,
     pub(crate) http: Arc<dyn DynHttpClient>,
     pub(crate) account_linking: AccountLinking,
+    pub(crate) map_profile: Option<Arc<MapProfile>>,
 }
 
 impl fmt::Debug for Social {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Social")
-            .field(
-                "providers",
-                &self.providers.iter().map(|p| p.id()).collect::<Vec<_>>(),
-            )
+            .field("providers", &self.providers)
             .field("account_linking", &self.account_linking)
+            .field("map_profile", &self.map_profile.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -63,13 +139,36 @@ impl Social {
             providers: Vec::new(),
             http: Arc::new(client),
             account_linking: AccountLinking::default(),
+            map_profile: None,
         }
     }
 
-    /// Adds a provider. A provider with the same id replaces the earlier one.
-    pub fn provider(mut self, provider: impl OAuthProvider) -> Self {
-        self.providers.retain(|p| p.id() != provider.id());
-        self.providers.push(Arc::new(provider));
+    /// Adds a provider, plain or with its own options from [`OAuthProviderExt`]. A provider
+    /// with the same id replaces the earlier one.
+    pub fn provider(mut self, provider: impl Into<ConfiguredProvider>) -> Self {
+        let provider = provider.into();
+        self.providers
+            .retain(|p| p.provider.id() != provider.provider.id());
+        self.providers.push(provider);
+        self
+    }
+
+    /// Maps the provider's profile to extra `user` columns when a social sign-in creates a
+    /// user, so app and plugin columns without a default get a value. It runs only for new
+    /// users. A provider's own mapping ([`OAuthProviderExt::map_profile`]) wins over this one.
+    ///
+    /// The columns are checked against `user`: each must be an app or plugin column, set once,
+    /// with the column's type. Server-only columns are allowed. A mistake is a 500 with the
+    /// reason logged. An error you return is passed on: a 4xx redirects to the error callback
+    /// URL with `?error=` set to its code, so a mapping can also refuse a sign-up.
+    pub fn map_profile<F>(mut self, map: F) -> Self
+    where
+        F: Fn(&OAuthProfile, &str) -> Result<Vec<(&'static str, Value)>, AuthError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.map_profile = Some(Arc::new(map));
         self
     }
 
@@ -78,8 +177,8 @@ impl Social {
         self
     }
 
-    pub(crate) fn find(&self, id: &str) -> Option<&dyn DynProvider> {
-        self.providers.iter().find(|p| p.id() == id).map(|p| &**p)
+    pub(crate) fn find(&self, id: &str) -> Option<&ConfiguredProvider> {
+        self.providers.iter().find(|p| p.provider.id() == id)
     }
 
     pub(crate) fn http(&self) -> Http<'_> {

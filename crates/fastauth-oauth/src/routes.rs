@@ -8,16 +8,18 @@ use fastauth_core::endpoint::{Authenticated, Ctx, Empty, Endpoint, Public};
 use fastauth_core::error::codes;
 use fastauth_core::events::{AccountLinked, EmailVerified, SessionRevoked};
 use fastauth_core::internal::{NewAccount, NewUser, SignInResult};
+use fastauth_core::model::Model;
 use fastauth_core::models::{Account, Session, User};
 use fastauth_core::routes::Status;
-use fastauth_core::value::Id;
+use fastauth_core::schema::ColumnType;
+use fastauth_core::value::{Id, Value};
 use fastauth_core::{AuthError, Duration};
 use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::provider::{AuthorizationRequest, OAuthProfile, OAuthTokens, TokenRequest};
-use crate::social::{AccountLinking, Social, SocialError};
+use crate::social::{AccountLinking, ConfiguredProvider, Social, SocialError};
 
 const STATE_TTL: Duration = Duration::minutes(10);
 const STATE_COOKIE: &str = "oauth_state";
@@ -104,7 +106,7 @@ async fn start<D: Adapter, A>(
         .await?;
     ctx.set_signed_cookie(STATE_COOKIE, &state, Some(STATE_TTL));
     let redirect_uri = format!("{}/callback/{}", config.auth_url(), start.provider);
-    let url = provider.authorization_url(&AuthorizationRequest {
+    let url = provider.provider.authorization_url(&AuthorizationRequest {
         state: &state,
         code_challenge: &code_challenge,
         redirect_uri: &redirect_uri,
@@ -310,10 +312,11 @@ impl SocialCallback {
             return Err(Fail::Code(error));
         }
         let code = input.code.ok_or_else(|| fail("no_code"))?;
-        let provider = self
+        let configured = self
             .0
             .find(provider_id)
             .ok_or_else(|| fail("oauth_provider_not_found"))?;
+        let provider = &configured.provider;
         let http = self.0.http();
         let redirect_uri = format!("{}/callback/{provider_id}", ctx.config().auth_url());
         let tokens = provider
@@ -379,12 +382,15 @@ impl SocialCallback {
                         (user, false)
                     }
                     None => {
+                        if configured.disable_sign_up {
+                            return Err(fail("signup_disabled"));
+                        }
                         let user = NewUser {
                             email,
                             name: profile.name.clone().unwrap_or_default(),
                             image: profile.image.clone(),
                             email_verified: profile.email_verified,
-                            extra: Vec::new(),
+                            extra: self.new_user_columns(ctx, configured, provider_id, &profile)?,
                         };
                         (internal.create_user(user, Some(account)).await?, true)
                     }
@@ -400,6 +406,79 @@ impl SocialCallback {
             SignInResult::Challenge(body) => Ok(with_challenge(data.callback_url, &body)),
         }
     }
+
+    /// Runs the profile mapping for a new user and checks its columns against `user`, like
+    /// sign-up checks its input fields, except that server-only columns are allowed. Mistakes
+    /// are the app's, so they are 500s with the reason logged.
+    fn new_user_columns<D: Adapter>(
+        &self,
+        ctx: &Ctx<D, Public>,
+        configured: &ConfiguredProvider,
+        provider_id: &str,
+        profile: &OAuthProfile,
+    ) -> Result<Vec<(&'static str, Value)>, AuthError> {
+        let columns = match configured
+            .map_profile
+            .as_ref()
+            .or(self.0.map_profile.as_ref())
+        {
+            Some(map) => map(profile, provider_id)?,
+            None => Vec::new(),
+        };
+        let table = ctx.schema().expect(User::TABLE);
+        for (i, (name, value)) in columns.iter().enumerate() {
+            let Some(column) = table.column(name).filter(|c| c.owner != "core") else {
+                return Err(AuthError::internal(format!(
+                    "the profile mapping for `{provider_id}` sets `user.{name}`, which is not an app or plugin column"
+                )));
+            };
+            if columns[..i].iter().any(|(earlier, _)| earlier == name) {
+                return Err(AuthError::internal(format!(
+                    "the profile mapping for `{provider_id}` sets `user.{name}` twice"
+                )));
+            }
+            let fits = match value_type(value) {
+                None => column.nullable,
+                Some(ty) => {
+                    ty == column.ty || (ty == ColumnType::Text && column.ty == ColumnType::Id)
+                }
+            };
+            if !fits {
+                let got = value_type(value).map_or("null".to_owned(), |ty| format!("{ty:?}"));
+                let nullable = if column.nullable { "nullable " } else { "" };
+                return Err(AuthError::internal(format!(
+                    "the profile mapping for `{provider_id}` sets `user.{name}` to {got}, but the column is {nullable}{:?}",
+                    column.ty
+                )));
+            }
+        }
+        let missing = table.columns.iter().find(|c| {
+            c.owner != "core"
+                && !c.nullable
+                && c.default.is_none()
+                && !columns.iter().any(|(name, _)| *name == c.name)
+        });
+        if let Some(column) = missing {
+            return Err(AuthError::internal(format!(
+                "`user.{}` is required and has no default, but social sign-up through `{provider_id}` doesn't set it; return it from `Social::map_profile`",
+                column.name
+            )));
+        }
+        Ok(columns)
+    }
+}
+
+/// The column type a value belongs to, or `None` for null.
+fn value_type(value: &Value) -> Option<ColumnType> {
+    Some(match value {
+        Value::Null => return None,
+        Value::Bool(_) => ColumnType::Bool,
+        Value::Int(_) => ColumnType::Int,
+        Value::Text(_) => ColumnType::Text,
+        Value::Bytes(_) => ColumnType::Bytes,
+        Value::Timestamp(_) => ColumnType::Timestamp,
+        Value::Json(_) => ColumnType::Json,
+    })
 }
 
 /// The callback URL with a gate's challenge as query parameters, e.g. `?twoFactorRedirect=true`.

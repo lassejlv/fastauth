@@ -115,6 +115,37 @@ verified. If that user never verified their email, their password and sessions a
 first ([Security](09-security.md#oauth)). `AccountLinking::Off` never links by email; signed-in users can still link with
 `/link-social`.
 
+A social sign-up fills `email`, `name`, `image` and `email_verified` from the provider's
+profile. Every other user column needs a default or a value from `map_profile`, which runs
+when a social sign-in creates a user (never for existing ones) and returns extra columns:
+
+```rust
+use fastauth::social::{Github, Google, OAuthProfile, OAuthProviderExt, Social};
+
+Social::new()
+    .provider(Github::from_env()?.map_profile(|_, _| Ok(vec![Profile::PLAN.value("developer")])))
+    .provider(Google::from_env()?.disable_sign_up(true))
+    .map_profile(|profile: &OAuthProfile, _provider: &str| {
+        Ok(vec![Profile::PLAN.value(if profile.email_verified { "free" } else { "trial" })])
+    })
+```
+
+A provider's own `map_profile` (from `OAuthProviderExt`, for built-in and custom providers)
+wins over `Social::map_profile` for that provider; the two are not merged. `Col::value`
+builds a typed `(column, Value)` pair, so a wrong type is a compile error; a raw
+`("plan", Value::Text(..))` works too. The returned columns are checked like sign-up input
+fields: each must be an app or plugin column on `user`, set once, with the column's type.
+Unlike sign-up input, server-only columns are allowed, because the server wrote the
+mapping. An unknown or core column, a wrong type, or a required column left unset is a bug
+in the app, so the callback answers 500 and logs the reason, for example that `user.plan`
+is required and has no default but social sign-up through `github` doesn't set it. An
+`AuthError` the mapping returns is passed on, so a 4xx such as `AuthError::forbidden()`
+turns the sign-up away with `?error=FORBIDDEN` on the error callback URL.
+
+`disable_sign_up(true)` (Better Auth's `disableSignUp`) stops a provider from creating
+users: someone new gets `?error=signup_disabled`, while existing users still sign in
+through it, including ones it links by verified email.
+
 ## Sessions
 
 ```rust

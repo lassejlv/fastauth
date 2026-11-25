@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -8,7 +9,9 @@ use fastauth_core::prelude::{EmailPassword, FastAuth, MemoryAdapter, RateLimit};
 use fastauth_core::query::Db;
 use fastauth_core::{Auth, plugins};
 use fastauth_oauth::http::MAX_RESPONSE_BYTES;
-use fastauth_oauth::{AccountLinking, Github, Google, Http, HttpClient, HttpClientError, Social};
+use fastauth_oauth::{
+    AccountLinking, Github, Google, Http, HttpClient, HttpClientError, OAuthProviderExt, Social,
+};
 use http::{Request, Response, header};
 use serde_json::{Value as Json, json};
 use time::{Duration, OffsetDateTime};
@@ -130,7 +133,22 @@ impl Plugin for Gatekeeper {
     }
 }
 
-type AppAuth = Auth<MemoryAdapter, (), plugins![Social, Gatekeeper]>;
+type AppAuth<U = ()> = Auth<MemoryAdapter, U, plugins![Social, Gatekeeper]>;
+
+fn build<U: Fields>(social: Social) -> AppAuth<U> {
+    FastAuth::builder()
+        .secret(Secret::from_bytes(vec![42u8; 32]))
+        .base_url(ORIGIN)
+        .trusted_origins(["https://app.acme.dk"])
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .user_fields::<U>()
+        .plugin(social)
+        .plugin(Gatekeeper)
+        .build()
+        .expect("valid config")
+}
 
 fn app(linking: AccountLinking) -> (AppAuth, MockHttp) {
     let mock = MockHttp::default();
@@ -138,24 +156,13 @@ fn app(linking: AccountLinking) -> (AppAuth, MockHttp) {
         .provider(Github::new("gh-id", "gh-secret"))
         .provider(Google::new("google-id", "google-secret"))
         .account_linking(linking);
-    let auth = FastAuth::builder()
-        .secret(Secret::from_bytes(vec![42u8; 32]))
-        .base_url(ORIGIN)
-        .trusted_origins(["https://app.acme.dk"])
-        .database(MemoryAdapter::new())
-        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
-        .rate_limit(RateLimit::disabled())
-        .plugin(social)
-        .plugin(Gatekeeper)
-        .build()
-        .expect("valid config");
-    (auth, mock)
+    (build(social), mock)
 }
 
 // ---------------------------------------------------------------- a browser
 
-struct Client {
-    auth: AppAuth,
+struct Client<U = ()> {
+    auth: AppAuth<U>,
     jar: HashMap<String, String>,
 }
 
@@ -174,8 +181,8 @@ impl Res {
     }
 }
 
-impl Client {
-    fn new(auth: &AppAuth) -> Self {
+impl<U: Fields> Client<U> {
+    fn new(auth: &AppAuth<U>) -> Self {
         Self {
             auth: auth.clone(),
             jar: HashMap::new(),
@@ -810,4 +817,290 @@ async fn responses_over_one_mebibyte_are_refused() {
         .await
         .unwrap_err();
     assert!(matches!(err, HttpClientError::TooLarge), "{err}");
+}
+
+// ---------------------------------------------------------------- profile mapping
+
+/// An app with a required column that has no default and isn't client input.
+#[derive(Clone, Debug)]
+struct Plan {
+    plan: String,
+}
+
+impl Fields for Plan {
+    fn columns() -> &'static [ColumnDef] {
+        const COLUMNS: &[ColumnDef] = &[ColumnDef::new("plan", ColumnType::Text)];
+        COLUMNS
+    }
+    fn decode(row: &Row) -> Result<Self, DecodeError> {
+        Ok(Self {
+            plan: row.get("plan")?,
+        })
+    }
+}
+
+impl OnTable for Plan {
+    type Table = User;
+}
+
+impl Plan {
+    const PLAN: Col<Plan, String> = Col::new("plan");
+}
+
+fn plan_app(social: impl FnOnce(Social) -> Social) -> (AppAuth<Plan>, MockHttp) {
+    let mock = MockHttp::default();
+    let social = social(Social::with_http_client(mock.clone()));
+    (build(social), mock)
+}
+
+async fn user_plans(auth: &AppAuth<Plan>) -> Vec<String> {
+    let rows = Db::new(auth.adapter(), auth.schema())
+        .find::<User>(Where::all())
+        .all_rows()
+        .await
+        .unwrap();
+    rows.iter()
+        .map(|row| Plan::decode(row).unwrap().plan)
+        .collect()
+}
+
+/// Captures this thread's log output for the rest of the test.
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Logs {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logs {
+    type Writer = Logs;
+    fn make_writer(&'a self) -> Logs {
+        self.clone()
+    }
+}
+
+impl Logs {
+    fn capture() -> (Self, tracing::subscriber::DefaultGuard) {
+        let logs = Logs::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_ansi(false)
+            .finish();
+        (logs, tracing::subscriber::set_default(subscriber))
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+#[tokio::test]
+async fn map_profile_sets_a_required_field_for_new_users_only() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let (auth, mock) = plan_app(|social| {
+        social
+            .provider(Github::new("gh-id", "gh-secret"))
+            .map_profile(move |profile, provider| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![Plan::PLAN.value(format!("{provider}-{}", profile.id))])
+            })
+    });
+    mock.github_user(7, "ada@acme.dk");
+
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("github"))
+        .await;
+    let res = browser.callback("github", &url).await;
+    assert_eq!(res.location(), "/welcome");
+    assert!(browser.has_session());
+    let session = browser.get("/get-session").await.json;
+    assert_eq!(session["user"]["plan"], "github-7");
+
+    let mut again = Client::new(&auth);
+    let url = again.start("/sign-in/social", sign_in_body("github")).await;
+    assert_eq!(
+        again.callback("github", &url).await.location(),
+        "/dashboard"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "only new users are mapped");
+    assert_eq!(user_plans(&auth).await, ["github-7"]);
+}
+
+#[tokio::test]
+async fn a_provider_mapping_wins_over_the_social_one() {
+    let (auth, mock) = plan_app(|social| {
+        social
+            .provider(
+                Github::new("gh-id", "gh-secret")
+                    .map_profile(|_, _| Ok(vec![Plan::PLAN.value("from-github")])),
+            )
+            .provider(Google::new("google-id", "google-secret"))
+            .map_profile(|_, _| Ok(vec![Plan::PLAN.value("from-social")]))
+    });
+    mock.github_user(7, "ada@acme.dk");
+    mock.google_user("grace@acme.dk", true);
+
+    for provider in ["github", "google"] {
+        let mut browser = Client::new(&auth);
+        let url = browser
+            .start("/sign-in/social", sign_in_body(provider))
+            .await;
+        assert_eq!(
+            browser.callback(provider, &url).await.location(),
+            "/welcome"
+        );
+    }
+    let mut plans = user_plans(&auth).await;
+    plans.sort();
+    assert_eq!(plans, ["from-github", "from-social"]);
+}
+
+#[tokio::test]
+async fn without_a_mapping_a_required_field_fails_with_a_clear_error() {
+    let (logs, _guard) = Logs::capture();
+    let (auth, mock) = plan_app(|social| social.provider(Github::new("gh-id", "gh-secret")));
+    mock.github_user(7, "ada@acme.dk");
+
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("github"))
+        .await;
+    let res = browser.callback("github", &url).await;
+    assert_eq!(res.status, 500);
+    assert_eq!(res.json["code"], "INTERNAL_SERVER_ERROR");
+    assert!(!browser.has_session());
+    assert!(user_plans(&auth).await.is_empty());
+    let logs = logs.text();
+    assert!(
+        logs.contains("`user.plan` is required and has no default, but social sign-up through `github` doesn't set it; return it from `Social::map_profile`"),
+        "{logs}"
+    );
+}
+
+#[tokio::test]
+async fn a_mapping_with_the_wrong_type_fails_with_a_clear_error() {
+    let (logs, _guard) = Logs::capture();
+    let (auth, mock) = plan_app(|social| {
+        social
+            .provider(Github::new("gh-id", "gh-secret"))
+            .map_profile(|_, _| Ok(vec![("plan", Value::Int(1))]))
+    });
+    mock.github_user(7, "ada@acme.dk");
+
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("github"))
+        .await;
+    assert_eq!(browser.callback("github", &url).await.status, 500);
+    assert!(user_plans(&auth).await.is_empty());
+    let logs = logs.text();
+    assert!(
+        logs.contains(
+            "the profile mapping for `github` sets `user.plan` to Int, but the column is Text"
+        ),
+        "{logs}"
+    );
+}
+
+#[tokio::test]
+async fn a_mapping_may_not_set_unknown_or_core_columns() {
+    let (logs, _guard) = Logs::capture();
+    for (column, value) in [
+        ("plann", Value::Text("pro".into())),
+        ("email_verified", Value::Bool(true)),
+    ] {
+        let (auth, mock) = plan_app(|social| {
+            social
+                .provider(Github::new("gh-id", "gh-secret"))
+                .map_profile(move |_, _| Ok(vec![Plan::PLAN.value("pro"), (column, value.clone())]))
+        });
+        mock.github_user(7, "ada@acme.dk");
+        let mut browser = Client::new(&auth);
+        let url = browser
+            .start("/sign-in/social", sign_in_body("github"))
+            .await;
+        assert_eq!(browser.callback("github", &url).await.status, 500);
+        assert!(user_plans(&auth).await.is_empty());
+        let logs = logs.text();
+        assert!(
+            logs.contains(&format!(
+                "sets `user.{column}`, which is not an app or plugin column"
+            )),
+            "{logs}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_mapping_error_redirects_with_its_code() {
+    let (auth, mock) = plan_app(|social| {
+        social
+            .provider(Github::new("gh-id", "gh-secret"))
+            .map_profile(|profile, _| match profile.email.as_deref() {
+                Some(email) if email.ends_with("@acme.dk") => Ok(vec![Plan::PLAN.value("staff")]),
+                _ => Err(AuthError::forbidden()),
+            })
+    });
+    mock.github_user(7, "ada@example.com");
+
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("github"))
+        .await;
+    let res = browser.callback("github", &url).await;
+    assert_eq!(res.location(), "/error?error=FORBIDDEN");
+    assert!(user_plans(&auth).await.is_empty());
+}
+
+#[tokio::test]
+async fn disable_sign_up_refuses_new_users_but_signs_in_existing_ones() {
+    let mock = MockHttp::default();
+    let auth: AppAuth = build(
+        Social::with_http_client(mock.clone())
+            .provider(Github::new("gh-id", "gh-secret").disable_sign_up(true))
+            .provider(Google::new("google-id", "google-secret")),
+    );
+
+    mock.github_user(7, "ada@acme.dk");
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("github"))
+        .await;
+    let res = browser.callback("github", &url).await;
+    assert_eq!(res.location(), "/error?error=signup_disabled");
+    assert!(!browser.has_session());
+    let users = db(&auth).find::<User>(Where::all()).all().await.unwrap();
+    assert!(users.is_empty());
+
+    mock.google_user("ada@acme.dk", true);
+    let mut browser = Client::new(&auth);
+    let url = browser
+        .start("/sign-in/social", sign_in_body("google"))
+        .await;
+    assert_eq!(
+        browser.callback("google", &url).await.location(),
+        "/welcome"
+    );
+
+    for _ in 0..2 {
+        let mut browser = Client::new(&auth);
+        let url = browser
+            .start("/sign-in/social", sign_in_body("github"))
+            .await;
+        assert_eq!(
+            browser.callback("github", &url).await.location(),
+            "/dashboard",
+            "an existing user links by verified email, then signs in with the account"
+        );
+        assert!(browser.has_session());
+    }
+    assert_eq!(accounts(&auth, "github").await.len(), 1);
 }
