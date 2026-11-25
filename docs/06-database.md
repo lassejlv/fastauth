@@ -52,29 +52,35 @@ Core tables (column names in snake_case; JSON uses camelCase):
 |---|---|
 | `user` | `id`, `email` (unique), `email_verified`, `name`, `image`, `created_at`, `updated_at` |
 | `session` | `id`, `token_hash` (unique), `user_id` → user, `expires_at`, `ip_address`, `user_agent`, `created_at`, `updated_at` |
-| `account` | `id`, `user_id` → user, `provider_id`, `account_id`, `password_hash`, `access_token` (encrypted), `refresh_token` (encrypted), `id_token`, `access_token_expires_at`, `scope`, `created_at`, `updated_at` |
-| `verification` | `id`, `identifier`, `value_hash`, `expires_at`, `created_at` |
+| `account` | `id`, `user_id` → user, `provider_id`, `account_id`, `password_hash`, `access_token` (encrypted), `refresh_token` (encrypted), `id_token`, `access_token_expires_at`, `refresh_token_expires_at`, `scope`, `created_at`, `updated_at` |
+| `verification` | `id`, `identifier`, `value_hash`, `data`, `expires_at`, `created_at`, `updated_at` |
 
 Passwords live on `account` (provider `credential`), like Better Auth, so a user can have a
 password, a GitHub login and a passkey at once. Plugins and `user_fields` add tables and
 columns to this.
 
-`fastauth schema` prints the merged schema for your config, with the owner of each column:
+`cargo run --bin fastauth -- schema` ([Migrations](#migrations) has the binary) prints the
+merged schema for your config, with the owner of each column. With a `plan` user field and
+`TwoFactor`:
 
 ```
 user
-  id                  id          core
-  email               text        core       unique
+  id                        id         core       primary key
+  email                     text       core       unique
   ...
-  plan                text        app        default 'free'
-  two_factor_enabled  bool        two-factor default false
+  plan                      text       app        default 'free'
+  two_factor_enabled        bool       two-factor default false
+...
 two_factor
-  id                  id          two-factor
-  user_id             id          two-factor -> user.id on delete cascade, index
-  secret              encrypted   two-factor
-  backup_codes        encrypted   two-factor
-  last_used_step      int         two-factor nullable
+  id                        id         two-factor primary key
+  user_id                   id         two-factor -> user.id on delete cascade, index
+  secret                    bytes      two-factor
+  backup_codes              bytes      two-factor
+  last_used_step            int        two-factor nullable
 ```
+
+The types are the schema's column types (`id`, `text`, `bool`, `int`, `timestamp`, `json`,
+`bytes`). Encrypted and hashed values are `bytes`; the schema doesn't record which.
 
 ### Column types
 
@@ -106,28 +112,34 @@ Three ways to apply it:
 auth.migrator().run().await?;
 
 // 2. Inspect first.
-let plan = auth.migrator().plan().await?;
-for step in plan.steps() { println!("{step}"); }
-for warning in plan.warnings() { eprintln!("{warning}"); }
-plan.apply().await?;
+let migrator = auth.migrator();
+let plan = migrator.plan().await?;
+for step in &plan.steps { println!("{step}"); }
+for warning in &plan.warnings { eprintln!("{warning}"); }
+migrator.apply(&plan).await?;
 
 // 3. As SQL, for sqlx migrate / your own tooling.
-let sql: String = auth.migrator().plan().await?.to_sql();
+let sql: String = auth.migrator().sql().await?;
 ```
 
 Option 3 is what `cargo run --bin fastauth -- generate` does: it writes
-`migrations/<timestamp>_fastauth.sql` in sqlx-cli's format. The binary is yours (three
-lines, see [Quickstart](02-quickstart.md#4-tables)) because only your code knows your
-config. That's the Rust version of Better Auth's CLI loading `auth.ts`.
+`migrations/<UTC timestamp>_fastauth.sql` (`20261125090503_fastauth.sql`) in sqlx-cli's
+format, with the plan's warnings as comments at the top, and writes nothing when the plan
+is empty. The binary is yours (three lines with the facade's `cli` feature, see
+[Quickstart](02-quickstart.md#4-tables)) because only your code knows your config. That's
+the Rust version of Better Auth's CLI loading `auth.ts`. The `fastauth` command from
+`cargo install fastauth-cli` only generates secrets, and its `--help` says why.
 
 ```
 cargo run --bin fastauth -- schema            # print the merged schema
 cargo run --bin fastauth -- status            # what generate would write; exit 1 if non-empty (CI)
-cargo run --bin fastauth -- generate --out migrations
+cargo run --bin fastauth -- generate --out migrations   # --out defaults to migrations
 cargo run --bin fastauth -- migrate           # apply directly
 ```
 
-`status` in CI catches a forgotten migration after adding a plugin.
+Every command reads `DATABASE_URL` from the environment or `.env`, or takes
+`--database-url`. `status` in CI catches a forgotten migration after adding a plugin; it
+also exits 1 when it can't reach the database.
 
 ## Typed queries
 
