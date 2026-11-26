@@ -166,6 +166,33 @@ impl axum_core::response::IntoResponse for AuthError {
     }
 }
 
+/// Lets actix-web handlers and extractors return `AuthError`: the same JSON body the auth
+/// routes use.
+#[cfg(feature = "actix")]
+impl actix_web::ResponseError for AuthError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        actix_web::http::StatusCode::from_u16(self.status.as_u16())
+            .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR)
+    }
+
+    fn error_response(&self) -> actix_web::HttpResponse {
+        to_actix(self.clone().into_response())
+    }
+}
+
+/// An `http` 1.x response as an actix-web response, which is built on `http` 0.2.
+#[cfg(feature = "actix")]
+pub(crate) fn to_actix(response: http::Response<Bytes>) -> actix_web::HttpResponse {
+    let (parts, body) = response.into_parts();
+    let status = actix_web::http::StatusCode::from_u16(parts.status.as_u16())
+        .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+    let mut builder = actix_web::HttpResponse::build(status);
+    for (name, value) in &parts.headers {
+        builder.append_header((name.as_str(), value.as_bytes()));
+    }
+    builder.body(body)
+}
+
 impl fmt::Debug for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

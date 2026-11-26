@@ -2,8 +2,8 @@
 
 `fastauth-core` handles requests as `http::Request` and returns `http::Response`. A
 framework integration converts to and from those types, mounts the handler, and gives
-handlers a way to get the session. axum is the integration that ships; others are
-[planned](../get-started/01-overview.md#planned).
+handlers a way to get the session. axum and [actix-web](03-actix.md) ship; this page covers
+axum and what any integration needs.
 
 ## axum
 
@@ -94,6 +94,7 @@ pub async fn session_of<A: AuthInstance>(auth: &A, headers: &http::HeaderMap) ->
 
 `crates/fastauth-axum` is about 400 lines and the reference for the rest: one session
 lookup per request shared by every extractor, and the layer that adds refreshed cookies.
+`crates/fastauth-actix` does the same for a framework on `http` 0.2.
 
 ## Request metadata
 
