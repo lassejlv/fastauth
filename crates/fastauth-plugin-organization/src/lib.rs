@@ -26,7 +26,7 @@
 //! `active_organization_id` column on `session`. A creator becomes the organization's
 //! `owner`, and the last owner can neither leave nor be demoted. What each role may do is
 //! decided in one place, [`Roles::allows`], which the endpoints, the server API
-//! ([`OrganizationExt`]) and the axum extractors (feature `axum`) all call.
+//! ([`OrganizationExt`]) and the extractors (features `axum` and `actix`) all call.
 //!
 //! Without the plugin registered, `auth.organization()` doesn't compile:
 //!
@@ -44,10 +44,12 @@
 //! ```
 
 pub mod access;
+#[cfg(feature = "actix")]
+pub mod actix;
 mod api;
 mod endpoints;
 mod error;
-#[cfg(feature = "axum")]
+#[cfg(any(feature = "axum", feature = "actix"))]
 pub mod extract;
 mod model;
 

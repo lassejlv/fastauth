@@ -20,7 +20,8 @@ fastauth = { version = "0.4", features = ["admin"] }
 
 The plugin lives at `fastauth::plugins::admin` (crate `fastauth-plugin-admin`). The
 `RequireRole` extractor also needs the facade's `axum` feature, which is on by default and
-turns on `fastauth-plugin-admin/axum`.
+turns on `fastauth-plugin-admin/axum`. For actix-web, the `actix` feature adds
+`fastauth::plugins::admin::actix::RequireRole` ([actix-web](../../integrations/03-actix.md#plugin-extractors)).
 
 Register it with `.plugin(..)` and add `Admin` to your alias:
 
