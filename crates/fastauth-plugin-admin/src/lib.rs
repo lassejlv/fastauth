@@ -261,6 +261,12 @@ impl Plugin for Admin {
             }
         });
 
+        app.fixed_session_expiry(|session| {
+            session
+                .fields::<AdminSession>()
+                .is_ok_and(|fields| fields.impersonated_by.is_some())
+        });
+
         let plugin = self.clone();
         app.session_gate(move |ctx, session, usage| {
             let plugin = plugin.clone();

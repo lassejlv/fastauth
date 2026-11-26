@@ -12,7 +12,7 @@ use crate::adapter::Adapter;
 use crate::endpoint::{
     After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
     ErasedEventHandler, ErasedResolver, ErasedResponseHook, ErasedSessionGate, ErasedSessionHook,
-    Gate, HookCtx, OwnedGate, Response, SessionResolver, SessionUse, SignInAttempt,
+    FixedExpiry, Gate, HookCtx, OwnedGate, Response, SessionResolver, SessionUse, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
@@ -66,6 +66,7 @@ pub struct Registry<D> {
     pub(crate) response_hooks: Vec<ErasedResponseHook<D>>,
     pub(crate) session_hooks: Vec<ErasedSessionHook<D>>,
     pub(crate) session_gates: Vec<ErasedSessionGate<D>>,
+    pub(crate) fixed_expiry: Vec<FixedExpiry>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
@@ -87,6 +88,7 @@ impl<D: Adapter> Registry<D> {
             response_hooks: Vec::new(),
             session_hooks: Vec::new(),
             session_gates: Vec::new(),
+            fixed_expiry: Vec::new(),
             events: HashMap::new(),
             rate_rules: Vec::new(),
             error_codes: Vec::new(),
@@ -212,6 +214,17 @@ impl<D: Adapter> PluginBuilder<'_, D> {
             .push(Arc::new(move |ctx, session, usage| {
                 Box::pin(gate(ctx, session, usage))
             }));
+        self
+    }
+
+    /// Marks sessions the refresh must not extend: when `fixed` answers true for a session,
+    /// it keeps the `expires_at` it was given, whatever `update_age`. For sessions a plugin
+    /// creates with a deliberately short life, such as admin's impersonation sessions.
+    pub fn fixed_session_expiry(
+        &mut self,
+        fixed: impl Fn(&SessionView) -> bool + Send + Sync + 'static,
+    ) -> &mut Self {
+        self.registry.fixed_expiry.push(Arc::new(fixed));
         self
     }
 

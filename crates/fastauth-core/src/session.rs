@@ -359,8 +359,8 @@ pub(crate) async fn by_token<D: Adapter>(
 }
 
 /// Extends the expiry at most once per `update_age`. The conditional update makes
-/// concurrent requests extend it once. A session created with a shorter lifetime than
-/// `expires_in` (an impersonation session) keeps its expiry.
+/// concurrent requests extend it once. Sessions a plugin marked with
+/// `PluginBuilder::fixed_session_expiry` (impersonation sessions) are never extended.
 async fn refresh<D: Adapter>(
     shared: &Shared<D>,
     db: &D,
@@ -371,7 +371,7 @@ async fn refresh<D: Adapter>(
     let now = OffsetDateTime::now_utc();
     let config = &shared.config.session;
     if now - view.session.updated_at < config.update_age
-        || view.session.expires_at - view.session.created_at < config.expires_in
+        || shared.fixed_expiry.iter().any(|fixed| fixed(view))
     {
         return Ok(());
     }

@@ -60,8 +60,6 @@
 - **Organization:** `require_email_verification_on_invitation` now defaults to `true`. Users
   must verify their email before they can view, accept or reject an invitation. Set it to
   `false` to keep 0.3 behaviour (Better Auth's default for its random ids).
-- **Sessions:** a session is extended by the refresh only when it was created with the full
-  `expires_in`. After raising `expires_in`, existing sessions expire on their old date.
 - **API keys:** a key's session gets `403 SESSION_NOT_FRESH` from `Fresh` endpoints and
   `FreshSession`, and `401` from key create/update, passkey registration, `/link-social` and
   two-factor enable/disable.
@@ -117,6 +115,8 @@ All additive; no public trait changed.
   with `SessionUse::Sensitive`. For endpoints that create or change a credential.
 - `Internal::ephemeral_session(&user_id)`: the request-only session `Resolved::User` builds,
   after the session gates.
+- `PluginBuilder::fixed_session_expiry(|session| ..)`: sessions it answers true for are never
+  extended by the refresh. Admin marks impersonation sessions with it.
 - `Internal::send_email_in_background` (send without waiting for the mailer, logging a
   failure) and `Internal::simulate_verification` (the database work of a verification
   lookup, for the branch that sends nothing). `Internal::send_verification_email` now sends

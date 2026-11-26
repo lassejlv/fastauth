@@ -584,6 +584,18 @@ cheap: the user row is already in `session.user`. `SessionUse::Sensitive` comes 
 on, a cached session's user row is as old as the cache cookie, so a gate that reads it sees
 a change only once the cache expires; `ctx.sensitive_session()` always reads it fresh.
 
+A plugin that creates sessions with a deliberately short life marks them with
+`app.fixed_session_expiry(|session| ..)`: the refresh never extends a session it answers
+true for. Every other session slides as usual. The admin plugin marks impersonation sessions:
+
+```rust
+app.fixed_session_expiry(|session| {
+    session
+        .fields::<AdminSession>()
+        .is_ok_and(|fields| fields.impersonated_by.is_some())
+});
+```
+
 ### After a session is created
 
 `app.on_session_created(..)` runs inside the request right after a session is stored and

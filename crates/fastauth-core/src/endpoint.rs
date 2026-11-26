@@ -177,6 +177,7 @@ pub(crate) type ErasedSessionGate<D> = Arc<
         + Send
         + Sync,
 >;
+pub(crate) type FixedExpiry = Arc<dyn Fn(&SessionView) -> bool + Send + Sync>;
 pub(crate) type ErasedEventHandler<D> = Arc<
     dyn Fn(Arc<dyn Any + Send + Sync>, Ctx<D>) -> BoxFuture<'static, Result<(), AuthError>>
         + Send
@@ -298,6 +299,7 @@ pub(crate) struct Shared<D> {
     pub response_hooks: Vec<ErasedResponseHook<D>>,
     pub session_hooks: Vec<ErasedSessionHook<D>>,
     pub session_gates: Vec<ErasedSessionGate<D>>,
+    pub fixed_expiry: Vec<FixedExpiry>,
     pub events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub router: matchit::Router<MethodTable<D>>,
     pub rate_limiter: RateLimiter,

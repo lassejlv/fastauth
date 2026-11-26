@@ -69,8 +69,9 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   `401`; and the admin plugin refuses impersonation sessions with
   `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a stolen cookie
   can't turn into a lasting credential.
-- **Impersonation stays short.** Session refresh only extends sessions created with the full
-  `expires_in`, so an impersonation session ends after `impersonation_session_duration`.
+- **Impersonation stays short.** The admin plugin marks impersonation sessions with
+  `PluginBuilder::fixed_session_expiry`, so the refresh never extends them and they end after
+  `impersonation_session_duration`.
 - **Admins can't take each other over.** Acting on another admin's account (password, email,
   role, ban, removal, sessions) needs `user:impersonate-admins`
   ([Admin](13-admin.md#endpoints)).

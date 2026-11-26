@@ -182,10 +182,9 @@ through it, including ones it links by verified email.
 The cookie cache trades revocation latency for speed: a revoked session keeps working on
 other devices until the cache cookie expires. Endpoints that create or change a credential
 (API keys, passkeys, linked accounts, two-factor) skip the cache and read the session from
-the database, so a revoked session can't mint one ([Security](09-security.md#sessions-that-arent-a-sign-in)).
-A session is extended only when it was created with the full `expires_in`: one created
-shorter (an impersonation session) keeps its expiry. Raising `expires_in` therefore stops
-existing sessions from sliding; they expire on their old date and the user signs in again. [Internals](08-internals.md#the-session-hot-path)
+the database, so a revoked session can't mint one ([Security](09-security.md#sessions-that-arent-a-sign-in)). An
+impersonation session is never extended: it ends after the admin plugin's
+`impersonation_session_duration`. [Internals](08-internals.md#the-session-hot-path)
 shows the cost of each tier. Sessions live in the database; secondary storage such as Redis
 is [planned](01-overview.md#planned), not built.
 
