@@ -13,11 +13,12 @@ Auth's routes and JSON. The whole configuration is one value,
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches fastauth 0.4 on crates.io and the code on `main`, and so does the repo's
+This skill matches fastauth 0.5 on crates.io and the code on `main`, and so does the repo's
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
 plugins, organization teams, `TestAuth`,
-`#[endpoint]`, secondary storage (Redis), actix-web and MySQL
-(`docs/get-started/01-overview.md#planned`).
+`#[endpoint]` and secondary storage (Redis)
+(`docs/get-started/01-overview.md#planned`). actix-web works through the `actix` feature
+(`docs/integrations/03-actix.md`), and MySQL through `mysql-tls`; this skill shows axum.
 
 Ids are opaque strings, ULIDs by default (`.ids(IdStrategy::UuidV7)` and others on the
 builder). Never parse them or assume a format.
@@ -28,7 +29,7 @@ builder). Never parse them or assume a format.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.4", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.5", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -39,6 +40,9 @@ serde = { version = "1", features = ["derive"] }
 | `axum` | yes | `auth.router()`, `auth.session_layer()`, the `Session` extractors |
 | `postgres` | yes | `Sqlx<Postgres>`, `PgPool` in the prelude |
 | `sqlite` | no | `Sqlx<Sqlite>`, `SqlitePool` in the prelude |
+| `mysql` | no | `Sqlx<MySql>`, `MySqlPool` in the prelude |
+| `mysql-tls` | no | `mysql` plus TLS, which a default MySQL 8 login needs |
+| `actix` | no | `fastauth::actix`: `auth.scope()`, the actix-web extractors and session middleware |
 | `macros` | yes | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | no | `fastauth::social`: `Social`, `Github`, `Google` |
 | `two-factor` | no | `fastauth::plugins::two_factor`: `TwoFactor` |

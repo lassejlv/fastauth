@@ -52,7 +52,7 @@ pub fn app(auth: AppAuth) -> Router {
 
 ## Setup
 
-- `fastauth = { version = "0.4", features = ["admin"] }`; import from `fastauth::plugins::admin`.
+- `fastauth = { version = "0.5", features = ["admin"] }`; import from `fastauth::plugins::admin`.
   `RequireRole` also needs the facade's `axum` feature (on by default).
 - Add `Admin` to the `plugins![..]` alias. It requires no other plugin.
 - Run migrations after adding it: it adds `user.role`, `user.banned`, `user.ban_reason`,

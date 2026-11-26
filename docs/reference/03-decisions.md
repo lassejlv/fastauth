@@ -184,4 +184,17 @@ using the compile-checked extension traits.
 5. Breaking for exhaustive matches only: `ClientIp` and `AdminError` gained variants. No
    public trait changed.
 
+## Released: 0.5.0 (2026-11-26)
+
+1. MySQL 8 in `fastauth-sqlx` (feature `mysql`, and `mysql-tls` on the facade), with every
+   core and plugin table ([Databases](../concepts/02-database.md#mysql)).
+2. [actix-web](../integrations/03-actix.md) through the new `fastauth-actix` crate, at parity
+   with axum, the organization and admin extractors included.
+3. MIT only. 0.4.0 and earlier stay MIT OR Apache-2.0.
+4. A fix for 0.4 and earlier: claiming an unverified user now also deletes its passkeys and
+   API keys, through core's new `UserClaimed` event.
+5. Passkey-first sign-up (`Passkey::sign_up`) and changing the email with an email OTP code.
+6. Breaking for exhaustive matches only: `EmailOtpError` gained variants. No public trait
+   changed, and no table or column was added.
+
 The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.

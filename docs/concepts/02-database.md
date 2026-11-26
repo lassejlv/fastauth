@@ -363,7 +363,7 @@ violation must map to `DbError::UniqueViolation`, so sign-up can answer "email t
 A new adapter is done when this passes:
 
 ```rust
-// [dev-dependencies] fastauth-core = { version = "0.4", features = ["testing"] }
+// [dev-dependencies] fastauth-core = { version = "0.5", features = ["testing"] }
 #[tokio::test]
 async fn conformance() {
     fastauth_core::testing::run_adapter_conformance(async || fastauth::prelude::MemoryAdapter::new()).await;

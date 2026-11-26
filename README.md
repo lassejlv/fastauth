@@ -9,10 +9,11 @@ It runs on sqlx and axum out of the box, and the plugin API is checked by the co
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.4.0 is on crates.io. It fixes two high-severity security issues that affect every
-earlier version, adds the username, anonymous and multi-session plugins, and changes a few
-defaults; read [upgrading from 0.3](CHANGELOG.md#upgrading-from-03) before you bump. The docs in
-`docs/` describe 0.4.
+**Status:** 0.5.0 is on crates.io. It adds MySQL and actix-web, is licensed under MIT only,
+and fixes a hole in 0.4 and earlier: whoever registered an unverified email first could keep
+access through passkeys or API keys after the real owner claimed it. Read
+[upgrading from 0.4](CHANGELOG.md#upgrading-from-04) before you bump. The docs in `docs/`
+describe 0.5.
 
 ## Install
 
@@ -188,7 +189,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against `main` (0.4). Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.5). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License

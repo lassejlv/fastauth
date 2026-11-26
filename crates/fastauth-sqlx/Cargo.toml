@@ -22,7 +22,7 @@ mysql = ["sqlx/mysql"]
 tls-rustls = ["sqlx/tls-rustls"]
 
 [dependencies]
-fastauth-core = { version = "0.4.0", path = "../fastauth-core" }
+fastauth-core = { version = "0.5.0", path = "../fastauth-core" }
 serde_json = "1.0.154"
 sqlx-core = { version = "0.9.1", default-features = false }
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "json", "time", "uuid"] }

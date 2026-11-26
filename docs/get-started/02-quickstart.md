@@ -7,7 +7,7 @@ and one protected route. The defaults cover everything not shown.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.4", features = ["cli"] }
+fastauth = { version = "0.5", features = ["cli"] }
 axum = "0.8"
 sqlx = { version = "0.9", features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1", features = ["full"] }
