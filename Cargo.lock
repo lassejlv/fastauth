@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-axum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "bytes",
@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "fastauth-core",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "axum-core",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fastauth-core",
  "heck",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-oauth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "fastauth-core",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-admin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "bytes",
@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-api-key"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "bytes",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-organization"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "bytes",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-two-factor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "fastauth-core",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-sqlx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "fastauth-core",

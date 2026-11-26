@@ -8,10 +8,9 @@ It runs on sqlx and axum out of the box, and the plugin API is checked by the co
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.1.0 is on crates.io. `main` is 0.2, not released yet: it adds the
-organization, admin and API key plugins and makes ids ULIDs by default, which is a breaking
-change for Postgres databases created with 0.1 ([CHANGELOG](CHANGELOG.md)). The docs in
-`docs/` describe `main`.
+**Status:** 0.2.0 is on crates.io. It adds the organization, admin and API key plugins and
+makes ids ULIDs by default, which is a breaking change for Postgres databases created with 0.1
+(see the [CHANGELOG](CHANGELOG.md) for the one-line fix). The docs in `docs/` describe 0.2.
 
 ## Install
 
