@@ -191,5 +191,4 @@ compiles against `main` (0.4). Copy the folder into your agent's skills director
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT)
-at your option.
+Licensed under the [MIT license](LICENSE).
