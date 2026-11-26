@@ -109,7 +109,8 @@ pub fn app(auth: AppAuth) -> Router {
   `Session`.
 - `R` is `role::Admin`, `role::User` or a marker from `role!(pub Support = "support")`.
 - Admins pass `role::Admin` but not custom roles (give them `"admin,support"`). `role::Admin`
-  means the role named `admin`; if `admin_roles` lacks `"admin"`, use your own marker.
+  means any admin (`Admin::is_admin`): a holder of any configured `admin_roles` entry, or a
+  user in `admin_user_ids`.
 - It checks roles, not permissions; for a permission call `auth.admin().has_permission(..)`.
 
 ## Gotchas
@@ -122,7 +123,7 @@ pub fn app(auth: AppAuth) -> Router {
   impersonate, and are hidden from the user's own `/list-sessions`. The admin's token waits in
   the signed `fastauth.admin_session` cookie until `stop-impersonating`.
 - Events: `UserCreated` (create-user), `UserUpdated` (set-role, ban, unban, update-user),
-  `SessionCreated` (impersonate), `SessionRevoked`. There's no user-deleted event, and
-  set-user-password emits no `PasswordChanged`.
+  `PasswordChanged` (set-user-password), `UserDeleted` (remove-user), `SessionCreated`
+  (impersonate), `SessionRevoked`.
 - Better Auth's `checkRolePermission` is client-side and needs the roles mirrored in
   TypeScript. `hasPermission` asks the server.

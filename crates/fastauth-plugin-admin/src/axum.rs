@@ -15,6 +15,12 @@ use crate::{Admin, AdminUser};
 pub trait Role: Send + Sync + 'static {
     /// The role's name: `"admin"`, `"support"`.
     const NAME: &'static str;
+
+    /// Whether a user with this id and `user.role` value holds the role. Default:
+    /// [`Admin::has_role`] with [`NAME`](Self::NAME).
+    fn held_by(admin: &Admin, user_id: &Id, role: Option<&str>) -> bool {
+        admin.has_role(user_id, role, Self::NAME)
+    }
 }
 
 /// The built-in roles, plus [`role!`](crate::role!) for your own.
@@ -30,6 +36,12 @@ pub mod role {
 
     impl super::Role for Admin {
         const NAME: &'static str = "admin";
+
+        /// [`Admin::is_admin`](crate::Admin::is_admin), the check the admin endpoints use
+        /// too: whatever the configured admin roles are called.
+        fn held_by(admin: &crate::Admin, user_id: &super::Id, role: Option<&str>) -> bool {
+            admin.is_admin(user_id, role)
+        }
     }
 
     impl super::Role for User {
@@ -111,7 +123,7 @@ where
         let plugin = auth
             .try_plugin::<Admin>()
             .ok_or_else(|| AuthError::internal("RequireRole needs the admin plugin registered"))?;
-        if !plugin.has_role(&user.id, role.as_deref(), R::NAME) {
+        if !R::held_by(plugin, &user.id, role.as_deref()) {
             return Err(AuthError::forbidden());
         }
         Ok(Self(session, PhantomData))

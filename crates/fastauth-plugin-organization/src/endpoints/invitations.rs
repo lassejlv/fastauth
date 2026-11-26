@@ -504,7 +504,7 @@ pub struct InvitationWithOrganization {
 
 /// `GET /organization/list-user-invitations`: the pending invitations addressed to the
 /// caller's email, which must be verified. The server API lists any address's with
-/// `auth.organization().list_user_invitations(email)`.
+/// `auth.organization().invitations_for_email(email)`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ListUserInvitations;
 

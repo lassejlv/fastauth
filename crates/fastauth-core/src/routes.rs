@@ -25,7 +25,8 @@ pub(crate) fn register<D: Adapter>(app: &mut PluginBuilder<'_, D>, email_passwor
         .endpoint(RevokeOtherSessions)
         .endpoint(UpdateUser)
         .endpoint(SendVerificationEmail)
-        .endpoint(VerifyEmail);
+        .endpoint(VerifyEmail)
+        .server_endpoint::<CreateUser>();
     if email_password {
         app.endpoint(SignUpEmail)
             .endpoint(SignInEmail)
@@ -239,7 +240,8 @@ impl<D: Adapter> Endpoint<D> for SignUpEmail {
 
 // ---------------------------------------------------------------------------- create-user
 
-/// Server-only: `auth.api().create_user(..)`. Never registered as a route.
+/// Server-only: `auth.api().create_user(..)`. Never registered as a route, but hooks
+/// can target it.
 pub struct CreateUser;
 
 #[derive(Debug, Default, Deserialize)]

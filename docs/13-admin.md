@@ -322,10 +322,11 @@ A user holds every role in their `role` column, or the default role while it's e
 also hold every admin role, but not your other roles, so an admin gets `403` from
 `RequireRole<_, Support>` unless their `role` includes `support`.
 
-`role::Admin` checks for the role named `admin`. With the default `admin_roles(["admin"])`,
-or any list that includes `admin`, that also lets in the other admin roles and
-`admin_user_ids`. If your admin roles don't include `admin`, it only lets in users whose
-`role` column says `admin`, so declare a marker for your own admin role instead.
+`role::Admin` lets in every admin, by the same check the endpoints use to decide who's an
+admin (`Admin::is_admin`): a user holding any of the configured `admin_roles`, whatever
+they're called, or a user in `admin_user_ids`, whatever their role. With
+`admin_roles(["superadmin"])`, a `superadmin` passes and a user whose `role` says `admin`
+doesn't.
 
 `RequireRole` checks a role, not a permission. To check a permission, call
 `auth.admin().has_permission(..)` in the handler.
@@ -428,11 +429,12 @@ The admin routes emit core's events, so handlers registered with `app.on(..)`
 |---|---|
 | `UserCreated` | `create-user` |
 | `UserUpdated` | `set-role`, `ban-user`, `unban-user`, `update-user` |
+| `PasswordChanged` | `set-user-password` |
+| `UserDeleted` | `remove-user`, after the user's sessions and accounts are gone |
 | `SessionCreated` | `impersonate-user` |
-| `SessionRevoked` | `ban-user`, `update-user` with `banned: true`, `revoke-user-session`, `revoke-user-sessions`, `remove-user`, `stop-impersonating` |
+| `SessionRevoked` | `ban-user`, `update-user` with `banned: true`, `revoke-user-session`, `revoke-user-sessions`, `remove-user` (when the user had sessions), `stop-impersonating` |
 
-The plugin defines no events of its own. `set-user-password` emits no `PasswordChanged`, and
-lifting an expired ban at sign-in emits nothing.
+The plugin defines no events of its own. Lifting an expired ban at sign-in emits nothing.
 
 ## Error codes
 
@@ -517,8 +519,6 @@ Known gaps:
 - Renaming the admin columns (Better Auth's `schema` option).
 - Better Auth's deprecated `allowImpersonatingAdmins` option. Grant
   `user:impersonate-admins` to a role instead.
-- An event for a removed user. Core has no `UserDeleted` event, so `remove-user` emits only
-  `SessionRevoked`.
 
 Related: [Organization](12-organization.md) has per-organization roles, and
 [API keys](14-api-keys.md) has per-user keys.

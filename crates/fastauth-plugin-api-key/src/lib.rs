@@ -276,6 +276,8 @@ impl Plugin for ApiKeys {
             .endpoint(UpdateApiKey::client(self.clone()))
             .endpoint(DeleteApiKey::client())
             .endpoint(ListApiKeys::client())
+            .server_endpoint::<VerifyApiKey>()
+            .server_endpoint::<DeleteAllExpiredApiKeys>()
             .errors::<ApiKeyError>();
         if self.sessions {
             app.session_resolver(verify::KeyResolver(self.clone()));

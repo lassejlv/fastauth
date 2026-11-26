@@ -297,9 +297,16 @@ impl<D: Adapter> Endpoint<D> for ListTokens {
 }
 ```
 
-An endpoint that only Rust code may call isn't registered with `app.endpoint(..)`; code
-runs it with `auth.api().call(&endpoint, input)`. The API key plugin's
-[server-only endpoints](14-api-keys.md#endpoints) work this way.
+An endpoint that only Rust code may call isn't registered with `app.endpoint(..)`, which
+would give it a route. Declare it with `app.server_endpoint::<E>()` instead: it gets no
+route, but hooks can target it like any other endpoint. Code runs it with
+`auth.api().call(&endpoint, input)`. The API key plugin's
+[server-only endpoints](14-api-keys.md#endpoints) and core's `CreateUser` work this way.
+
+When the HTTP route and the server API need different rules on the same input, keep one
+endpoint type with a flag, the way the API key plugin's `CreateApiKey::client(..)` and
+`::server(..)` do: register the client variant with `app.endpoint(..)` and call the server
+variant from the extension trait. Hooks on the type then run for both.
 
 ### Session resolvers
 
@@ -420,9 +427,7 @@ its tables with `auth.api().db()`. The organization and admin extractors work th
 ### Hooks
 
 Hooks run around endpoints, for every caller (HTTP and the server API). They name an
-endpoint type and get its typed input or output by value. (One exception today: the
-organization plugin's server-only `create` and `add_member` calls skip hooks on its
-endpoints; see [Organization](12-organization.md#hooks).)
+endpoint type and get its typed input or output by value.
 
 ```rust
 fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {

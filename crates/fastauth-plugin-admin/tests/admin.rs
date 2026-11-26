@@ -2,6 +2,7 @@ mod common;
 
 use common::{Client, Res, secret};
 use fastauth_core::crypto::Argon2id;
+use fastauth_core::events::{PasswordChanged, SessionRevoked, UserDeleted, UserUpdated};
 use fastauth_core::model::Fields;
 use fastauth_core::prelude::*;
 use fastauth_core::query::Db;
@@ -1000,4 +1001,107 @@ async fn the_server_api_needs_no_session() {
 #[should_panic(expected = "invalid admin roles: superadmin")]
 fn admin_roles_must_be_defined() {
     build(Admin::new().admin_roles(["admin", "superadmin"]));
+}
+
+#[tokio::test]
+async fn admin_mutations_emit_core_events() {
+    use std::sync::{Arc, Mutex};
+
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = |events: &Arc<Mutex<Vec<String>>>, line: String| events.lock().unwrap().push(line);
+    let (e1, e2, e3, e4) = (
+        events.clone(),
+        events.clone(),
+        events.clone(),
+        events.clone(),
+    );
+    let auth: AppAuth = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .plugin(Admin::new())
+        .on(move |e: PasswordChanged, _| {
+            log(&e1, format!("password {}", e.user_id));
+            async { Ok(()) }
+        })
+        .on(move |e: UserUpdated, _| {
+            log(&e2, format!("updated {}", e.user_id));
+            async { Ok(()) }
+        })
+        .on(move |e: SessionRevoked, _| {
+            log(&e3, format!("revoked {}", e.user_id));
+            async { Ok(()) }
+        })
+        .on(move |e: UserDeleted, _| {
+            log(&e4, format!("deleted {} {}", e.user_id, e.email));
+            async { Ok(()) }
+        })
+        .build()
+        .expect("valid config");
+    let (mut admin, _, bob) = admin_and_user(&auth).await;
+    let take = || std::mem::take(&mut *events.lock().unwrap());
+    take();
+
+    let res = admin
+        .post(
+            "/admin/set-user-password",
+            json!({ "userId": bob, "newPassword": "brand new password" }),
+        )
+        .await;
+    assert_eq!(res.status, 200, "{}", res.json);
+    auth.admin()
+        .set_user_password(&bob, "another new password")
+        .await
+        .unwrap();
+    assert_eq!(
+        take(),
+        [format!("password {bob}"), format!("password {bob}")]
+    );
+
+    let res = admin
+        .post(
+            "/admin/update-user",
+            json!({ "userId": bob, "data": { "name": "Bobby" } }),
+        )
+        .await;
+    assert_eq!(res.status, 200, "{}", res.json);
+    assert_eq!(take(), [format!("updated {bob}")]);
+
+    let res = admin
+        .post("/admin/revoke-user-sessions", json!({ "userId": bob }))
+        .await;
+    assert_eq!(res.json, json!({ "success": true }));
+    assert_eq!(take(), [format!("revoked {bob}")]);
+
+    sign_in(
+        &mut Client::new(auth.clone()),
+        "bob@acme.dk",
+        "another new password",
+    )
+    .await;
+    take();
+    let res = admin
+        .post("/admin/remove-user", json!({ "userId": bob }))
+        .await;
+    assert_eq!(res.json, json!({ "success": true }));
+    assert_eq!(
+        take(),
+        [
+            format!("revoked {bob}"),
+            format!("deleted {bob} bob@acme.dk")
+        ]
+    );
+
+    let (_, carol) = signed_up(&auth, "carol@acme.dk").await;
+    take();
+    auth.admin().remove_user(&carol).await.unwrap();
+    assert_eq!(
+        take(),
+        [
+            format!("revoked {carol}"),
+            format!("deleted {carol} carol@acme.dk")
+        ]
+    );
 }

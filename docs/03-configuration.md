@@ -268,8 +268,8 @@ Use them for side effects such as a welcome email or a billing customer.
 ```
 
 A handler's error is logged and doesn't fail the request. Core events, all in the prelude:
-`UserCreated { user_id, email }`, `UserUpdated`, `SessionCreated`, `SessionRevoked`,
-`PasswordChanged`, `EmailVerified`, `AccountLinked`. Plugins publish their own
+`UserCreated { user_id, email }`, `UserUpdated`, `UserDeleted { user_id, email }`, `SessionCreated`,
+`SessionRevoked`, `PasswordChanged`, `EmailVerified`, `AccountLinked`. Plugins publish their own
 (`TwoFactorEnabled`, and the events on the [organization](12-organization.md#events),
 [admin](13-admin.md#events) and [API key](14-api-keys.md#events) pages). To change or block
 an operation before it happens, use a hook ([Plugins](05-plugins.md#hooks)); an app

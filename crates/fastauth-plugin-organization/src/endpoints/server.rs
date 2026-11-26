@@ -1,53 +1,16 @@
-//! Server-only endpoints: no HTTP route, called through `auth.organization()`.
+//! Server-only endpoints: no HTTP route, called through `auth.organization()`. `init`
+//! declares them with `server_endpoint`, so hooks can target them.
 
 use std::collections::BTreeMap;
 
 use fastauth_core::plugin_prelude::*;
 
 use super::members::allows_map;
-use super::{RoleInput, checked_roles, find_member, insert_member, organization, plugin};
+use super::{
+    RoleInput, checked_roles, find_member, insert_member, organization, plugin, user_not_found,
+};
 use crate::endpoints::invitations::{InvitationWithOrganization, invitations_for};
-use crate::endpoints::org::{CreateOrganizationInput, OrganizationWithMembers, create};
 use crate::model::Member;
-
-fn user_not_found() -> AuthError {
-    AuthError::bad_request(codes::USER_NOT_FOUND, "User not found")
-}
-
-/// An organization to create for a user, without a session.
-#[derive(Clone, Debug, Deserialize)]
-pub struct NewOrganization {
-    /// The creator, who becomes the owner.
-    pub user_id: Id,
-    #[serde(flatten)]
-    pub organization: CreateOrganizationInput,
-}
-
-/// Creates an organization for `user_id`, skipping `allow_user_to_create_organization`
-/// (the server decided) but not `organization_limit`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct CreateOrganizationFor;
-
-impl<D: Adapter> Endpoint<D> for CreateOrganizationFor {
-    const METHOD: Method = Method::POST;
-    const PATH: &'static str = "/organization/create";
-    type Access = Public;
-    type Input = NewOrganization;
-    type Output = OrganizationWithMembers;
-
-    async fn call(
-        &self,
-        ctx: Ctx<D, Public>,
-        input: NewOrganization,
-    ) -> Result<OrganizationWithMembers, AuthError> {
-        let user = ctx
-            .internal()
-            .find_user_by_id(&input.user_id)
-            .await?
-            .ok_or_else(user_not_found)?;
-        create(&ctx, &user.id, input.organization).await
-    }
-}
 
 /// A membership to add without an invitation.
 #[derive(Clone, Debug, Deserialize)]

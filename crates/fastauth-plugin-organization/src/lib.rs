@@ -57,8 +57,7 @@ use fastauth_core::plugin_prelude::*;
 pub use access::{Permission, Roles};
 pub use api::{OrganizationApi, OrganizationExt};
 pub use endpoints::server::{
-    AddMember, CheckPermission, CreateOrganizationFor, EmailQuery, NewMember, NewOrganization,
-    PermissionCheck, UserInvitations,
+    AddMember, CheckPermission, EmailQuery, NewMember, PermissionCheck, UserInvitations,
 };
 pub use endpoints::*;
 pub use error::OrganizationError;
@@ -158,7 +157,7 @@ impl Plugin for Organization {
     }
 
     fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
-        app.endpoint(CreateOrganization)
+        app.endpoint(CreateOrganization::client())
             .endpoint(UpdateOrganization)
             .endpoint(DeleteOrganization)
             .endpoint(ListOrganizations)
@@ -178,6 +177,9 @@ impl Plugin for Organization {
             .endpoint(GetActiveMember)
             .endpoint(ListMembers)
             .endpoint(HasPermission)
+            .server_endpoint::<AddMember>()
+            .server_endpoint::<CheckPermission>()
+            .server_endpoint::<UserInvitations>()
             .errors::<OrganizationError>();
     }
 }
