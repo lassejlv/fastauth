@@ -38,13 +38,13 @@ pub fn build(pool: PgPool) -> Result<AppAuth, BuildError> {
 ```
 
 With other plugins, the alias lists them in registration order, for example
-`plugins![TwoFactor, Organization, Admin, ApiKeys]` ([Plugins](05-plugins.md#using-plugins)).
+`plugins![TwoFactor, Organization, Admin, ApiKeys]` ([Plugins](../README.md#using-plugins)).
 `ApiKeys` depends on no other plugin.
 
 ### The `apikey` table
 
 The plugin adds one table, `apikey`. Run migrations after adding it, at startup or with
-your `fastauth` binary ([Migrations](06-database.md#migrations)):
+your `fastauth` binary ([Migrations](../../concepts/02-database.md#migrations)):
 
 ```rust
 let auth = build(pool)?;
@@ -324,7 +324,7 @@ This is off by default, like Better Auth's `enableSessionForAPIKeys`. Turn it on
 
 A request with a key in `x-api-key` then gets a session for the key's owner, so every
 `Session<AppAuth>` extractor and every endpoint that needs a session accepts API keys with no
-handler changes ([Sessions](04-sessions.md)). `/get-session` answers with the owner too.
+handler changes ([Sessions](../../concepts/01-sessions.md)). `/get-session` answers with the owner too.
 
 ```rust
 async fn whoami(session: Session<AppAuth>) -> Json<Value> {
@@ -352,7 +352,7 @@ The plugin adds no extractors of its own. What changes:
   `401 UNAUTHORIZED` to a key's session, so a limited key can't create an unlimited one or
   lift its own expiry. Better Auth lets a key's session create and update keys.
 - **Bans apply.** The core session gates run on it, so a banned owner's key answers
-  `403 BANNED_USER` ([Admin](13-admin.md#bans)), and banning disables the owner's keys.
+  `403 BANNED_USER` ([Admin](../access/02-admin.md#bans)), and banning disables the owner's keys.
 - **Permissions aren't checked.** A key with `{ "files": ["read"] }` gets a full session for
   its owner, as in Better Auth: every route that takes a session, `/admin/*` included for an
   admin's key. The handler can't tell which key was used, so to enforce permissions, call
@@ -405,7 +405,7 @@ ApiKeys::new()
 
 Keys removed any other way emit nothing: expired or used-up keys deleted during
 verification, `delete_all_expired`, and keys deleted along with their user. Listen with
-`.on(..)` ([Events](03-configuration.md#events)):
+`.on(..)` ([Events](../../get-started/03-configuration.md#events)):
 
 ```rust
 .plugin(ApiKeys::new())
@@ -420,7 +420,7 @@ verification, `delete_all_expired`, and keys deleted along with their user. List
 ```
 
 `Ctx` is `fastauth::endpoint::Ctx`. The plugin registers no hooks or sign-in gates
-([Hooks](05-plugins.md#hooks)).
+([Hooks](../../reference/01-plugin-authoring.md#hooks)).
 
 ## Permissions
 
@@ -488,7 +488,7 @@ const { data } = await authClient.apiKey.create({ name: "ci", prefix: "ci_" });
 once, `start`, `referenceId`, `rateLimitMax` 10), `create` with `remaining`
 (`400 SERVER_ONLY_PROPERTY`), `list` (no `key` or hash), `get`, `update`, `getSession` with
 an `x-api-key` header (the example registers `.sessions(true)`), `delete`, and `get` after
-delete (`KEY_NOT_FOUND`). [Better Auth's client](11-better-auth-client.md) shows how to run it.
+delete (`KEY_NOT_FOUND`). [Better Auth's client](../../integrations/02-better-auth-client.md) shows how to run it.
 
 Known gaps:
 

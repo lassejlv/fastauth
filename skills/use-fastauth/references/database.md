@@ -12,7 +12,7 @@ SQLite needs `?mode=rwc` in the URL to create the file:
 ([testing.md](testing.md)).
 
 Core tables are `user`, `session`, `account` (passwords live here, provider `credential`)
-and `verification`. Plugins and your user fields add tables and columns. `docs/06-database.md`
+and `verification`. Plugins and your user fields add tables and columns. `docs/concepts/02-database.md`
 has the full schema.
 
 ## Ids
@@ -63,7 +63,7 @@ and an empty string once the database is up to date, so generate it after each c
 against a database that has every earlier migration applied. For files, add
 `src/bin/fastauth.rs` with `fastauth::cli::run(my_app::auth::build).await` (facade feature
 `cli`) and run `cargo run --bin fastauth -- generate` (also `schema`, `status`, `migrate`);
-`docs/02-quickstart.md#4-tables` has the three lines.
+`docs/get-started/02-quickstart.md#4-tables` has the three lines.
 
 ## App columns on `user`
 

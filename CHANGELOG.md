@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Docs and tooling
+
+- The docs are grouped into folders that match the docs site: `docs/get-started`,
+  `docs/concepts`, `docs/integrations`, `docs/plugins` (by kind) and `docs/reference`.
+  [All plugins](docs/plugins/README.md) lists every plugin with its crate and feature, and the
+  plugin authoring guide moved to [its own page](docs/reference/01-plugin-authoring.md). Site
+  URLs stay the same except `/docs/open-questions/`, which redirects to `/docs/decisions/`.
+- Docs site: the layout is centered with a 1440px frame on wide screens, the header dither
+  stays clear of the controls, code blocks scroll instead of wrapping, and code in tables
+  only breaks between path segments.
+
 ## 0.4.0 (2026-11-26)
 
 ### Security
@@ -27,7 +40,7 @@ Every finding, by id:
   password-reset tokens through a genuine reset email. Redirect targets are now refused with
   control characters, backslashes or encoded `/` and `\`, resolved against `base_url`, and
   required to stay on a trusted origin; `Location` carries the resolved URL.
-  ([Security](docs/09-security.md#redirects))
+  ([Security](docs/concepts/03-security.md#redirects))
 - **AUTHZ-1** (high): a banned user's API key no longer authenticates. The admin plugin's ban
   check is a session gate, so it applies to every session (API key, bearer, cookie cache),
   and banning disables the user's API keys.
@@ -51,7 +64,7 @@ Every finding, by id:
 - **CORE-8**: TOTP and backup codes had no per-challenge attempt cap, and the pending
   two-factor cookie could be replayed for its whole max age. The pending sign-in is now a
   server-side `verification` row that allows 5 guesses across all methods and is deleted
-  when a code finishes it. ([Security](docs/09-security.md#two-factor-sign-in))
+  when a code finishes it. ([Security](docs/concepts/03-security.md#two-factor-sign-in))
 - **2FA-1**: concurrent wrong guesses on `/two-factor/verify-otp` all counted as one attempt.
   Each guess now claims its attempt with a compare-and-swap before the code is compared.
 - **TOKENS-2**: `/link-social` linked any provider identity. It now requires a live starting
@@ -67,7 +80,7 @@ Every finding, by id:
   cool-down, and a token without a `kid` is `VerifyError::Invalid` instead of
   `UnknownKey(None)`.
 - **TOKENS-7**: documented that the bearer plugin's `set-auth-token` header lets page scripts
-  read the session token ([Bearer tokens](docs/17-bearer.md#security)).
+  read the session token ([Bearer tokens](docs/plugins/tokens/01-bearer.md#security)).
 - **AUTHZ-2**: an API key's session is never fresh, so it can't register a passkey or pass
   `FreshSession`.
 - **AUTHZ-3**: an API key's session can't create keys or update them (so it can't lift its own
@@ -205,21 +218,21 @@ enums gained variants.
   `POST /is-username-available`. Options for length, username and display username
   validators, normalization, validation order and `immutable_username`. `UsernameExt` for
   server calls. Wire-compatible with `usernameClient` (`compat/better-auth/run-username.sh`).
-  ([docs/20](docs/20-username.md))
+  ([docs/20](docs/plugins/sign-in/04-username.md))
 - **fastauth-plugin-anonymous** (feature `anonymous`, `fastauth::plugins::anonymous`):
   `POST /sign-in/anonymous` creates a user with a placeholder email and `is_anonymous: true`.
   When that browser later signs in or up with any real method, `on_link_account` gets both
   sessions and the anonymous user is deleted (unless `disable_delete_anonymous_user`).
   `POST /delete-anonymous-user`, `email_domain_name`, `generate_name` and
   `generate_random_email`. `AnonymousExt` for server calls. Wire-compatible with
-  `anonymousClient` (`compat/better-auth/run-anonymous.sh`). ([docs/21](docs/21-anonymous.md))
+  `anonymousClient` (`compat/better-auth/run-anonymous.sh`). ([docs/21](docs/plugins/sign-in/05-anonymous.md))
 - **fastauth-plugin-multi-session** (feature `multi-session`,
   `fastauth::plugins::multi_session`): several signed-in accounts per browser through Better
   Auth's signed `session_token_multi-{token}` cookies, `/multi-session/list-device-sessions`,
   `/multi-session/set-active` and `/multi-session/revoke`, `maximum_sessions` (default 5),
   and `/sign-out` signing every remembered account out. `MultiSessionExt` for server calls.
   Wire-compatible with `multiSessionClient` (`compat/better-auth/run-multi-session.sh`).
-  ([docs/22](docs/22-multi-session.md))
+  ([docs/22](docs/plugins/access/03-multi-session.md))
 
 ### Core
 
@@ -228,7 +241,7 @@ All additive; no public trait changed.
 - `PluginBuilder::on_session_created`: an async hook that runs inside the request right
   after a session is created, for every sign-in method. It sees the request's previous
   session cookie, can query the database and set cookies, and its error fails the response
-  ([Plugins](docs/05-plugins.md#after-a-session-is-created)).
+  ([Plugins](docs/reference/01-plugin-authoring.md#after-a-session-is-created)).
 - `Internal::find_session_by_token` (an unexpired session and its user, without refreshing
   it) and `Internal::set_session_cookies` (make a token the request's session).
 - Read-only getters for plugins: `EmailPassword::requires_email_verification()`,
@@ -236,7 +249,7 @@ All additive; no public trait changed.
 - Session gates: `PluginBuilder::session_gate(|ctx, session, usage| ..)` runs on every
   session a request uses (cookie, cookie cache, bearer token, a resolver's
   `Resolved::User`) and on every sensitive session; `Err` refuses it. `SessionUse` says
-  which (`Request` or `Sensitive`) ([Plugins](docs/05-plugins.md#session-gates)).
+  which (`Request` or `Sensitive`) ([Plugins](docs/reference/01-plugin-authoring.md#session-gates)).
 - `Ctx::sensitive_session()`: the request's session read again from the database, skipping
   the cookie cache, refused for ephemeral sessions (401) and checked by the session gates
   with `SessionUse::Sensitive`. For endpoints that create or change a credential.
@@ -270,7 +283,7 @@ session (see Core below).
   `errorCallbackURL?error=..` as Better Auth does; links expire after 5 minutes by default
   and only the token's SHA-256 is stored. `MagicLinkExt` for server calls. Wire-compatible
   with `magicLinkClient` (`compat/better-auth/run-magic-link.sh`).
-  ([docs/15](docs/15-magic-link.md), #26)
+  ([docs/15](docs/plugins/sign-in/01-magic-link.md), #26)
 - **fastauth-plugin-email-otp** (feature `email-otp`, `fastauth::plugins::email_otp`):
   one-time codes by email for sign-in (with sign-up), email verification and password reset:
   `/email-otp/send-verification-otp`, `/sign-in/email-otp`, `/email-otp/verify-email`,
@@ -279,7 +292,7 @@ session (see Core below).
   and `allowed_attempts`; codes are stored as a keyed HMAC, compared in constant time, and
   attempts are claimed atomically before comparing. `EmailOtpExt` for server calls.
   Wire-compatible with `emailOTPClient` (`compat/better-auth/run-email-otp.sh`).
-  ([docs/16](docs/16-email-otp.md), #26)
+  ([docs/16](docs/plugins/sign-in/02-email-otp.md), #26)
 - Both plugins claim an unverified user when a link or code proves the email: the user's
   earlier accounts and sessions are deleted and the email is marked verified, as Better Auth
   does.
@@ -288,14 +301,14 @@ session (see Core below).
   extractors, signed or raw tokens (`require_signature` to refuse raw ones), and the
   `set-auth-token` header on every response that sets the session cookie. Wire-compatible
   with Better Auth's `bearer` plugin (`compat/better-auth/run-bearer.sh`).
-  ([docs/17](docs/17-bearer.md), #27)
+  ([docs/17](docs/plugins/tokens/01-bearer.md), #27)
 - **fastauth-plugin-jwt** (feature `jwt`, `fastauth::plugins::jwt`): `GET /token`, `GET /jwks`,
   the `set-auth-jwt` header on `/get-session`, a `jwks` table with private keys encrypted
   with the app secret, EdDSA (default), ES256 and RS256 keys, issuer, audience, expiration
   time, `define_payload`, scheduled and on-demand key rotation with a grace period,
   `JwtExt` (`token`, `sign`, `verify`, `jwks`, `rotate`), and `JwksVerifier` for resource
   servers. Built on `jsonwebtoken` and aws-lc-rs. Wire-compatible with Better Auth's
-  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md), #27)
+  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/plugins/tokens/02-jwt.md), #27)
 - **fastauth-plugin-passkey** (feature `passkey`, `fastauth::plugins::passkey`): passkeys on
   webauthn-rs 0.6. Better Auth's seven routes (`/passkey/generate-register-options`,
   `verify-registration`, `generate-authenticate-options`, `verify-authentication`,
@@ -305,7 +318,7 @@ session (see Core below).
   compare-and-swap; sign-in runs the sign-in gates with method `"passkey"`. User
   verification is always required. `PasskeyExt` lists, renames and deletes passkeys.
   Wire-compatible with `passkeyClient`, checked in headless Chrome with a virtual
-  authenticator (`compat/better-auth/run-passkey.sh`). ([docs/19](docs/19-passkey.md), #28)
+  authenticator (`compat/better-auth/run-passkey.sh`). ([docs/19](docs/plugins/sign-in/03-passkey.md), #28)
 
 ### Core
 
@@ -335,17 +348,17 @@ session (see Core below).
   owner/admin/member roles with custom roles and typed permissions, `OrganizationExt`, and
   the axum extractors `ActiveMember`, `OrgMember<A, FromPath<P>>` and
   `RequirePermission<A, P, S>`. Wire-compatible with Better Auth's `organizationClient`
-  (`compat/better-auth/run-organization.sh`). ([docs/12](docs/12-organization.md), #19)
+  (`compat/better-auth/run-organization.sh`). ([docs/12](docs/plugins/access/01-organization.md), #19)
 - **fastauth-plugin-admin** (feature `admin`, `fastauth::plugins::admin`): Better Auth's 15
   `/admin/*` routes, statement-based roles and permissions, bans enforced by a sign-in gate,
   impersonation, case-sensitive user search in SQL, `AdminExt`, and the `RequireRole<A, R>`
   extractor. Wire-compatible with `adminClient` (`compat/better-auth/run-admin.sh`).
-  ([docs/13](docs/13-admin.md), #18)
+  ([docs/13](docs/plugins/access/02-admin.md), #18)
 - **fastauth-plugin-api-key** (feature `api-key`, `fastauth::plugins::api_key`): hashed API
   keys with expiry, usage limits and refills, per-key rate limits and permissions,
   server-only verify and cleanup, atomic counters, `ApiKeysExt`, and sessions from
   `x-api-key`, opt-in with `ApiKeys::new().sessions(true)`. Wire-compatible with
-  `@better-auth/api-key`'s `apiKeyClient`. ([docs/14](docs/14-api-keys.md), #17)
+  `@better-auth/api-key`'s `apiKeyClient`. ([docs/14](docs/plugins/tokens/03-api-keys.md), #17)
 - The facade gains the `organization`, `admin` and `api-key` features; with `axum` on, they
   turn on the plugins' extractors. The `axum_sqlite` example registers all three, and
   `compat/better-auth/run.sh` checks the API key flow. (#21)

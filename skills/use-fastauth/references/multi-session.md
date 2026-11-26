@@ -23,7 +23,7 @@ pub async fn accounts(auth: &AppAuth, headers: &HeaderMap) -> Result<usize, Auth
 }
 ```
 
-Full page: `docs/22-multi-session.md`.
+Full page: `docs/plugins/access/03-multi-session.md`.
 
 - `fastauth = { version = "0.4", features = ["multi-session"] }`; path
   `fastauth::plugins::multi_session`. No tables.

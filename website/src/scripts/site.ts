@@ -43,9 +43,22 @@ document.addEventListener("click", (event) => {
   }
 });
 
+const sidebar = document.querySelector<HTMLElement>(".sidebar");
+const currentLink = sidebar?.querySelector<HTMLElement>("[aria-current='page']");
+if (sidebar && currentLink) {
+  const link = currentLink.getBoundingClientRect();
+  const pane = sidebar.getBoundingClientRect();
+  if (link.top < pane.top || link.bottom > pane.bottom) sidebar.scrollTop += link.top - pane.top - (pane.height - link.height) / 2;
+}
+
 const sheet = document.querySelector<HTMLDialogElement>("#nav-sheet");
 if (sheet) {
-  document.querySelectorAll("[data-nav-open]").forEach((b) => b.addEventListener("click", () => sheet.showModal()));
+  document.querySelectorAll("[data-nav-open]").forEach((b) =>
+    b.addEventListener("click", () => {
+      sheet.showModal();
+      sheet.querySelector("[aria-current='page']")?.scrollIntoView({ block: "center" });
+    }),
+  );
   sheet.querySelectorAll("[data-nav-close]").forEach((b) => b.addEventListener("click", () => sheet.close()));
   sheet.addEventListener("click", (event) => {
     if (event.target === sheet) sheet.close();

@@ -1,4 +1,4 @@
-//! The database contract. See `docs/06-database.md`.
+//! The database contract. See `docs/concepts/02-database.md`.
 
 use std::future::Future;
 use std::sync::Arc;

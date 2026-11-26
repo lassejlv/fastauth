@@ -1,5 +1,5 @@
 //! Sharing an app's sqlx transaction with fastauth server API calls.
-//! See `docs/04-sessions.md`.
+//! See `docs/concepts/01-sessions.md`.
 
 use std::sync::Arc;
 

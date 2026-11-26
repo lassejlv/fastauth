@@ -17,7 +17,7 @@ This skill matches fastauth 0.4 on crates.io and the code on `main`, and so does
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
 plugins, organization teams, `TestAuth`,
 `#[endpoint]`, secondary storage (Redis), actix-web and MySQL
-(`docs/01-overview.md#planned`).
+(`docs/get-started/01-overview.md#planned`).
 
 Ids are opaque strings, ULIDs by default (`.ids(IdStrategy::UuidV7)` and others on the
 builder). Never parse them or assume a format.

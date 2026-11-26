@@ -103,7 +103,7 @@ sign-up is on. So the routes don't reveal who has an account.
 gate with method `"email-otp"`; a gate that challenges answers its JSON
 (`{ "twoFactorRedirect": true, .. }`) instead of `{ token, user }`. An unknown email creates
 a user with `emailVerified: true`. Extra body keys are user fields, checked like
-[sign-up](03-configuration.md#user-fields): an unknown or non-`input` field answers `400 INVALID_FIELD`.
+[sign-up](../../get-started/03-configuration.md#user-fields): an unknown or non-`input` field answers `400 INVALID_FIELD`.
 
 **Claiming unverified users.** A code proves who owns the email. When a sign-in or
 password-reset code lands on a user whose email isn't verified, every account (password
@@ -135,7 +135,7 @@ auth.email_otp()
 
 Every endpoint type (`SendVerificationOtp`, `SignInEmailOtp`, `VerifyEmailOtp`,
 `CheckVerificationOtp`, `RequestPasswordResetOtp`, `ForgetPasswordOtp`,
-`ResetPasswordOtp`) is hookable ([Hooks](05-plugins.md#hooks)).
+`ResetPasswordOtp`) is hookable ([Hooks](../../reference/01-plugin-authoring.md#hooks)).
 
 ## How codes are stored
 

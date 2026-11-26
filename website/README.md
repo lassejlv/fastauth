@@ -1,21 +1,25 @@
 # fastauth docs website
 
 The documentation site for fastauth, built with [Astro](https://astro.build) as a static site.
-It is live at https://fastauth-docs.pages.dev.
+It is live at https://fastauth.lassejlv.dev.
 
 The pages come straight from the repository's Markdown at build time, so there is nothing to
 copy or keep in sync:
 
-- `docs/*.md` become `/docs/<name>/`, with the number prefix dropped (`docs/02-quickstart.md` is
-  `/docs/quickstart/`).
-- The page order, titles and descriptions come from the docs table in the root `README.md`. A
-  new file in `docs/` that isn't in the table still gets a page: it goes at the end of its sidebar
-  group, with the title taken from its `# heading`.
-- The sidebar groups are set in `src/lib/site.ts` (`GROUP_OF`). Pages not listed there go
-  under "Guides".
-- `CHANGELOG.md` becomes `/changelog/`.
-- Links between docs (`05-plugins.md#hooks`) become site links, and links to other repository
-  files go to GitHub.
+- Each folder in `docs/` is a sidebar group: `get-started`, `concepts`, `integrations`,
+  `plugins` and `reference`. The folders under `docs/plugins/` (`sign-in`, `tokens`, `access`)
+  are the sections inside the Plugins group. Labels and order are set in `GROUPS` in
+  `src/lib/site.ts`.
+- `docs/<group>/NN-name.md` becomes `/docs/<name>/`, with the folder and number prefix dropped
+  (`docs/get-started/02-quickstart.md` is `/docs/quickstart/`). A folder's `README.md` takes
+  the folder's name (`docs/plugins/README.md` is `/docs/plugins/`).
+- The page order, titles and descriptions come from the docs tables in the root `README.md`. A
+  new file that isn't in a table still gets a page: it goes at the end of its group, with the
+  title taken from its `# heading`.
+- `CHANGELOG.md` becomes `/changelog/`, listed last under Reference.
+- Links between docs (`../reference/01-plugin-authoring.md#hooks`) become site links, and links
+  to other repository files go to GitHub.
+- A page that moves gets a redirect from its old URL in `astro.config.ts`.
 
 ## Writing docs for the site
 
@@ -52,12 +56,12 @@ npm run preview
   callouts, renders Mermaid and replaces every code block with highlighted HTML.
 - **Code**: Shiki with the `oxide` theme in `src/lib/code.ts`. Token colours are CSS variables
   (`--syntax-*` in `src/styles/global.css`), so light and Ink share one highlight pass. Long lines
-  wrap with a hanging indent instead of scrolling.
+  scroll sideways inside the block.
 - **Search**: [Pagefind](https://pagefind.app) indexes the built HTML after `astro build`. The
   ⌘K palette in `src/components/SearchDialog.astro` loads `/pagefind/pagefind.js` when it opens.
 - **Theme**: follows the system setting until someone uses the toggle, which is remembered in
   `localStorage`. Dark mode is the Ink palette from the design (true black, dither texture in the
-  hero, top bar and sidebar).
+  hero and in a band of the top bar that stays clear of the controls).
 - **Design source**: the Paper file "fastauth docs" (Light and Ink pages). The dither PNGs in
   `public/dither/` were generated with `dith`; the commands are in the design report.
 

@@ -22,7 +22,7 @@ pub async fn me(session: Session<AppAuth>) -> String {
 }
 ```
 
-Full page: `docs/17-bearer.md`.
+Full page: `docs/plugins/tokens/01-bearer.md`.
 
 - `fastauth = { version = "0.4", features = ["bearer"] }`; path `fastauth::plugins::bearer`.
   No tables.

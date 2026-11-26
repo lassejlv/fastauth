@@ -11,7 +11,7 @@ function rewriteUrl(url: string, dir: string) {
   const anchor = hash ? `#${hash}` : "";
   const rel = path.relative(REPO_ROOT, path.resolve(dir, target)).split(path.sep).join("/");
   if (rel.startsWith("..")) return url;
-  if (/^docs\/[^/]+\.md$/.test(rel)) return docHref(slugOf(rel)) + anchor;
+  if (/^docs\/.+\.md$/.test(rel)) return docHref(slugOf(rel)) + anchor;
   if (rel === "CHANGELOG.md") return "/changelog/" + anchor;
   if (rel === "" || rel === "README.md") return GITHUB + "#readme";
   return `${GITHUB}/blob/main/${rel}${anchor}`;
@@ -82,19 +82,38 @@ export function remarkDocs() {
   };
 }
 
+type HNode = { type?: string; tagName?: string; value?: string; properties?: object; children?: HNode[] };
+
+const CODE_BREAK = /(?<=\w(?:::|\.))(?=\w)/;
+
+const textNode = (value: string): HNode => ({ type: "text", value });
+const wbr: HNode = { type: "element", tagName: "wbr", properties: {}, children: [] };
+const keep = (value: string): HNode => ({ type: "element", tagName: "span", properties: { className: ["nowrap"] }, children: [textNode(value)] });
+
+function breakCode(node: HNode) {
+  node.children = node.children?.flatMap((child) =>
+    child.type === "text" && child.value
+      ? child.value
+          .split(/(\s+)/)
+          .flatMap((word) => (!word.trim() ? [textNode(word)] : word.split(CODE_BREAK).flatMap((part, i) => (i ? [wbr, keep(part)] : [keep(part)]))))
+      : [child],
+  );
+}
+
 export function rehypeTables() {
-  return (tree: { children: unknown[] }) => {
-    const walk = (node: { type?: string; tagName?: string; children?: unknown[] }) => {
+  return (tree: HNode) => {
+    const walk = (node: HNode, inTable: boolean) => {
       if (!node.children) return;
+      if (inTable && node.tagName === "code") return breakCode(node);
       node.children = node.children.map((child) => {
-        const c = child as { type?: string; tagName?: string; children?: unknown[] };
-        if (c.type === "element" && c.tagName === "table") {
-          return { type: "element", tagName: "div", properties: { className: ["table-wrap"] }, children: [c] };
+        if (child.type === "element" && child.tagName === "table") {
+          walk(child, true);
+          return { type: "element", tagName: "div", properties: { className: ["table-wrap"] }, children: [child] };
         }
-        walk(c);
-        return c;
+        walk(child, inTable);
+        return child;
       });
     };
-    walk(tree);
+    walk(tree, false);
   };
 }

@@ -1,4 +1,4 @@
-//! The quickstart (docs/02-quickstart.md) on the in-memory adapter: sign up, `/me`, sign out.
+//! The quickstart (docs/get-started/02-quickstart.md) on the in-memory adapter: sign up, `/me`, sign out.
 //!
 //! ```bash
 //! cargo run -p fastauth --example axum_memory

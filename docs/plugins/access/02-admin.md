@@ -42,12 +42,12 @@ pub fn build(pool: PgPool) -> Result<AppAuth, BuildError> {
 ```
 
 `Admin` requires no other plugin, and its position in the alias doesn't change what it does.
-List it where you register it ([Plugins](05-plugins.md#using-plugins)).
+List it where you register it ([Plugins](../README.md#using-plugins)).
 
 ### Migrations
 
 The plugin adds no tables. It adds four columns to `user` and one to `session`, so run your
-migrations after adding it ([Databases](06-database.md#migrations)):
+migrations after adding it ([Databases](../../concepts/02-database.md#migrations)):
 
 ```rust
 auth.migrator().run().await?;
@@ -68,7 +68,7 @@ user gets the default role from the plugin's `UserCreated` handler. Treat an emp
 the default role; `Admin::roles_of` does that for you.
 
 Read the columns in a handler with `session.user.plugin::<Admin, _>()`
-([Sessions](04-sessions.md#typed-plugin-data-on-the-user)), or from a `UserView` with
+([Sessions](../../concepts/01-sessions.md#typed-plugin-data-on-the-user)), or from a `UserView` with
 `.fields()`:
 
 ```rust
@@ -275,7 +275,7 @@ async fn view_as(
 ```
 
 The endpoint types (`BanUser`, `CreateUser`, `SetRole`, ...) are public, so you can hook
-them like core endpoints ([Hooks](05-plugins.md#hooks)). This hook refuses bans without a
+them like core endpoints ([Hooks](../../reference/01-plugin-authoring.md#hooks)). This hook refuses bans without a
 reason, over HTTP and from the server API alike:
 
 ```rust
@@ -300,7 +300,7 @@ FastAuth::builder()
 
 `RequireRole<A, R>` is an axum extractor for the signed-in session of a user who holds role
 `R`. It answers `401 UNAUTHORIZED` without a session and `403 FORBIDDEN` without the role,
-and derefs to the [`Session`](04-sessions.md#in-axum-handlers). `role::Admin` and
+and derefs to the [`Session`](../../concepts/01-sessions.md#in-axum-handlers). `role::Admin` and
 `role::User` are built in; `role!` declares a marker for a role you defined with `.role(..)`:
 
 ```rust
@@ -398,10 +398,10 @@ every session the user has. From then on the plugin's sign-in gate refuses the u
 redirects to `errorCallbackURL?error=BANNED_USER`) and any plugin's. The gate applies
 whatever the registration order. A user with two-factor turned on still gets the two-factor
 challenge first, and a correct code then answers `403 BANNED_USER` with no session
-([Sign-in gates](05-plugins.md#sign-in-gates)). Banned users can't be impersonated either.
+([Sign-in gates](../../reference/01-plugin-authoring.md#sign-in-gates)). Banned users can't be impersonated either.
 
 A ban applies to every session, not only to sign-in: the plugin's
-[session gate](05-plugins.md#session-gates) refuses a banned user's requests with the same
+[session gate](../../reference/01-plugin-authoring.md#session-gates) refuses a banned user's requests with the same
 `403 BANNED_USER` whatever the session came from, a cookie-cache cookie, a bearer token or an
 API key's session included. Banning also disables the user's API keys (`enabled: false`), so
 `auth.api_keys().verify(..)` refuses them; they stay disabled after the ban lifts, until the
@@ -423,7 +423,7 @@ expired bans.
 `impersonate-user` signs the admin's browser in as another user:
 
 1. The admin's session token goes into a signed cookie, `fastauth.admin_session` (the
-   prefix follows [`CookieConfig`](03-configuration.md#cookies)). The admin's session stays
+   prefix follows [`CookieConfig`](../../get-started/03-configuration.md#cookies)). The admin's session stays
    valid.
 2. A new session for the user is created, marked with `impersonatedBy`, expiring after
    `impersonation_session_duration` (one hour by default), and set as the session cookie.
@@ -445,7 +445,7 @@ the session's `AdminSession`.
 ## Events
 
 The admin routes emit core's events, so handlers registered with `app.on(..)`
-([Configuration](03-configuration.md#events)) see admin changes too:
+([Configuration](../../get-started/03-configuration.md#events)) see admin changes too:
 
 | Event | Emitted by |
 |---|---|
@@ -498,7 +498,7 @@ codes such as `400 PASSWORD_TOO_SHORT`.
 ## Better Auth's client
 
 Use Better Auth's `adminClient` from `better-auth/client/plugins`, set up as in
-[Better Auth's client](11-better-auth-client.md):
+[Better Auth's client](../../integrations/02-better-auth-client.md):
 
 ```ts
 import { createAuthClient } from "better-auth/client";
@@ -544,5 +544,5 @@ Known gaps:
 - Better Auth's deprecated `allowImpersonatingAdmins` option. Grant
   `user:impersonate-admins` to a role instead.
 
-Related: [Organization](12-organization.md) has per-organization roles, and
-[API keys](14-api-keys.md) has per-user keys.
+Related: [Organization](01-organization.md) has per-organization roles, and
+[API keys](../tokens/03-api-keys.md) has per-user keys.

@@ -42,7 +42,7 @@ pub async fn server_side(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Auth
 }
 ```
 
-Full page: `docs/20-username.md`.
+Full page: `docs/plugins/sign-in/04-username.md`.
 
 - `fastauth = { version = "0.4", features = ["username"] }`; path `fastauth::plugins::username`.
   Adds nullable `username` (unique) and `display_username` columns to `user`: run migrations.

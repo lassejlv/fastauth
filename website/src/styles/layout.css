@@ -4,12 +4,17 @@
   position: sticky;
   top: 0;
   z-index: 20;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.topbar-inner {
   display: flex;
   align-items: center;
+  max-width: var(--frame);
   height: 56px;
+  margin: 0 auto;
   padding: 0 32px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg) var(--topbar-dither) right center / 1440px 56px no-repeat;
 }
 
 .topbar-brand {
@@ -21,11 +26,19 @@
   width: 320px;
 }
 
+.topbar-dither {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  margin: 0 24px;
+  background: var(--topbar-dither) right center / 1440px 56px no-repeat;
+  mask-image: linear-gradient(to right, transparent, #000 40%, #000 calc(100% - 48px), transparent);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
 }
 
 .version {
@@ -48,7 +61,6 @@
 
 .topbar-mobile {
   display: none;
-  margin-left: auto;
 }
 
 .icon-button.touch {
@@ -62,6 +74,8 @@
 .docs {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
+  max-width: var(--frame);
+  margin: 0 auto;
 }
 
 .sidebar-col {
@@ -74,23 +88,10 @@
   display: flex;
   flex-direction: column;
   height: calc(100dvh - 56px);
-  overflow-y: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
-  padding: 24px 23px 0 20px;
-  scrollbar-width: thin;
-}
-
-.sidebar-dither {
-  display: none;
-}
-
-:root[data-theme="dark"] .sidebar-dither {
-  display: block;
-  flex-shrink: 0;
-  width: 236px;
-  height: 220px;
-  margin-top: auto;
-  background: var(--sidebar-dither) center / 236px 220px no-repeat;
+  padding: 24px 20px 0;
+  scrollbar-gutter: stable;
 }
 
 .nav {
@@ -119,6 +120,17 @@
   font-size: 13px;
   line-height: 18px;
   font-weight: 500;
+}
+
+.nav-sublabel {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  margin: 10px 0 2px;
+  padding: 0 12px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .nav a {
@@ -253,8 +265,7 @@
   top: 104px;
   flex: 0 0 208px;
   max-height: calc(100dvh - 136px);
-  overflow-y: auto;
-  scrollbar-width: none;
+  overflow: hidden auto;
 }
 
 .outline p {
@@ -464,8 +475,16 @@
 }
 
 @media (max-width: 860px) {
-  .topbar {
+  .topbar-inner {
     padding: 0 8px 0 20px;
+  }
+
+  .topbar-brand {
+    width: auto;
+  }
+
+  .topbar-dither {
+    margin: 0 8px 0 16px;
   }
 
   .topbar-search,

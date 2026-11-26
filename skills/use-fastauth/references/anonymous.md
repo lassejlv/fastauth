@@ -34,7 +34,7 @@ pub async fn server_side(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Auth
 }
 ```
 
-Full page: `docs/21-anonymous.md`.
+Full page: `docs/plugins/sign-in/05-anonymous.md`.
 
 - `fastauth = { version = "0.4", features = ["anonymous"] }`; path `fastauth::plugins::anonymous`.
   Adds `is_anonymous` (bool, default false, not client-settable) to `user`: run migrations.

@@ -127,4 +127,4 @@ means the session's active organization.
   Deleting an org emits no `MemberRemoved`.
 - Status quirks match Better Auth: `USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION` is 400, 403
   or 401 depending on the route; `YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_MEMBER` is 401.
-- Full reference: `docs/12-organization.md`.
+- Full reference: `docs/plugins/access/01-organization.md`.

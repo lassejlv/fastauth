@@ -35,10 +35,10 @@ are rewritten.
   cookies without a database query.
 
 This differs from Better Auth, which stores tokens as they are. See
-[Decisions](10-open-questions.md#3-hashed-session-tokens) for the migration impact.
+[Decisions](../reference/03-decisions.md#3-hashed-session-tokens) for the migration impact.
 
 The same rule covers every other secret value fastauth stores: verification values,
-OAuth state and [API keys](14-api-keys.md) are stored as hashes.
+OAuth state and [API keys](../plugins/tokens/03-api-keys.md) are stored as hashes.
 
 ## Cookies
 
@@ -53,11 +53,11 @@ OAuth state and [API keys](14-api-keys.md) are stored as hashes.
 ## Sessions that aren't a sign-in
 
 Some sessions don't come from someone typing a password: an API key's request-only session
-([API keys](14-api-keys.md#sessions-from-api-keys)), an admin's impersonation session, and a
+([API keys](../plugins/tokens/03-api-keys.md#sessions-from-api-keys)), an admin's impersonation session, and a
 session answered from the cookie cache after it was revoked. fastauth limits what they can do:
 
 - **Bans and other session gates apply to every session.** Plugins register
-  [session gates](05-plugins.md#session-gates) that run on every session a request uses
+  [session gates](../reference/01-plugin-authoring.md#session-gates) that run on every session a request uses
   (cookie, cookie cache, bearer token, API key). The admin plugin refuses banned users there,
   so a ban stops a user's API keys and cached sessions too, and banning disables their keys.
 - **Ephemeral sessions are never fresh.** An API key's session fails `Fresh` endpoints and
@@ -74,7 +74,7 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   `impersonation_session_duration`.
 - **Admins can't take each other over.** Acting on another admin's account (password, email,
   role, ban, removal, sessions) needs `user:impersonate-admins`
-  ([Admin](13-admin.md#endpoints)).
+  ([Admin](../plugins/access/02-admin.md#endpoints)).
 
 Better Auth checks bans only when a session is created, lets a key's session create keys,
 and doesn't stop impersonation sessions from minting credentials, so fastauth is stricter
@@ -128,7 +128,7 @@ same place either way.
   Auth leaves them signed in unless `revokeSessionsOnPasswordReset` is set;
   `.revoke_sessions_on_password_reset(false)` gets that behaviour back.
 - `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. Verifying scrypt hashes
-  imported from a Better Auth database is [planned](01-overview.md#planned).
+  imported from a Better Auth database is [planned](../get-started/01-overview.md#planned).
 
 ## Verification values
 
@@ -203,12 +203,12 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
 
 ## Bearer tokens and JWTs
 
-- With the [bearer plugin](17-bearer.md), every response that sets the session cookie also
+- With the [bearer plugin](../plugins/tokens/01-bearer.md), every response that sets the session cookie also
   returns the signed session token in `set-auth-token`, readable by page scripts. The cookie
   stays `HttpOnly`, but an XSS on your origin (or on an origin your CORS config allows with
   credentials) can read the token from that header. Register `Bearer` only for apps whose
   clients need it. Better Auth behaves the same.
-- [JWTs](18-jwt.md): `JwksVerifier` and `auth.jwt().verify()` check `nbf` as well as `exp`,
+- [JWTs](../plugins/tokens/02-jwt.md): `JwksVerifier` and `auth.jwt().verify()` check `nbf` as well as `exp`,
   `iss` and `aud`. Server-side `verify` uses only the keys `/jwks` publishes, so a retired
   key stops verifying when its grace period ends, and `rotate()` deletes keys past it.
   Better Auth's `verifyJWT` trusts every stored key.
@@ -226,10 +226,10 @@ On by default: 100 requests per 10 seconds per IP and path, and 3 per 10 seconds
 session can't guess the password faster than sign-in allows. The
 limiter is GCRA (one timestamp per key, no sliding-window bookkeeping) in a sharded
 in-memory map, so each process counts on its own; a shared store is
-[planned](01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
+[planned](../get-started/01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
 
 **The client IP** decides whose limit a request counts against, so it must be one the
-client can't choose ([Configuration](03-configuration.md#rate-limits)):
+client can't choose ([Configuration](../get-started/03-configuration.md#rate-limits)):
 
 - `ClientIp::Socket` (the default) needs the integration to pass the socket address; in
   axum, serve with `into_make_service_with_connect_info::<SocketAddr>()`.
@@ -249,5 +249,5 @@ client can't choose ([Configuration](03-configuration.md#rate-limits)):
 - **TLS.** Terminate it in front of the app; set `base_url` to https so cookies get `Secure`.
 - **Account enumeration via other routes.** If your own `/users/:email` endpoint answers
   differently for unknown emails, the sign-in timing work above doesn't help.
-- **Bot protection.** There's no CAPTCHA plugin yet; a [sign-in gate](05-plugins.md#sign-in-gates)
+- **Bot protection.** There's no CAPTCHA plugin yet; a [sign-in gate](../reference/01-plugin-authoring.md#sign-in-gates)
   or a before hook on sign-up is where one would go.

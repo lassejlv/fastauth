@@ -21,7 +21,7 @@ use crate::rate_limit::{Limit, Rule};
 use crate::schema::SchemaBuilder;
 use crate::session::SessionView;
 
-/// A fastauth plugin. See `docs/05-plugins.md`.
+/// A fastauth plugin. See `docs/reference/01-plugin-authoring.md`.
 pub trait Plugin: Send + Sync + Sized + 'static {
     /// Unique id, used in error messages, schema ownership and derived keys.
     const ID: &'static str;

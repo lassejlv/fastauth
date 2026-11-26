@@ -34,5 +34,5 @@ which is what `twoFactorClient`'s `onTwoFactorRedirect` handles.
 
 Better Auth's real client (1.7.28) is tested against fastauth with `compat/better-auth/run.sh`
 and one `run-<plugin>.sh` script per plugin.
-Read the repo's [docs/11-better-auth-client.md](../../../docs/11-better-auth-client.md) for setup in a browser and in Node,
+Read the repo's [docs/integrations/02-better-auth-client.md](../../../docs/integrations/02-better-auth-client.md) for setup in a browser and in Node,
 the pinned version, and the known gaps (`listSessions` has no `token`, so revoke by `id`).

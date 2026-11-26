@@ -1,5 +1,5 @@
 //! The commands behind your app's `fastauth` binary: `schema`, `status`, `generate` and
-//! `migrate`. See `docs/06-database.md`.
+//! `migrate`. See `docs/concepts/02-database.md`.
 //!
 //! ```ignore
 //! // src/bin/fastauth.rs
@@ -208,7 +208,7 @@ fn write_migration(
     Ok(path)
 }
 
-/// The schema as `docs/06-database.md` shows it: per table, each column's name, type,
+/// The schema as `docs/concepts/02-database.md` shows it: per table, each column's name, type,
 /// owner and attributes, aligned.
 fn render_schema(schema: &Schema) -> String {
     let columns = || schema.tables().iter().flat_map(|t| &t.columns);

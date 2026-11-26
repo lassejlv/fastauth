@@ -6,15 +6,15 @@ export const GITHUB = "https://github.com/lassejlv/fastauth";
 export const CRATES_IO = "https://crates.io/crates/fastauth";
 export const DOCS_RS = "https://docs.rs/fastauth";
 
-const GROUP_ORDER = ["Get started", "Guides", "Under the hood"] as const;
-const GROUP_OF: Record<string, (typeof GROUP_ORDER)[number]> = {
-  overview: "Get started",
-  quickstart: "Get started",
-  configuration: "Get started",
-  internals: "Under the hood",
-  security: "Under the hood",
-  "open-questions": "Under the hood",
-};
+const DOCS_DIR = path.join(REPO_ROOT, "docs");
+
+const GROUPS: { dir: string; label: string; sections?: Record<string, string> }[] = [
+  { dir: "get-started", label: "Get started" },
+  { dir: "concepts", label: "Core concepts" },
+  { dir: "integrations", label: "Integrations" },
+  { dir: "plugins", label: "Plugins", sections: { "sign-in": "Sign-in methods", tokens: "Tokens", access: "Organizations and access" } },
+  { dir: "reference", label: "Reference" },
+];
 
 export type DocPage = {
   id: string;
@@ -24,22 +24,24 @@ export type DocPage = {
   title: string;
   description: string;
   group: string;
+  section?: string;
 };
 
-export type NavGroup = { label: string; pages: DocPage[] };
+export type NavLink = { href: string; title: string; section?: string };
+export type NavGroup = { label: string; pages: NavLink[] };
 
-export const slugOf = (file: string) => path.basename(file, ".md").replace(/^\d+-/, "");
+export const slugOf = (file: string) => {
+  const name = path.basename(file, ".md");
+  return (name === "README" ? path.basename(path.dirname(file)) : name).replace(/^\d+-/, "");
+};
 export const docHref = (slug: string) => `/docs/${slug}/`;
 
 function readIndexTable(): Map<string, { title: string; description: string; order: number }> {
   const index = new Map<string, { title: string; description: string; order: number }>();
-  for (const source of ["README.md", "docs/01-overview.md"]) {
-    const text = fs.readFileSync(path.join(REPO_ROOT, source), "utf8");
-    const row = /^\|\s*\[([^\]]+)\]\((?:\.\/)?(?:docs\/)?(\d+-[\w-]+\.md)\)\s*\|\s*(.*?)\s*\|\s*$/gm;
-    for (const m of text.matchAll(row)) {
-      if (!index.has(m[2])) index.set(m[2], { title: m[1], description: stripMarkdown(m[3]), order: index.size });
-    }
-    if (index.size) break;
+  const text = fs.readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");
+  const row = /^\|\s*\[([^\]]+)\]\((?:\.\/)?docs\/([\w/-]+\.md)\)\s*\|\s*(.*?)\s*\|\s*$/gm;
+  for (const m of text.matchAll(row)) {
+    if (!index.has(m[2])) index.set(m[2], { title: m[1], description: stripMarkdown(m[3]), order: index.size });
   }
   return index;
 }
@@ -62,8 +64,11 @@ function firstParagraph(body: string) {
 
 export function buildNav(entries: { id: string; body?: string; filePath?: string }[]) {
   const index = readIndexTable();
-  const pages: (DocPage & { order: number })[] = entries.map((entry) => {
-    const file = path.basename(entry.filePath ?? `${entry.id}.md`);
+  const pages = entries.map((entry) => {
+    const file = path.relative(DOCS_DIR, path.resolve(entry.filePath ?? `${entry.id}.md`)).split(path.sep).join("/");
+    const [dir, sub] = file.split("/");
+    const groupIndex = Math.max(GROUPS.findIndex((g) => g.dir === dir), 0);
+    const group = GROUPS[groupIndex];
     const slug = slugOf(file);
     const known = index.get(file);
     const body = entry.body ?? "";
@@ -74,14 +79,18 @@ export function buildNav(entries: { id: string; body?: string; filePath?: string
       href: docHref(slug),
       title: known?.title ?? firstHeading(body) ?? slug,
       description: known?.description || firstParagraph(body),
-      group: GROUP_OF[slug] ?? "Guides",
-      order: known ? known.order : 1000 + Number.parseInt(file, 10),
-    };
+      group: group.label,
+      section: file.split("/").length > 2 ? group.sections?.[sub] : undefined,
+      order: groupIndex * 1000 + (known ? known.order : 500 + (Number.parseInt(path.basename(file), 10) || 0)),
+    } satisfies DocPage & { order: number };
   });
   pages.sort((a, b) => a.order - b.order || a.file.localeCompare(b.file));
-  const groups: NavGroup[] = GROUP_ORDER.map((label) => ({ label, pages: pages.filter((p) => p.group === label) })).filter((g) => g.pages.length);
-  const ordered = groups.flatMap((g) => g.pages);
-  return { groups, ordered };
+  const groups: NavGroup[] = GROUPS.map(({ label }) => ({
+    label,
+    pages: pages.filter((p) => p.group === label).map(({ href, title, section }) => ({ href, title, section })),
+  }));
+  groups[groups.length - 1].pages.push({ href: "/changelog/", title: "Changelog" });
+  return { groups: groups.filter((g) => g.pages.length), ordered: pages };
 }
 
 export function version() {

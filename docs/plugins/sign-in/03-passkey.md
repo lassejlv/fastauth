@@ -48,7 +48,7 @@ WebAuthn only runs in a secure context: `https://`, or `http://localhost` in dev
 ### The `passkey` table
 
 The plugin adds one table, `passkey`. Run migrations after adding it
-([Migrations](06-database.md#migrations)). `cargo run --bin fastauth -- schema` prints it:
+([Migrations](../../concepts/02-database.md#migrations)). `cargo run --bin fastauth -- schema` prints it:
 
 ```
 passkey
@@ -124,11 +124,11 @@ Under your `base_path` (`/api/auth` by default):
 | `POST` | `/passkey/delete-passkey` | `passkey.deletePasskey({ id })` | session | `{ status: true }` |
 
 "Fresh session" means a session younger than `fresh_age` (one day by default,
-[Sessions](04-sessions.md)), as Better Auth's `freshSessionMiddleware` requires: `401`
+[Sessions](../../concepts/01-sessions.md)), as Better Auth's `freshSessionMiddleware` requires: `401`
 without a session, `403 SESSION_NOT_FRESH` with an old one or an API key's. Registration also
 reads the session again from the database, skipping the cookie cache, as Better Auth's
 `sensitiveSessionMiddleware` does: a revoked session gets `401`, and an impersonation session
-`403 NOT_ALLOWED_WHILE_IMPERSONATING` ([Admin](13-admin.md#impersonation)).
+`403 NOT_ALLOWED_WHILE_IMPERSONATING` ([Admin](../access/02-admin.md#impersonation)).
 
 ### Adding a passkey
 
@@ -194,7 +194,7 @@ allowed, as the WebAuthn spec says. `backed_up` is updated on each sign-in too.
 A passkey sign-in runs every plugin's sign-in gate with method `"passkey"`, like any other
 sign-in. A gate that denies (an admin ban) answers its error and no session is created. A gate
 that challenges answers its JSON instead of `{ session, user }`: with
-[two-factor](05-plugins.md) on, that's `{ "twoFactorRedirect": true, ... }`, and
+[two-factor](../README.md#sign-in-methods) on, that's `{ "twoFactorRedirect": true, ... }`, and
 `/two-factor/verify-totp` finishes the sign-in, still as method `"passkey"`. Better Auth's
 own `verify-authentication` skips this and creates the session directly.
 
@@ -233,7 +233,7 @@ auth.passkey()
 browser, so they only go over HTTP.
 
 The plugin emits `PasskeyAdded { user_id, passkey_id }` and `PasskeyDeleted { user_id,
-passkey_id }` ([Events](05-plugins.md)).
+passkey_id }` ([Events](../../reference/01-plugin-authoring.md#events)).
 
 ## Better Auth's client
 

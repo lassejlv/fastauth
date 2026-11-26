@@ -3,7 +3,7 @@
 Decisions that change the API or the data model, why they went the way they did, and
 what was released. The first seven were settled before 0.1; [Since 0.1](#since-01) records
 the ones made while building 0.2. What's planned next is in
-[Overview](01-overview.md#planned).
+[Overview](../get-started/01-overview.md#planned).
 
 ## 1. Wire compatibility with Better Auth's client
 
@@ -17,7 +17,7 @@ against fastauth. Plugins we don't mirror would need our own TS client.
 
 **Decided:** yes, for core and every first-party plugin that exists in both, pinned to
 `better-auth` 1.7.28 and tested by the scripts in `compat/better-auth/`, run by hand for now
-([Better Auth's client](11-better-auth-client.md)).
+([Better Auth's client](../integrations/02-better-auth-client.md)).
 
 ## 2. Adapter as a type parameter
 
@@ -76,7 +76,7 @@ uses the latest stable.
 ## 7. Name
 
 **Decided:** `fastauth` on crates.io, with `fastauth-*` for the other crates and
-`fastauth-plugin-<name>` for plugins ([Overview](01-overview.md#crate-layout)).
+`fastauth-plugin-<name>` for plugins ([Overview](../get-started/01-overview.md#crate-layout)).
 
 ## Since 0.1
 
@@ -90,7 +90,7 @@ UUID strategies, `text` otherwise), and the migrator warns instead of converting
 `ctx.new_id()` became fallible, because a custom generator can return a bad id.
 
 **Decided:** ULID by default, `Id` is an opaque string everywhere, and a Postgres database
-from 0.1 keeps working with `.ids(IdStrategy::UuidV7)` ([Ids](06-database.md#ids)).
+from 0.1 keeps working with `.ids(IdStrategy::UuidV7)` ([Ids](../concepts/02-database.md#ids)).
 
 ### 9. Sessions from API keys are opt-in
 
@@ -99,7 +99,7 @@ every `Session<A>` extractor accepts keys. Turning that on silently would let an
 as its user on every route, and each such request counts against the key's rate limit.
 
 **Decided:** off by default, on with `ApiKeys::new().sessions(true)`, like Better Auth's
-`enableSessionForAPIKeys` ([API keys](14-api-keys.md#sessions-from-api-keys)).
+`enableSessionForAPIKeys` ([API keys](../plugins/tokens/03-api-keys.md#sessions-from-api-keys)).
 
 ### 10. Sign-in gates run after a challenge
 
@@ -111,7 +111,7 @@ hooks, gates and event handlers share it.
 **Decided:** gates belong to the plugin that registered them, and
 `ctx.internal().complete_sign_in(challenger, user, method, remember_me)` runs every gate but
 the challenger's before creating the session. `create_session` stays the gate-free
-primitive ([Sign-in gates](05-plugins.md#sign-in-gates)).
+primitive ([Sign-in gates](01-plugin-authoring.md#sign-in-gates)).
 
 ### 11. Text search is case-sensitive
 
@@ -129,7 +129,7 @@ Better Auth's `additionalFields` default to `input: true`, so a forgotten attrib
 client set a column through sign-up or update-user.
 
 **Decided:** columns are server-only unless marked `#[field(input)]`; a client that sets
-any other column gets `400 INVALID_FIELD` ([User fields](03-configuration.md#user-fields)).
+any other column gets `400 INVALID_FIELD` ([User fields](../get-started/03-configuration.md#user-fields)).
 
 ### 13. Plugin config from generic code
 
@@ -155,19 +155,33 @@ using the compile-checked extension traits.
 
 ## Released: 0.2.0 (2026-11-26)
 
-1. The [organization](12-organization.md), [admin](13-admin.md) and
-   [API key](14-api-keys.md) plugins, each tested against Better Auth's client.
+1. The [organization](../plugins/access/01-organization.md), [admin](../plugins/access/02-admin.md) and
+   [API key](../plugins/tokens/03-api-keys.md) plugins, each tested against Better Auth's client.
 2. Configurable ids with ULID as the default (8).
 3. Gates after challenges (10), case-sensitive `Contains` and `EndsWith` filters (11), and
    `AuthInstance::try_plugin` (13).
 
 ## Released: 0.3.0 (2026-11-26)
 
-1. The [magic link](15-magic-link.md), [email OTP](16-email-otp.md), [bearer](17-bearer.md),
-   [JWT](18-jwt.md) and [passkey](19-passkey.md) plugins, each tested against Better Auth's
+1. The [magic link](../plugins/sign-in/01-magic-link.md), [email OTP](../plugins/sign-in/02-email-otp.md), [bearer](../plugins/tokens/01-bearer.md),
+   [JWT](../plugins/tokens/02-jwt.md) and [passkey](../plugins/sign-in/03-passkey.md) plugins, each tested against Better Auth's
    client.
 2. Additive core APIs for them: `PluginBuilder::on_response`, `Internal::claim_unverified_user`,
    and public `routes::normalize_email` and `routes::user_input_fields`. Nothing breaks for 0.2
    apps.
 
-The [CHANGELOG](../CHANGELOG.md) lists every change, including the breaking ones.
+## Released: 0.4.0 (2026-11-26)
+
+1. The [username](../plugins/sign-in/04-username.md), [anonymous](../plugins/sign-in/05-anonymous.md) and
+   [multi-session](../plugins/access/03-multi-session.md) plugins, each tested against Better Auth's client.
+2. Fixes for the 28 findings of the security review of 0.3.0, including both highs: the open
+   redirect that allowed password-reset account takeover, and banned users keeping access
+   through API keys. All versions before 0.4.0 are affected.
+3. Session gates (`PluginBuilder::session_gate`) and `Ctx::sensitive_session()`, so sessions
+   that didn't come from a sign-in (API keys, impersonation) can't mint credentials.
+4. Safer defaults: a password reset revokes the user's sessions, and invitations need a
+   verified email. `ClientIp::TrustedProxies` reads the client IP from `x-forwarded-for`.
+5. Breaking for exhaustive matches only: `ClientIp` and `AdminError` gained variants. No
+   public trait changed.
+
+The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.

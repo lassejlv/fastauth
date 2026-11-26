@@ -76,7 +76,7 @@ emails such as two-factor codes and invitations), and a mailer turns it into a m
 implements `Mailer`. Emails whose sending depends on whether an account exists (password
 reset, email verification, email OTP codes) are sent in the background, so the response
 doesn't wait for your mailer and takes as long for unknown emails as for known ones (see
-[Security](09-security.md#account-enumeration)). A background send that fails is logged with
+[Security](../concepts/03-security.md#account-enumeration)). A background send that fails is logged with
 `tracing::error!`; the client already got its answer. `LogMailer` and `MemoryMailer` do no
 I/O, so they send before the response, and tests can read `MemoryMailer` right away.
 
@@ -135,7 +135,7 @@ OAuth 2.0 steps, so adding one takes about 60 lines.
 Accounts link by verified email by default: a social sign-in whose email matches an
 existing user is attached to that user only when the provider reports the email as
 verified. If that user never verified their email, their password and sessions are removed
-first ([Security](09-security.md#oauth)). `AccountLinking::Off` never links: a social
+first ([Security](../concepts/03-security.md#oauth)). `AccountLinking::Off` never links: a social
 sign-in by email fails with `account_not_linked`, and `/link-social` with
 `unable_to_link_account`.
 
@@ -190,9 +190,9 @@ through it, including ones it links by verified email.
 The cookie cache trades revocation latency for speed: a revoked session keeps working on
 other devices until the cache cookie expires. Endpoints that create or change a credential
 (API keys, passkeys, linked accounts, two-factor) skip the cache and read the session from
-the database, so a revoked session can't mint one ([Security](09-security.md#sessions-that-arent-a-sign-in)). An
+the database, so a revoked session can't mint one ([Security](../concepts/03-security.md#sessions-that-arent-a-sign-in)). An
 impersonation session is never extended: it ends after the admin plugin's
-`impersonation_session_duration`. [Internals](08-internals.md#the-session-hot-path)
+`impersonation_session_duration`. [Internals](../reference/02-internals.md#the-session-hot-path)
 shows the cost of each tier. Sessions live in the database; secondary storage such as Redis
 is [planned](01-overview.md#planned), not built.
 
@@ -256,7 +256,7 @@ letting one client lock everybody out of sign-in, and otherwise share one bucket
 
 `IdStrategy::Ulid` (the default), `UuidV7`, `UuidV4` or `IdStrategy::custom(|| ..)` decides
 the ids of every row fastauth and its plugins create, and how id columns are stored. Pick
-it before the first migration: [Databases](06-database.md#ids) covers storage per strategy
+it before the first migration: [Databases](../concepts/02-database.md#ids) covers storage per strategy
 and what happens when you switch.
 
 ## User fields
@@ -281,13 +281,13 @@ camelCase (`"plan": "pro"`), validated by the types; a body that sets any other 
 `400 INVALID_FIELD`. They show up typed as `session.user.fields`. The other field
 attributes are `default = ..` (a bool, integer or string literal, or `now`, checked against
 the type at compile time), `unique`, `index` and `rename = "column_name"`. Apps can't add
-columns to `session`; plugins can ([Plugins](05-plugins.md#columns-on-user-and-session-derivefields)).
+columns to `session`; plugins can ([Plugins](../reference/01-plugin-authoring.md#columns-on-user-and-session-derivefields)).
 
 ## Events
 
 Events fire after the endpoint that emitted them succeeds, for every caller: HTTP, the
 server API, and plugins. Server API calls that share the app's transaction (`.in_tx(&tx)`)
-fire their events after `tx.commit()` ([Sharing a transaction](04-sessions.md#sharing-a-transaction)).
+fire their events after `tx.commit()` ([Sharing a transaction](../concepts/01-sessions.md#sharing-a-transaction)).
 Use them for side effects such as a welcome email or a billing customer.
 
 ```rust
@@ -305,7 +305,7 @@ Use them for side effects such as a welcome email or a billing customer.
 A handler's error is logged and doesn't fail the request. Core events, all in the prelude:
 `UserCreated { user_id, email }`, `UserUpdated`, `UserDeleted { user_id, email }`, `SessionCreated`,
 `SessionRevoked`, `PasswordChanged`, `EmailVerified`, `AccountLinked`. Plugins publish their own
-(`TwoFactorEnabled`, and the events on the [organization](12-organization.md#events),
-[admin](13-admin.md#events) and [API key](14-api-keys.md#events) pages). To change or block
-an operation before it happens, use a hook ([Plugins](05-plugins.md#hooks)); an app
+(`TwoFactorEnabled`, and the events on the [organization](../plugins/access/01-organization.md#events),
+[admin](../plugins/access/02-admin.md#events) and [API key](../plugins/tokens/03-api-keys.md#events) pages). To change or block
+an operation before it happens, use a hook ([Plugins](../reference/01-plugin-authoring.md#hooks)); an app
 registers hooks with `.configure(|app| ..)`.

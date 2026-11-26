@@ -9,6 +9,10 @@
   margin-top: 12px;
 }
 
+.prose > :is(h2, h3):first-child {
+  margin-top: 32px;
+}
+
 .prose > p:first-child {
   font-size: 18px;
   line-height: 28px;
@@ -75,7 +79,7 @@
 .prose :not(pre) > code {
   color: var(--text);
   font-size: 0.875em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .prose ul,
@@ -216,6 +220,11 @@
 
 .prose td code {
   font-size: 12.5px;
+  overflow-wrap: normal;
+}
+
+.prose td code .nowrap {
+  white-space: nowrap;
 }
 
 .diagram-source {

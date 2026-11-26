@@ -1,5 +1,5 @@
 //! The sqlx adapter for [fastauth](https://github.com/lassejlv/fastauth): Postgres and SQLite,
-//! with migrations. See `docs/06-database.md`.
+//! with migrations. See `docs/concepts/02-database.md`.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {

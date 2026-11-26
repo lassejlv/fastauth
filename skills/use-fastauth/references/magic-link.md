@@ -37,7 +37,7 @@ pub async fn email_link(auth: &AppAuth, email: &str) -> Result<(), AuthError> {
 }
 ```
 
-Full page: `docs/15-magic-link.md`.
+Full page: `docs/plugins/sign-in/01-magic-link.md`.
 
 ## Setup
 

@@ -24,7 +24,7 @@ echo 'DATABASE_URL=postgres://localhost/acme' >> .env
 ```
 
 The secret signs cookies and derives every other key fastauth uses. Losing it signs
-everyone out; leaking it lets an attacker forge cookies. [Security](09-security.md#secrets)
+everyone out; leaking it lets an attacker forge cookies. [Security](../concepts/03-security.md#secrets)
 covers rotation.
 
 ## 3. The auth instance
@@ -82,7 +82,7 @@ sqlx migrate run
 
 `generate` compares the schema your config needs with the live database and writes only
 the difference, so adding a plugin later produces a migration with only that plugin's tables
-and columns. [Databases](06-database.md#migrations) has the details.
+and columns. [Databases](../concepts/02-database.md#migrations) has the details.
 
 ## 5. The server
 
@@ -124,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
 
 `Session<AppAuth>` rejects the request with `401` and a JSON error body when there is
 no valid session. Use `Option<Session<AppAuth>>` for routes that work signed in or out.
-Ids are opaque strings, [ULIDs](06-database.md#ids) unless you pick another strategy, so
+Ids are opaque strings, [ULIDs](../concepts/02-database.md#ids) unless you pick another strategy, so
 `to_string()` is all `Me.id` needs.
 
 `into_make_service_with_connect_info` passes each client's socket address along: rate
@@ -156,7 +156,7 @@ curl -b jar -c jar -X POST localhost:3000/api/auth/sign-out -H 'origin: http://l
 ```
 
 The `origin` header is there because state-changing requests that carry cookies must come
-from a trusted origin ([Security](09-security.md#csrf)). Browsers send it automatically.
+from a trusted origin ([Security](../concepts/03-security.md#csrf)). Browsers send it automatically.
 
 ## 7. Add a plugin
 
@@ -177,5 +177,6 @@ mounted, `session.user.plugin::<TwoFactor, _>()` compiles, and sign-in returns
 `{"twoFactorRedirect": true, "twoFactorMethods": ["totp", "otp"]}` for users who turned it on
 (`"otp"` only when a mailer is configured).
 
-Next: [Configuration](03-configuration.md) for everything the builder takes, or
-[Plugins](05-plugins.md) to write your own.
+Next: [Configuration](03-configuration.md) for everything the builder takes,
+[All plugins](../plugins/README.md) for what else you can turn on, or
+[Plugin authoring](../reference/01-plugin-authoring.md) to write your own.

@@ -21,7 +21,7 @@ by default. (Without the facade, depend on `fastauth-plugin-organization` and en
 `axum` feature.)
 
 Register the plugin and list it in your auth alias, in registration order
-([Plugins](05-plugins.md#using-plugins)):
+([Plugins](../README.md#using-plugins)):
 
 ```rust
 use fastauth::plugins::organization::Organization;
@@ -49,7 +49,7 @@ The mailer is optional: without one, invitations are still created but no email 
 
 The plugin adds three tables and one column on `session`, so run migrations after adding it
 (`auth.migrator().run().await?`, or your `fastauth` binary's `generate`; see
-[Migrations](06-database.md#migrations)):
+[Migrations](../../concepts/02-database.md#migrations)):
 
 | Table | Columns |
 |---|---|
@@ -148,7 +148,7 @@ async fn active_organization(session: Session<AppAuth>) -> String {
 }
 ```
 
-With the session cookie cache on ([Sessions](04-sessions.md)), the routes that change the
+With the session cookie cache on ([Sessions](../../concepts/01-sessions.md)), the routes that change the
 caller's active organization also drop the cache cookie, so the next request sees the new
 value.
 
@@ -263,13 +263,13 @@ The names follow the routes: `create_as`, `update`, `delete`, `list`, `get_full`
 `cancel_invitation`, `get_invitation`, `list_invitations`, `list_user_invitations`,
 `remove_member`, `update_member_role`, `leave`, `get_active_member`, `list_members` and
 `check_permission`. Each takes `&HeaderMap` and the route's input type (`Empty {}` for the
-ones without input). [The server API](04-sessions.md#the-server-api) explains how headers
+ones without input). [The server API](../../concepts/01-sessions.md#the-server-api) explains how headers
 carry the session.
 
 ### Hooks
 
 The plugin has no hook options of its own. Use fastauth's endpoint hooks on its endpoint
-types ([Hooks](05-plugins.md#hooks)):
+types ([Hooks](../../reference/01-plugin-authoring.md#hooks)):
 
 ```rust
 .configure(|app| {
@@ -376,7 +376,7 @@ check permissions with the same `Roles::allows` the endpoints use. They reject w
 Deleting an organization doesn't emit `MemberRemoved` for its members. Updates, role
 changes, and new, rejected or canceled invitations emit nothing; hook the endpoint instead.
 Handlers run after the change succeeds, and their errors are logged rather than returned
-([Events](03-configuration.md#events)):
+([Events](../../get-started/03-configuration.md#events)):
 
 ```rust
 .on(|e: MemberAdded, ctx: Ctx<_>| async move {
@@ -506,7 +506,7 @@ user.
 ## Better Auth's client
 
 Use Better Auth's `organizationClient` from `better-auth/client/plugins`, tested with
-`better-auth` 1.7.28. [Better Auth's client](11-better-auth-client.md) covers the rest of
+`better-auth` 1.7.28. [Better Auth's client](../../integrations/02-better-auth-client.md) covers the rest of
 the setup:
 
 ```ts

@@ -33,7 +33,9 @@
   --hero-dither: url("/dither/hero-light.png");
   --hero-dither-mobile: url("/dither/hero-mobile.png");
   --topbar-dither: none;
-  --sidebar-dither: none;
+  --scrollbar: #0000002e;
+
+  --frame: 1440px;
 
   --font-sans: "Schibsted Grotesk Variable", "Schibsted Grotesk", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
@@ -73,7 +75,7 @@
   --hero-dither: url("/dither/ink-hero.png");
   --hero-dither-mobile: url("/dither/ink-mhero.png");
   --topbar-dither: url("/dither/ink-topbar.png");
-  --sidebar-dither: url("/dither/ink-sidebar.png");
+  --scrollbar: #ffffff2e;
 
   color-scheme: dark;
 }
@@ -123,7 +125,22 @@ button {
 :focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+.sidebar,
+.outline,
+.sheet-nav,
+.outline-mobile ul,
+.palette-results,
+.code-body,
+.table-wrap,
+.diagram {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+:is(.sidebar, .outline, .sheet-nav, .outline-mobile ul, .palette-results, .code-body, .table-wrap, .diagram):is(:hover, :focus-within) {
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 img,
@@ -302,6 +319,7 @@ pre {
 .code-body {
   margin: 0;
   padding: 16px 16px 18px;
+  overflow-x: auto;
   color: var(--syntax-plain);
   font-size: 13px;
   line-height: 21px;
@@ -309,21 +327,14 @@ pre {
 
 .code-body code {
   display: block;
+  width: max-content;
+  min-width: 100%;
   font: inherit;
-  container-type: inline-size;
 }
 
 .line {
-  --hang: min(calc(var(--h, 4) * 1ch), 40cqi);
   display: block;
   min-height: 21px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding-left: var(--hang);
-  text-indent: calc(var(--hang) * -1);
-}
-
-.line .ind {
   white-space: pre;
 }
 

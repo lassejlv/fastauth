@@ -1,4 +1,4 @@
-# Better Auth's client
+# Better Auth client
 
 fastauth's core endpoints and its first-party plugins (two-factor, organization, admin, API
 keys, magic links, email OTP, bearer, JWT, passkeys, usernames, anonymous users and multiple
@@ -138,21 +138,21 @@ the `totpURI`.
 through `organizationClient`; `admin.ts` covers user management, roles, bans and
 impersonation through `adminClient`. The plugin pages describe what the other scripts check
 and list their gaps:
-[Organization](12-organization.md#better-auths-client),
-[Admin](13-admin.md#better-auths-client), [API keys](14-api-keys.md#better-auths-client),
-[Magic links](15-magic-link.md#better-auths-client),
-[Email OTP](16-email-otp.md#better-auths-client),
-[Bearer tokens](17-bearer.md#better-auths-client), [JWT](18-jwt.md#better-auths-client),
-[Passkeys](19-passkey.md#better-auths-client), [Usernames](20-username.md#better-auths-client),
-[Anonymous users](21-anonymous.md#better-auths-client) and
-[Multiple sessions](22-multi-session.md#better-auths-client).
+[Organization](../plugins/access/01-organization.md#better-auths-client),
+[Admin](../plugins/access/02-admin.md#better-auths-client), [API keys](../plugins/tokens/03-api-keys.md#better-auths-client),
+[Magic links](../plugins/sign-in/01-magic-link.md#better-auths-client),
+[Email OTP](../plugins/sign-in/02-email-otp.md#better-auths-client),
+[Bearer tokens](../plugins/tokens/01-bearer.md#better-auths-client), [JWT](../plugins/tokens/02-jwt.md#better-auths-client),
+[Passkeys](../plugins/sign-in/03-passkey.md#better-auths-client), [Usernames](../plugins/sign-in/04-username.md#better-auths-client),
+[Anonymous users](../plugins/sign-in/05-anonymous.md#better-auths-client) and
+[Multiple sessions](../plugins/access/03-multi-session.md#better-auths-client).
 
 There's no CI job; run the scripts before changing an endpoint's path, input or output.
 
 ## Known gaps
 
 - **`listSessions` returns no `token`.** fastauth stores only a hash of each session token
-  ([Security](09-security.md)), so it can't list them. Better Auth's usual pattern,
+  ([Security](../concepts/03-security.md)), so it can't list them. Better Auth's usual pattern,
   `revokeSession({ token: session.token })` on a listed session, doesn't work. Revoke by id
   instead, which fastauth accepts on the same endpoint
   (`revokeSession({ id: session.id } as any)`; Better Auth's types only know `token`), or by
@@ -170,4 +170,4 @@ There's no CI job; run the scripts before changing an endpoint's path, input or 
   always reads the session from the database unless `cookie_cache` is on.
 - **Not tested here:** social sign-in (needs a provider), email verification links,
   `twoFactor.sendOtp`/`verifyOtp` and backup codes, and Better Auth plugins fastauth doesn't
-  have ([planned](01-overview.md#planned)).
+  have ([planned](../get-started/01-overview.md#planned)).
