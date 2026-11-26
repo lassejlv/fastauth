@@ -4,8 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::adapter::{Adapter, DbResult};
+use crate::adapter::{Adapter, DbError, DbResult};
 use crate::schema::{ColumnDef, ColumnType, IdStorage, Schema, TableDef};
+use crate::value::Value;
 
 /// What exists in the database, as reported by `Adapter::introspect`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -19,6 +20,18 @@ pub struct LiveSchema {
     /// one: Postgres reports its `uuid` and `text` columns. Adapters that store ids the
     /// same way under every strategy (SQLite, always `text`) leave it empty.
     pub id_storage: HashMap<(String, String), IdStorage>,
+    /// The column sets the database keeps unique, primary keys aside, as [`unique_key`]
+    /// builds them. `None` when the adapter doesn't report them: the migrator then adds
+    /// unique constraints only with the tables and columns it creates, and can't see one
+    /// that is missing from an existing table.
+    pub uniques: Option<HashSet<(String, Vec<String>)>>,
+}
+
+/// How [`LiveSchema::uniques`] names a unique constraint: the table and its sorted columns.
+pub fn unique_key(table: &str, columns: &[impl AsRef<str>]) -> (String, Vec<String>) {
+    let mut columns: Vec<String> = columns.iter().map(|c| c.as_ref().to_owned()).collect();
+    columns.sort();
+    (table.to_owned(), columns)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +45,14 @@ pub enum Step {
     CreateIndex {
         table: Arc<TableDef>,
         column: ColumnDef,
+    },
+    /// A unique constraint on columns that already exist, or will once the steps before it
+    /// ran: every [`UniqueDef`](crate::schema::UniqueDef) of a new table, and any unique
+    /// set an existing table is missing. Adapters refuse it, naming the rows, when the
+    /// table holds duplicates.
+    AddUnique {
+        table: Arc<TableDef>,
+        columns: Vec<&'static str>,
     },
 }
 
@@ -61,7 +82,44 @@ impl fmt::Display for Step {
                     column.name
                 )
             }
+            Step::AddUnique { table, columns } => {
+                write!(f, "add unique ({}) on {}", columns.join(", "), table.name)
+            }
         }
+    }
+}
+
+/// What an adapter answers for a [`Step::AddUnique`] on a table that already holds rows
+/// sharing `columns`: `rows` are some of them, each as `(column, value)` pairs.
+pub fn duplicates_error(table: &str, columns: &[&str], rows: &[Vec<(&str, Value)>]) -> DbError {
+    let rows: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let pairs: Vec<String> = row
+                .iter()
+                .map(|(column, value)| format!("{column}={}", show(value)))
+                .collect();
+            format!("{{{}}}", pairs.join(", "))
+        })
+        .collect();
+    DbError::Schema(format!(
+        "can't add UNIQUE ({}) to `{table}`: these rows share the same values: {}. Delete or \
+         merge the duplicates, then run the migrator again (docs/concepts/02-database.md, \
+         \"Unique constraints on an existing database\", has a query for each table)",
+        columns.join(", "),
+        rows.join("; ")
+    ))
+}
+
+fn show(value: &Value) -> String {
+    match value {
+        Value::Null => "NULL".to_owned(),
+        Value::Bool(b) => b.to_string(),
+        Value::Int(i) => i.to_string(),
+        Value::Text(text) => format!("{text:?}"),
+        Value::Bytes(bytes) => bytes.iter().map(|b| format!("{b:02x}")).collect(),
+        Value::Timestamp(at) => at.to_string(),
+        Value::Json(json) => json.to_string(),
     }
 }
 
@@ -99,6 +157,12 @@ impl MigrationPlan {
                         column: *column,
                     });
                 }
+                for unique in &table.uniques {
+                    plan.steps.push(Step::AddUnique {
+                        table: table.clone(),
+                        columns: unique.columns.clone(),
+                    });
+                }
                 continue;
             };
             for column in &table.columns {
@@ -132,6 +196,20 @@ impl MigrationPlan {
                         table: table.clone(),
                         column: *column,
                     });
+                }
+            }
+            if let Some(live_uniques) = &live.uniques {
+                for columns in table.unique_sets() {
+                    let added_with_its_column =
+                        columns.len() == 1 && !live_columns.contains(columns[0]);
+                    if !added_with_its_column
+                        && !live_uniques.contains(&unique_key(table.name, &columns))
+                    {
+                        plan.steps.push(Step::AddUnique {
+                            table: table.clone(),
+                            columns,
+                        });
+                    }
                 }
             }
             for extra in live_columns.iter().filter(|c| table.column(c).is_none()) {
@@ -208,7 +286,16 @@ mod tests {
     use crate::testing::conformance_schema;
 
     fn live_with_ids(schema: &Schema, stored: IdStorage) -> LiveSchema {
-        let mut live = LiveSchema::default();
+        let mut live = LiveSchema {
+            uniques: Some(
+                schema
+                    .tables()
+                    .iter()
+                    .flat_map(|t| t.unique_sets().map(|cols| unique_key(t.name, &cols)))
+                    .collect(),
+            ),
+            ..LiveSchema::default()
+        };
         for table in schema.tables() {
             for column in &table.columns {
                 let key = (table.name.to_owned(), column.name.to_owned());
@@ -234,6 +321,58 @@ mod tests {
             let plan = MigrationPlan::diff(&schema, &live_with_ids(&schema, ids.storage()));
             assert_eq!(plan, MigrationPlan::default(), "{ids:?}");
         }
+    }
+
+    fn added_uniques(plan: &MigrationPlan) -> Vec<String> {
+        plan.steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::AddUnique { table, columns } => {
+                    Some(format!("{}({})", table.name, columns.join(",")))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn new_tables_get_their_multi_column_uniques() {
+        let schema = conformance_schema(&IdStrategy::Ulid, false);
+        let plan = MigrationPlan::diff(&schema, &LiveSchema::default());
+        assert_eq!(added_uniques(&plan), ["account(provider_id,account_id)"]);
+    }
+
+    #[test]
+    fn a_unique_missing_from_an_existing_table_is_planned() {
+        let schema = conformance_schema(&IdStrategy::Ulid, true);
+        let mut live = live_with_ids(&schema, IdStorage::Text);
+        let uniques = live.uniques.as_mut().unwrap();
+        uniques.remove(&unique_key("item", &["nickname"]));
+        uniques.remove(&unique_key("account", &["account_id", "provider_id"]));
+        let plan = MigrationPlan::diff(&schema, &live);
+        assert_eq!(
+            added_uniques(&plan),
+            ["account(provider_id,account_id)", "item(nickname)"]
+        );
+    }
+
+    #[test]
+    fn a_unique_column_added_now_brings_its_constraint() {
+        let v1 = conformance_schema(&IdStrategy::Ulid, false);
+        let live = live_with_ids(&v1, IdStorage::Text);
+        let plan = MigrationPlan::diff(&conformance_schema(&IdStrategy::Ulid, true), &live);
+        assert!(added_uniques(&plan).is_empty(), "{:?}", plan.steps);
+    }
+
+    #[test]
+    fn without_reported_uniques_existing_tables_get_none() {
+        let schema = conformance_schema(&IdStrategy::Ulid, false);
+        let mut live = live_with_ids(&schema, IdStorage::Text);
+        live.uniques = None;
+        assert_eq!(
+            MigrationPlan::diff(&schema, &live),
+            MigrationPlan::default()
+        );
     }
 
     #[test]

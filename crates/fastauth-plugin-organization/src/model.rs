@@ -23,7 +23,8 @@ pub struct OrganizationRow {
 }
 
 /// A row of `member`: one user's membership and role in one organization. A user is a
-/// member of an organization at most once; the plugin checks that before every insert.
+/// member of an organization at most once: `member` is unique on
+/// `(organization_id, user_id)`.
 #[derive(Model, Clone, Debug, PartialEq, Serialize)]
 #[model(table = "member")]
 #[serde(rename_all = "camelCase")]

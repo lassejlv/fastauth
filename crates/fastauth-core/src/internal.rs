@@ -133,6 +133,20 @@ fn user_exists(err: DbError) -> AuthError {
     }
 }
 
+fn account_linked(err: DbError) -> AuthError {
+    match err {
+        DbError::UniqueViolation {
+            ref table,
+            column: None,
+        } if table == Account::TABLE => AuthError::new(
+            StatusCode::CONFLICT,
+            codes::SOCIAL_ACCOUNT_ALREADY_LINKED,
+            "social account already linked",
+        ),
+        other => other.into(),
+    }
+}
+
 /// The cookie that marks the browser which set or proved an unverified user's password.
 const PENDING_VERIFICATION: &str = "pending_verification";
 
@@ -293,7 +307,9 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let db = self.ctx.db_on(&tx);
         let row = db.insert_row::<User>(values).await.map_err(user_exists)?;
         if let Some(account) = account {
-            db.insert_row::<Account>(account).await?;
+            db.insert_row::<Account>(account)
+                .await
+                .map_err(account_linked)?;
         }
         tx.commit().await?;
         let view = UserView::from_row(row).map_err(AuthError::internal)?;
@@ -314,7 +330,8 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .ctx
             .db()
             .insert_row::<Account>(self.account_values(user_id, account)?)
-            .await?;
+            .await
+            .map_err(account_linked)?;
         self.ctx.emit(AccountLinked {
             user_id: user_id.clone(),
             provider_id,
@@ -336,7 +353,8 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .ctx
             .db()
             .insert_row::<Account>(self.account_values(&user.id, account)?)
-            .await?;
+            .await
+            .map_err(account_linked)?;
         let linked = Account::decode(&row).map_err(AuthError::internal)?;
         if !self.stamp_holds(&user.id, user.security_stamp()).await? {
             self.ctx
@@ -450,22 +468,30 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .hash(password)
             .await
             .map_err(AuthError::internal)?;
-        let updated = self
-            .ctx
-            .db()
-            .update::<Account>(
-                Account::USER_ID
-                    .eq(user_id)
-                    .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
-            )
-            .set(Account::PASSWORD_HASH, Some(hash.clone()))
-            .exec()
-            .await?;
-        if updated == 0 {
-            self.link_account(user_id, NewAccount::credential(hash))
-                .await?;
+        let update = || {
+            self.ctx
+                .db()
+                .update::<Account>(
+                    Account::USER_ID
+                        .eq(user_id)
+                        .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
+                )
+                .set(Account::PASSWORD_HASH, Some(hash.clone()))
+                .exec()
+        };
+        if update().await? > 0 {
+            return Ok(());
         }
-        Ok(())
+        match self
+            .link_account(user_id, NewAccount::credential(hash.clone()))
+            .await
+        {
+            Err(err) if err.code() == codes::SOCIAL_ACCOUNT_ALREADY_LINKED => {
+                update().await?;
+                Ok(())
+            }
+            other => other.map(|_| ()),
+        }
     }
 
     /// Creates a session and sets its cookies, running no sign-in gate at all. This is the
@@ -774,7 +800,11 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             }
         }
         if let Some(values) = link {
-            self.ctx.db().insert_row::<Account>(values).await?;
+            self.ctx
+                .db()
+                .insert_row::<Account>(values)
+                .await
+                .map_err(account_linked)?;
             if let Some(provider_id) = linked_provider {
                 self.ctx.emit(AccountLinked {
                     user_id: user.id.clone(),
@@ -828,7 +858,9 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .await?;
         }
         if let Some(values) = link {
-            db.insert_row::<Account>(values).await?;
+            db.insert_row::<Account>(values)
+                .await
+                .map_err(account_linked)?;
         }
         Ok(Some(revoked))
     }

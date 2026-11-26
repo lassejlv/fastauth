@@ -176,6 +176,11 @@ finish the sign-in a second time. The row expires with `two_factor_cookie_max_ag
 minutes by default). Better Auth also caps attempts per challenge; it doesn't cap TOTP
 guesses for a signed-in user, and neither does fastauth beyond the rate limit.
 
+A user has at most one `two_factor` row: `two_factor.user_id` is unique, and
+`/two-factor/enable` replaces the old secret in a transaction that locks the user's row
+first. Without that, two enables at once could leave two secrets, and the one the user's app
+was set up with might not be the one sign-in checks. Better Auth has no such constraint.
+
 ## Account enumeration
 
 Routes that take an email and must not reveal whether it has an account answer the same
@@ -322,6 +327,49 @@ client can't choose ([Configuration](../get-started/03-configuration.md#rate-lim
   every other request without an IP. Better Auth puts all of them in one shared bucket, where
   three wrong passwords from anyone lock everyone out of sign-in; fastauth keeps the limit on
   each account instead, so only guesses at the same account count against it.
+
+## The database
+
+Uniqueness that matters for security is a database constraint, not only a check before an
+insert, so two requests at once can't both pass the check:
+
+- `user.email` (stored lowercased), `user.username` (normalized, username plugin),
+  `organization.slug`, `passkey.credential_id`, and every token, code and key hash.
+- `account (provider_id, account_id)`: one provider account belongs to one user. A second
+  link answers 409 `SOCIAL_ACCOUNT_ALREADY_LINKED`.
+- `member (organization_id, user_id)`: one membership per user and organization. Two
+  accepts or adds at once leave one row, and the other answers
+  `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`. Removing a member removes them.
+- `two_factor.user_id`: one TOTP secret per user.
+
+Better Auth enforces none of the last three in its schema. A database made by fastauth 0.5
+or earlier gets them on its next migration, which refuses to run while duplicates exist and
+names them; [Unique constraints on an existing database](02-database.md#unique-constraints-on-an-existing-database)
+has the queries that fix them.
+
+Limits counted before an insert are counted inside a transaction that first locks the
+user's row: the organization plugin's `organization_limit`, so parallel creates can't each
+see room for one more. On Postgres and MySQL the second request waits for the first; SQLite
+runs one write transaction at a time anyway.
+
+In production:
+
+- **Use TLS to the database, and check the certificate.** sqlx's default for MySQL is
+  `ssl-mode=preferred` and for Postgres `sslmode=prefer`: TLS when the server offers it, no
+  certificate check, and plain text when it doesn't. Put `ssl-mode=verify_identity` (MySQL)
+  or `sslmode=verify-full` (Postgres) in `DATABASE_URL` unless the database is on the
+  same host. [MySQL](02-database.md#mysql) has examples.
+- **MySQL 8 only.** MariaDB isn't supported (it lacks `utf8mb4_0900_bin`); the first
+  migration fails on it rather than running with different comparison rules.
+- **Keep MySQL's `sql_mode` strict** (the default), so a value too long for a key column is
+  an error and not cut short into another value's key.
+- **UUID ids compare as UUIDs on Postgres and MySQL.** Under a UUID id strategy, other
+  spellings of the same UUID (uppercase, no hyphens, braces) find the same row there, while
+  SQLite stores ids as text and compares them exactly. The admin plugin's "not yourself"
+  checks (banning or removing your own user) compare the requested id with the caller's as
+  strings, so on Postgres and MySQL an admin can get past them by spelling their own id
+  differently; that only reaches their own account. If your own code compares an id from a
+  client with an `Id`, compare the id the database returned instead.
 
 ## What fastauth doesn't do for you
 

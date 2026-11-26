@@ -53,8 +53,8 @@ The plugin adds three tables and one column on `session`, so run migrations afte
 
 | Table | Columns |
 |---|---|
-| `organization` | `id`, `name`, `slug` (unique), `logo` (nullable), `metadata` (JSON, nullable), `created_at` |
-| `member` | `id`, `organization_id` → organization (cascade, index), `user_id` → user (cascade, index), `role` (default `'member'`), `created_at` |
+| `organization` | `id`, `name`, `slug` (unique, at most 255 characters), `logo` (nullable), `metadata` (JSON, nullable), `created_at` |
+| `member` | `id`, `organization_id` → organization (cascade, index), `user_id` → user (cascade, index), `role` (default `'member'`), `created_at`; unique on `(organization_id, user_id)` |
 | `invitation` | `id`, `organization_id` → organization (cascade, index), `email` (index), `role`, `status` (default `'pending'`), `inviter_id` → user (cascade), `expires_at`, `created_at` |
 | `session` | adds `active_organization_id` (nullable) |
 
@@ -489,7 +489,7 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_ORGANIZATION` | 403 | `update` without `organization: [update]` |
 | `YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_ORGANIZATION` | 403 | `delete` without `organization: [delete]` |
 | `NO_ACTIVE_ORGANIZATION` | 400 (403 from extractors) | no `organizationId` given and none active |
-| `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION` | 400 | inviting, adding or accepting for an existing member |
+| `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION` | 400 | inviting, adding or accepting for an existing member, including the loser of two adds or accepts at once |
 | `MEMBER_NOT_FOUND` | 400 | the caller or the target isn't a member |
 | `ROLE_NOT_FOUND` | 400 | a role that isn't defined; the message names it |
 | `YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER` | 400 | the last owner leaves, or an owner is removed by a non-owner or as the last one |
@@ -509,8 +509,9 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_A_MEMBER_OF_THIS_ORGANIZATION` | 403 | `list-members`, `list-invitations` and the extractors, for a non-member |
 | `PERMISSION_DENIED` | 403 | `RequirePermission` when the role doesn't grant `P` |
 
-Core codes show up too: 401 `UNAUTHORIZED` without a session, 400 `INVALID_BODY` for an
-empty `name` or `slug` or an unknown `sortBy`, 400 `INVALID_EMAIL` from `invite-member`,
+Core codes show up too: 401 `UNAUTHORIZED` without a session, 400 `INVALID_REQUEST_BODY` for an
+empty `name`, an empty slug or one over 255 characters, or an unknown `sortBy`, 400
+`INVALID_EMAIL` from `invite-member` (also for an address over 254 bytes),
 and 400 `USER_NOT_FOUND` when the server API's `create` or `add_member` names an unknown
 user.
 
@@ -548,6 +549,10 @@ Known gaps:
   verified email by default; `cancel-invitation` refuses invitations that are no longer
   pending; `remove-member` answers `MEMBER_NOT_FOUND` for another organization's member
   before checking roles, where Better Auth may answer an owner or permission error first.
+  The database keeps one `member` row per user and organization (Better Auth's schema
+  doesn't), slugs are capped at 255 characters and invitation emails at 254 bytes (400
+  rather than a database error), and `organization_limit` holds under parallel creates: the
+  count runs in the create's transaction after locking the user's row.
 - **No teams, dynamic access control or `getActiveMemberRole`.** The client's team, role
   and `getActiveMemberRole` methods get 404 `NOT_FOUND`.
 - **`checkRolePermission` runs in the browser** against the client's own role definitions,

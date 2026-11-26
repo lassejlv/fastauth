@@ -61,12 +61,13 @@ Core tables (column names in snake_case; JSON uses camelCase):
 |---|---|
 | `user` | `id`, `email` (unique), `email_verified`, `name`, `image`, `security_stamp` (never sent to clients; [Claiming an email](03-security.md#claiming-an-email)), `created_at`, `updated_at` |
 | `session` | `id`, `token_hash` (unique), `user_id` → user, `expires_at`, `ip_address`, `user_agent`, `created_at`, `updated_at` |
-| `account` | `id`, `user_id` → user, `provider_id`, `account_id`, `password_hash`, `access_token` (encrypted), `refresh_token` (encrypted), `id_token`, `access_token_expires_at`, `refresh_token_expires_at`, `scope`, `created_at`, `updated_at` |
+| `account` | `id`, `user_id` → user, `provider_id`, `account_id` (unique together with `provider_id`), `password_hash`, `access_token` (encrypted), `refresh_token` (encrypted), `id_token`, `access_token_expires_at`, `refresh_token_expires_at`, `scope`, `created_at`, `updated_at` |
 | `verification` | `id`, `identifier`, `value_hash`, `data`, `expires_at`, `created_at`, `updated_at` |
 
 Passwords live on `account` (provider `credential`), like Better Auth, so a user can have a
 password and a GitHub login at once. Plugins and `user_fields` add tables and columns to
-this: two-factor adds `two_factor` and `user.two_factor_enabled`; the
+this: two-factor adds `two_factor` (one row per user: `user_id` is unique) and
+`user.two_factor_enabled`; the
 [organization](../plugins/access/01-organization.md#setup), [admin](../plugins/access/02-admin.md#setup) and
 [API key](../plugins/tokens/03-api-keys.md#setup) pages list theirs.
 
@@ -84,7 +85,7 @@ user
 ...
 two_factor
   id                        id         two-factor primary key
-  user_id                   id         two-factor -> user.id on delete cascade, index
+  user_id                   id         two-factor -> user.id on delete cascade, unique
   secret                    bytes      two-factor
   backup_codes              bytes      two-factor
   last_used_step            int        two-factor nullable
@@ -169,8 +170,20 @@ COLLATE=utf8mb4_0900_bin`:
   it does on Postgres.
 - **DDL isn't transactional.** MySQL commits before and after each `CREATE TABLE`, `ALTER
   TABLE` and `CREATE INDEX`, so a migration that fails halfway leaves the steps before it
-  applied. The diff only adds, so running the migrator again finishes the job. Run it outside
-  `.in_tx(..)`: a savepoint doesn't survive DDL.
+  applied. The migrator reads back tables, columns, indexes and unique constraints, so
+  running it again plans whatever the failed run left out, including the `UNIQUE` of a
+  column whose `ADD COLUMN` went through (it's a statement of its own on MySQL). A new
+  column's foreign key goes in the same `ALTER TABLE` as the column, so it can't be left
+  behind. Run the migrator outside `.in_tx(..)`: a savepoint doesn't survive DDL.
+- **Unique constraints over several columns** (`account (provider_id, account_id)`,
+  `member (organization_id, user_id)`) index a prefix of each text column, because an
+  InnoDB key holds at most 3072 bytes: 384 characters each for two text columns. Ids and
+  provider ids are far shorter than that, so the prefix is the whole value in practice.
+- **Use a strict `sql_mode`** (MySQL's default includes `STRICT_TRANS_TABLES`). Key text
+  columns are `varchar(768)`; in strict mode a longer value is an error, but with
+  `sql_mode=''` (some managed servers) MySQL cuts it to 768 characters with a warning, so two
+  values that differ after that are one key. The organization plugin caps slugs at 255
+  characters and invitation emails at 254 bytes, so a longer one answers 400, not 500.
 - **Text search** uses `LIKE .. ESCAPE '!'`, not a backslash, so it works the same with or
   without the `NO_BACKSLASH_ESCAPES` SQL mode.
 
@@ -232,7 +245,7 @@ fail. Two cases matter:
 
 fastauth computes the schema from your config at runtime (plugins decide it), so it can
 diff that against the live database. The diff only ever **adds**: tables, columns, indexes,
-foreign keys. Anything it would have to drop or alter (a removed plugin's table, a type
+unique constraints, foreign keys. Anything it would have to drop or alter (a removed plugin's table, a type
 change, a column that's NOT NULL without a default on a table with rows) is reported as a
 warning and left for you.
 
@@ -271,6 +284,73 @@ cargo run --bin fastauth -- migrate           # apply directly
 Every command reads `DATABASE_URL` from the environment or `.env`, or takes
 `--database-url`. `status` in CI catches a forgotten migration after adding a plugin; it
 also exits 1 when it can't reach the database.
+
+### Unique constraints on an existing database
+
+The migrator also adds unique constraints that an existing table is missing, single-column
+or over several columns. A database made by fastauth 0.5 or earlier gets three on its next
+migration, if it has the tables:
+
+| Table | Unique on | Why |
+|---|---|---|
+| `account` | `(provider_id, account_id)` | one provider account can be linked to one user |
+| `member` | `(organization_id, user_id)` | a user is a member of an organization once |
+| `two_factor` | `user_id` | a user has one TOTP secret |
+
+Before it runs any statement, `migrator().apply(..)` (and so `run()` and your binary's
+`migrate`) looks for rows that would break a new constraint. If it finds some, it changes
+nothing and fails with `DbError::Schema`, naming the table, the columns and up to 10 of the
+rows by id:
+
+```
+can't add UNIQUE (organization_id, user_id) to `member`: these rows share the same values:
+{id="01M8…A", organization_id="01M8…O", user_id="01M8…U"}; {id="01M8…B", …}. Delete or merge
+the duplicates, then run the migrator again …
+```
+
+The SQL from `generate` or `migrator().sql()` has no such check: the database itself
+refuses the `CREATE UNIQUE INDEX` with its own error. Either way, find the duplicates, fix
+them, and migrate again. These queries work on Postgres, SQLite and MySQL (on MySQL, write
+`"user"` as `` `user` ``):
+
+```sql
+-- account: one provider account linked more than once. Check each by hand: the same GitHub
+-- or Google account on two users means one of them shouldn't have it. Delete that row.
+SELECT provider_id, account_id, COUNT(*) FROM account
+GROUP BY provider_id, account_id HAVING COUNT(*) > 1;
+
+-- member: the same membership twice. Look at the roles first, then keep the oldest row.
+SELECT organization_id, user_id, COUNT(*) FROM member
+GROUP BY organization_id, user_id HAVING COUNT(*) > 1;
+DELETE FROM member WHERE id IN (
+  SELECT id FROM (
+    SELECT m.id FROM member AS m JOIN member AS keep
+      ON keep.organization_id = m.organization_id AND keep.user_id = m.user_id
+     AND (keep.created_at < m.created_at OR (keep.created_at = m.created_at AND keep.id < m.id))
+  ) AS dupes
+);
+
+-- two_factor: two secrets for one user, from two enables at once. Neither can be trusted to
+-- be the one in the user's app, so turn two-factor off for them and have them enroll again.
+UPDATE "user" SET two_factor_enabled = false WHERE id IN (
+  SELECT user_id FROM (SELECT user_id FROM two_factor GROUP BY user_id HAVING COUNT(*) > 1) AS d
+);
+DELETE FROM two_factor WHERE user_id IN (
+  SELECT user_id FROM (SELECT user_id FROM two_factor GROUP BY user_id HAVING COUNT(*) > 1) AS d
+);
+```
+
+With a table prefix or renamed tables, use your physical table names. The extra
+`SELECT .. AS dupes` wrapper is for MySQL, which can't otherwise delete from a table it
+reads in the same statement.
+
+Adapters report a violation of a multi-column constraint as
+`DbError::UniqueViolation { table, column: None }`. Core answers a second link of the same
+provider account with 409 `SOCIAL_ACCOUNT_ALREADY_LINKED`, and the organization plugin
+answers a second membership with `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`.
+Plugins declare one with `SchemaBuilder::unique(table, &[columns])`; a third-party
+adapter that reports `LiveSchema::uniques` gets the missing ones planned as
+`Step::AddUnique`, and one that leaves it `None` gets them only with new tables.
 
 ## Typed queries
 

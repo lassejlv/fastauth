@@ -26,7 +26,7 @@ use crate::config::IdStrategy;
 use crate::crypto::Hash;
 use crate::migrate::{Migrator, Step};
 use crate::model::Model;
-use crate::models::{Session, User};
+use crate::models::{Account, Session, User};
 use crate::query::full_row;
 use crate::schema::{
     ColumnDef, ColumnType as T, DefaultValue, IdStorage, OnDelete, Schema, SchemaBuilder, TableDef,
@@ -74,12 +74,20 @@ const SEED: [(&str, Option<&str>); 7] = [
 /// with id columns stored as `ids` stores them. `v2` adds columns to `item`, for the
 /// migration round trip.
 pub fn conformance_schema(ids: &IdStrategy, v2: bool) -> Schema {
+    schema_version(ids, v2, false)
+}
+
+/// `v3` makes `item` unique on `(rank, note)`, a constraint added to a table with rows.
+fn schema_version(ids: &IdStrategy, v2: bool, v3: bool) -> Schema {
     let mut builder = SchemaBuilder::new();
     crate::models::register(&mut builder);
     builder.owner = "conformance";
     builder.table(ITEM, ITEM_COLUMNS);
     if v2 {
         builder.extend(ITEM, ITEM_V2_COLUMNS);
+    }
+    if v3 {
+        builder.unique(ITEM, &["rank", "note"]);
     }
     builder
         .finish(ids.storage())
@@ -179,6 +187,77 @@ async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
         .expect("adding columns to a table with rows");
     let again = migrator.plan().await.expect("plan after v2");
     assert!(again.is_empty(), "plan after v2 is not empty: {again:?}");
+
+    let item = v2.expect(ITEM);
+    let mut twins = Vec::new();
+    for name in ["twin-a", "twin-b"] {
+        let row = db
+            .insert(Insert {
+                table: item,
+                values: item_values(item, name, 7, Some("same")),
+            })
+            .await
+            .expect("insert a duplicate before the unique exists");
+        twins.push(row.values()[0].clone());
+    }
+    let v3 = schema_version(ids, true, true);
+    let migrator = Migrator::new(&db, &v3);
+    let plan = migrator.plan().await.expect("plan for v3");
+    let uniques: Vec<&[&str]> = plan
+        .steps
+        .iter()
+        .filter_map(|s| match s {
+            Step::AddUnique { columns, .. } => Some(columns.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(uniques, [["rank", "note"]], "{plan:?}");
+    match migrator.apply(&plan).await {
+        Err(DbError::Schema(message)) => {
+            for expected in ["UNIQUE (rank, note)", "`item`"] {
+                assert!(message.contains(expected), "{expected:?} in {message}");
+            }
+            for id in &twins {
+                let Value::Text(id) = id else {
+                    panic!("ids are text: {id:?}")
+                };
+                assert!(message.contains(id.as_str()), "{id} in {message}");
+            }
+        }
+        other => panic!("a unique over duplicate rows must be refused, got {other:?}"),
+    }
+    assert_eq!(
+        migrator.plan().await.expect("plan after the refusal"),
+        plan,
+        "the refused unique is still planned"
+    );
+    db.delete(Delete {
+        table: item,
+        filter: Filter::Cmp {
+            column: 0,
+            op: Op::Eq,
+            value: twins[1].clone(),
+        },
+    })
+    .await
+    .expect("delete a twin");
+    migrator
+        .apply(&plan)
+        .await
+        .expect("the unique once the duplicates are gone");
+    let again = migrator.plan().await.expect("plan after v3");
+    assert!(again.is_empty(), "plan after v3 is not empty: {again:?}");
+    let item = v3.expect(ITEM);
+    let clash = db
+        .insert(Insert {
+            table: item,
+            values: item_values(item, "twin-c", 7, Some("same")),
+        })
+        .await;
+    assert!(
+        matches!(&clash, Err(DbError::UniqueViolation { table, column: None }) if table == ITEM),
+        "expected a unique violation on item, got {clash:?}"
+    );
 }
 
 fn position(table: &TableDef, column: &str) -> usize {
@@ -245,6 +324,26 @@ fn session_values(table: &TableDef, token: &str, user_id: &Value) -> Vec<Value> 
         ],
     )
     .expect("session row")
+}
+
+fn account_values(
+    table: &TableDef,
+    user_id: &Value,
+    provider: &str,
+    account_id: &str,
+) -> Vec<Value> {
+    full_row(
+        table,
+        vec![
+            ("id", new_id(table)),
+            ("user_id", user_id.clone()),
+            ("provider_id", Value::Text(provider.to_owned())),
+            ("account_id", Value::Text(account_id.to_owned())),
+            ("created_at", Value::Timestamp(BASE)),
+            ("updated_at", Value::Timestamp(BASE)),
+        ],
+    )
+    .expect("account row")
 }
 
 fn assert_unique(result: Result<impl std::fmt::Debug, DbError>, table: &str, column: &str) {
@@ -749,6 +848,38 @@ impl<D: Adapter> Fixture<D> {
             })
             .await;
         assert_unique(again, Session::TABLE, "token_hash");
+
+        let accounts = self.table(Account::TABLE);
+        self.db
+            .insert(Insert {
+                table: accounts,
+                values: account_values(accounts, user_id, "github", "42"),
+            })
+            .await
+            .expect("first account");
+        for (provider, account_id) in [("google", "42"), ("github", "43")] {
+            self.db
+                .insert(Insert {
+                    table: accounts,
+                    values: account_values(accounts, user_id, provider, account_id),
+                })
+                .await
+                .unwrap_or_else(|err| panic!("{provider}/{account_id} is a new pair: {err}"));
+        }
+        let again = self
+            .db
+            .insert(Insert {
+                table: accounts,
+                values: account_values(accounts, user_id, "github", "42"),
+            })
+            .await;
+        match again {
+            Err(DbError::UniqueViolation { table, column }) => {
+                assert_eq!(table, Account::TABLE);
+                assert_eq!(column, None, "a multi-column unique names no column");
+            }
+            other => panic!("expected a unique violation on account, got {other:?}"),
+        }
 
         self.db
             .insert(Insert {

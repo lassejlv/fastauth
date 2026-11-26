@@ -27,6 +27,7 @@ pub(crate) fn register(schema: &mut SchemaBuilder) {
         .model::<User>()
         .model::<Session>()
         .model::<Account>()
+        .unique(Account::TABLE, &["provider_id", "account_id"])
         .model::<Verification>();
 }
 

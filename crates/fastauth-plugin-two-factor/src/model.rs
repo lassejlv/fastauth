@@ -65,7 +65,7 @@ impl Model for TwoFactorRow {
             ColumnDef::new("id", ColumnType::Id).primary_key(),
             ColumnDef::new("user_id", ColumnType::Id)
                 .references(User::TABLE, "id", OnDelete::Cascade)
-                .index(),
+                .unique(),
             ColumnDef::new("secret", ColumnType::Bytes).hidden(),
             ColumnDef::new("backup_codes", ColumnType::Bytes).hidden(),
             ColumnDef::new("last_used_step", ColumnType::Int)

@@ -46,7 +46,7 @@ async fn generate_and_status_on_a_sqlite_file() {
     let out_arg = out.to_str().unwrap();
 
     let pending = fastauth(&url, &["status"]).await.unwrap_err();
-    assert_eq!(pending.to_string(), "8 migration steps pending");
+    assert_eq!(pending.to_string(), "9 migration steps pending");
 
     fastauth(&url, &["generate", "--out", out_arg])
         .await
