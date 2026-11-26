@@ -102,10 +102,10 @@ exit non-zero when any check fails:
 | `run-organization.sh` | the organization plugin's `compat_server` example, in memory | `organization.ts` | 30 |
 | `run-admin.sh` | `crates/fastauth-plugin-admin/examples/admin_server.rs`, in memory | `admin.ts` | 40 |
 | `run-magic-link.sh` | the magic link plugin's `magic_link_server` example, in memory | `magic-link.ts` | 28 |
-| `run-email-otp.sh` | the email OTP plugin's `email_otp_server` example, in memory | `email-otp.ts` | 33 |
+| `run-email-otp.sh` | the email OTP plugin's `email_otp_server` example, in memory | `email-otp.ts` | 45 |
 | `run-bearer.sh` | the bearer plugin's `compat_server` example, in memory | `bearer.ts` | 25 |
 | `run-jwt.sh` | the JWT plugin's `compat_server` example, in memory | `jwt.ts` | 26 |
-| `run-passkey.sh` | the passkey plugin's `compat_server` example, in memory, driven in headless Chrome | `passkey.ts` | 52 |
+| `run-passkey.sh` | the passkey plugin's `compat_server` example, in memory, driven in headless Chrome | `passkey.ts` | 67 |
 | `run-username.sh` | the username plugin's `username_server` example, in memory | `username.ts` | 47 |
 | `run-anonymous.sh` | the anonymous plugin's `anonymous_server` example, in memory | `anonymous.ts` | 31 |
 | `run-multi-session.sh` | the multi-session plugin's `multi_session_server` example, in memory | `multi-session.ts` | 40 |
@@ -115,7 +115,7 @@ compat/better-auth/run.sh
 PORT=3107 compat/better-auth/run-organization.sh
 ```
 
-All eight passed on 2026-11-26.
+All eleven passed on 2026-11-26.
 
 `compat.ts` checks, through the client: `signUp.email` (with an app field), `getSession`, `signOut`,
 `signIn.email`, `listSessions`, `revokeSession` by token and by id, `updateUser`,
