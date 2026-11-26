@@ -95,36 +95,7 @@ const getHighlighter = () => (highlighter ??= createHighlighter({ themes: [oxide
 
 export const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const indentOf = (line: string) => {
-  let n = 0;
-  for (const ch of line) {
-    if (ch === " ") n += 1;
-    else if (ch === "\t") n += 4;
-    else break;
-  }
-  return n;
-};
-
-const breakPoints = (line: string) => {
-  const points = new Set<number>();
-  for (const m of line.matchAll(/[(,](?=\S)/g)) points.add(m.index + 1);
-  for (const m of line.matchAll(/(?<=[\w)\]>])(?:::|\.)(?=[A-Za-z_<])/g)) points.add(m.index);
-  return points;
-};
-
-const withBreaks = (text: string, start: number, points: Set<number>) => {
-  let out = "";
-  for (let i = 0; i < text.length; i++) {
-    if (points.has(start + i) && start + i > 0) out += "<wbr>";
-    out += escapeHtml(text[i]);
-  }
-  return out;
-};
-
-const breakable = (line: string) => withBreaks(line, 0, breakPoints(line));
-
-const lineSpan = (inner: string, hang: number) =>
-  `<span class="line"${hang === 4 ? "" : ` style="--h:${hang}"`}>${inner.replace(/^( +)/, '<span class="ind">$1</span>')}</span>`;
+const lineSpan = (inner: string) => `<span class="line">${inner}</span>`;
 
 export const resolveLang = (lang?: string | null) => {
   const l = (lang ?? "").toLowerCase();
@@ -136,23 +107,18 @@ export async function highlightLines(code: string, lang?: string | null): Promis
   const id = resolveLang(lang);
   const lines = code.replace(/\n$/, "").split("\n");
   if (id === "text") {
-    return lines.map((l) => lineSpan(breakable(l), indentOf(l) + 4)).join("");
+    return lines.map((l) => lineSpan(escapeHtml(l))).join("");
   }
   const hl = await getHighlighter();
   const { tokens } = hl.codeToTokens(code.replace(/\n$/, ""), { lang: id as never, theme: "oxide" });
   return tokens
-    .map((line, i) => {
-      const points = breakPoints(lines[i] ?? "");
-      let offset = 0;
-      const inner = line
-        .map((t) => {
-          const text = withBreaks(t.content, offset, points);
-          offset += t.content.length;
-          return !t.color || t.color === v("plain") ? text : `<span style="color:${t.color}">${text}</span>`;
-        })
-        .join("");
-      return lineSpan(inner, indentOf(lines[i] ?? "") + 4);
-    })
+    .map((line) =>
+      lineSpan(
+        line
+          .map((t) => (!t.color || t.color === v("plain") ? escapeHtml(t.content) : `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`))
+          .join(""),
+      ),
+    )
     .join("");
 }
 
@@ -174,41 +140,36 @@ export function rustcLines(code: string): string {
       let m: RegExpMatchArray | null;
       if ((m = line.match(/^(error|warning)(\[[A-Z]\d{4}\])?(:.*)$/))) {
         const level = m[1] + (m[2] ?? "");
-        return lineSpan(`<span class="r-err">${level}</span><span class="r-b r-msg">${escapeHtml(m[3])}</span>`, level.length + 2);
+        return lineSpan(`<span class="r-err">${level}</span><span class="r-b r-msg">${escapeHtml(m[3])}</span>`);
       }
       if ((m = line.match(/^(\s*)(-->|:::)(.*)$/))) {
-        return lineSpan(`${m[1]}<span class="r-gut">${escapeHtml(m[2])}</span><span class="r-dim">${escapeHtml(m[3])}</span>`, m[1].length + 4);
+        return lineSpan(`${m[1]}<span class="r-gut">${escapeHtml(m[2])}</span><span class="r-dim">${escapeHtml(m[3])}</span>`);
       }
       if ((m = line.match(/^(\s*)= (help|note|warning):(.*)$/))) {
-        const pre = `${m[1]}= `;
-        return lineSpan(
-          `${m[1]}<span class="r-gut">= </span><span class="r-b r-dim">${m[2]}:</span><span class="r-dim">${escapeHtml(m[3])}</span>`,
-          pre.length + m[2].length + 2,
-        );
+        return lineSpan(`${m[1]}<span class="r-gut">= </span><span class="r-b r-dim">${m[2]}:</span><span class="r-dim">${escapeHtml(m[3])}</span>`);
       }
       if ((m = line.match(/^(help|note)(:.*)$/))) {
-        return lineSpan(`<span class="r-b r-dim">${m[1]}</span><span class="r-dim">${escapeHtml(m[2])}</span>`, m[1].length + 2);
+        return lineSpan(`<span class="r-b r-dim">${m[1]}</span><span class="r-dim">${escapeHtml(m[2])}</span>`);
       }
       if ((m = line.match(/^(\s*\d*\s*\|)(.*)$/))) {
         const gutter = m[1];
         const rest = m[2];
         if (/\d/.test(gutter)) {
-          return lineSpan(`<span class="r-gut">${gutter}</span>${breakable(rest)}`, gutter.length + indentOf(rest) + 4);
+          return lineSpan(`<span class="r-gut">${gutter}</span>${escapeHtml(rest)}`);
         }
         const caret = rest.indexOf("^");
         const head = caret === -1 ? rest : rest.slice(0, caret);
         const markers = head.replace(/[-|]+/g, (s) => `<span class="r-gut">${s}</span>`);
         if (caret !== -1) {
           const tail = rest.slice(caret);
-          const label = tail.match(/^\^+\s*/)?.[0].length ?? 0;
-          return lineSpan(`<span class="r-gut">${gutter}</span>${markers}<span class="r-err">${escapeHtml(tail)}</span>`, gutter.length + caret + label);
+          return lineSpan(`<span class="r-gut">${gutter}</span>${markers}<span class="r-err">${escapeHtml(tail)}</span>`);
         }
         const text = head.match(/^([\s\-|]*)(.*)$/)!;
         const lead = text[1].replace(/[-|]+/g, (s) => `<span class="r-gut">${s}</span>`);
-        return lineSpan(`<span class="r-gut">${gutter}</span>${lead}<span class="r-sec">${escapeHtml(text[2])}</span>`, gutter.length + text[1].length);
+        return lineSpan(`<span class="r-gut">${gutter}</span>${lead}<span class="r-sec">${escapeHtml(text[2])}</span>`);
       }
-      if (line.trim() === "...") return lineSpan(`<span class="r-gut">${line}</span>`, 4);
-      return lineSpan(breakable(line), indentOf(line) + 4);
+      if (line.trim() === "...") return lineSpan(`<span class="r-gut">${line}</span>`);
+      return lineSpan(escapeHtml(line));
     })
     .join("");
 }

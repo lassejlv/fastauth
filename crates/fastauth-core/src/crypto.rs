@@ -1,5 +1,5 @@
 //! Secrets, derived keys, signing, encryption, hashing and password hashing.
-//! See `docs/09-security.md`.
+//! See `docs/concepts/03-security.md`.
 
 use std::fmt;
 use std::sync::Arc;

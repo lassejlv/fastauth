@@ -35,7 +35,7 @@ pub async fn send_sign_in_code(auth: &AppAuth, email: &str) -> Result<(), AuthEr
 }
 ```
 
-Full page: `docs/16-email-otp.md`.
+Full page: `docs/plugins/sign-in/02-email-otp.md`.
 
 ## Setup
 

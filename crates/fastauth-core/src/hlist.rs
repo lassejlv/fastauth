@@ -1,4 +1,4 @@
-//! The type-level plugin list. See `docs/08-internals.md`.
+//! The type-level plugin list. See `docs/reference/02-internals.md`.
 
 use std::marker::PhantomData;
 use std::sync::Arc;

@@ -30,7 +30,7 @@ pub async fn service_token(auth: &AppAuth) -> Result<String, AuthError> {
 }
 ```
 
-Full page: `docs/18-jwt.md`.
+Full page: `docs/plugins/tokens/02-jwt.md`.
 
 ## Setup
 

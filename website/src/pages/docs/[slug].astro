@@ -7,19 +7,30 @@ import { GITHUB } from "../../lib/site";
 export async function getStaticPaths() {
   const entries = await getCollection("docs");
   const { groups, ordered } = await getNav();
+  const authoring = ordered.find((p) => p.slug === "plugin-authoring");
+  const authoringEntry = authoring && entries.find((e) => e.id === authoring.id);
+  const movedAnchors = authoringEntry ? (await render(authoringEntry)).headings.map((h) => h.slug) : [];
   return ordered.map((page, i) => ({
     params: { slug: page.slug },
-    props: { page, groups, entry: entries.find((e) => e.id === page.id)!, prev: ordered[i - 1], next: ordered[i + 1] },
+    props: {
+      page,
+      groups,
+      entry: entries.find((e) => e.id === page.id)!,
+      prev: ordered[i - 1],
+      next: ordered[i + 1],
+      movedAnchors: page.slug === "plugins" && authoring ? { ids: movedAnchors, target: authoring.href } : undefined,
+    },
   }));
 }
 
-const { page, groups, entry, prev, next } = Astro.props;
+const { page, groups, entry, prev, next, movedAnchors } = Astro.props;
 const { Content, headings } = await render(entry);
+const forward = movedAnchors && { target: movedAnchors.target, ids: movedAnchors.ids.filter((id) => !headings.some((h) => h.slug === id)) };
 ---
 <Docs
   title={page.title}
   description={page.description}
-  eyebrow={page.group}
+  eyebrow={page.section ?? page.group}
   headings={headings}
   groups={groups}
   current={page.href}
@@ -27,5 +38,12 @@ const { Content, headings } = await render(entry);
   prev={prev && { href: prev.href, title: prev.title }}
   next={next && { href: next.href, title: next.title }}
 >
+  {
+    forward && (
+      <script is:inline define:vars={forward}>
+        if (ids.includes(decodeURIComponent(location.hash.slice(1)))) location.replace(target + location.hash);
+      </script>
+    )
+  }
   <Content />
 </Docs>

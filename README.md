@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     // Rate limits are per client IP, read from the socket address passed along here.
-    // Behind a proxy, also set `.client_ip(..)`: see docs/03-configuration.md#rate-limits.
+    // Behind a proxy, also set `.client_ip(..)`: see docs/get-started/03-configuration.md#rate-limits.
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
@@ -121,38 +121,64 @@ apps on SQLite and in memory.
 | [`fastauth-cli`](https://crates.io/crates/fastauth-cli) | `fastauth secret`; schema and migration commands run from your app via `fastauth::cli::run` |
 
 The HTTP API is compatible with Better Auth's TypeScript client (tested against
-`better-auth` 1.7.28, see [docs/11](docs/11-better-auth-client.md)), so its React, Vue and
+`better-auth` 1.7.28, see [Better Auth client](docs/integrations/02-better-auth-client.md)), so its React, Vue and
 Svelte clients work against a fastauth server.
 
 Not built yet: other plugins, teams in organizations,
-actix-web, Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
+actix-web, Redis and MySQL. [Overview](docs/get-started/01-overview.md#planned) lists what's planned.
 
 ## Docs
 
+The docs live in `docs/`, one folder per group, in the same order as the
+[docs site](https://fastauth.lassejlv.dev/docs/overview/).
+
+### Get started
+
 | Page | What it covers |
 |---|---|
-| [Overview](docs/01-overview.md) | Goals, non-goals, crate layout, feature flags, the main design decisions, what's planned |
-| [Quickstart](docs/02-quickstart.md) | From `cargo new` to sign-up, sign-in and a protected route |
-| [Configuration](docs/03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits, ids |
-| [Sessions and the server API](docs/04-sessions.md) | Extractors, typed user fields, calling auth from your own code |
-| [Plugins](docs/05-plugins.md) | Using plugins, and writing one: schema, endpoints, hooks, events, errors, dependencies |
-| [Databases](docs/06-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
-| [HTTP integrations](docs/07-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
-| [Internals](docs/08-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
-| [Security](docs/09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
-| [Decisions](docs/10-open-questions.md) | The design decisions, including the ones made since 0.1 |
-| [Better Auth's client](docs/11-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
-| [Organization](docs/12-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
-| [Admin](docs/13-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
-| [API keys](docs/14-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
-| [Magic links](docs/15-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
-| [Email OTP](docs/16-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
-| [Bearer tokens](docs/17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
-| [JWT](docs/18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
-| [Passkeys](docs/19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
-| [Usernames](docs/20-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
-| [Anonymous users](docs/21-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
-| [Multiple sessions](docs/22-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
+| [Overview](docs/get-started/01-overview.md) | Goals, non-goals, crate layout, feature flags, the main design decisions, what's planned |
+| [Quickstart](docs/get-started/02-quickstart.md) | From `cargo new` to sign-up, sign-in and a protected route |
+| [Configuration](docs/get-started/03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits, ids, user fields, events |
+
+### Core concepts
+
+| Page | What it covers |
+|---|---|
+| [Sessions and the server API](docs/concepts/01-sessions.md) | Extractors, typed user fields, calling auth from your own code, shared transactions |
+| [Databases](docs/concepts/02-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
+| [Security](docs/concepts/03-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
+
+### Integrations
+
+| Page | What it covers |
+|---|---|
+| [HTTP and axum](docs/integrations/01-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
+| [Better Auth client](docs/integrations/02-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
+
+### Plugins
+
+| Page | What it covers |
+|---|---|
+| [All plugins](docs/plugins/README.md) | Every first-party plugin with its crate and feature, and how to register plugins |
+| [Magic links](docs/plugins/sign-in/01-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
+| [Email OTP](docs/plugins/sign-in/02-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
+| [Passkeys](docs/plugins/sign-in/03-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
+| [Usernames](docs/plugins/sign-in/04-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
+| [Anonymous users](docs/plugins/sign-in/05-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
+| [Bearer tokens](docs/plugins/tokens/01-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
+| [JWT](docs/plugins/tokens/02-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
+| [API keys](docs/plugins/tokens/03-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
+| [Organizations](docs/plugins/access/01-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
+| [Admin](docs/plugins/access/02-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
+| [Multiple sessions](docs/plugins/access/03-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
+
+### Reference
+
+| Page | What it covers |
+|---|---|
+| [Plugin authoring](docs/reference/01-plugin-authoring.md) | Writing a plugin: schema, endpoints, resolvers, hooks, gates, events, errors, dependencies, tests |
+| [Internals](docs/reference/02-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
+| [Decisions](docs/reference/03-decisions.md) | The design decisions, including the ones made since 0.1 |
 
 ## Agent skill
 

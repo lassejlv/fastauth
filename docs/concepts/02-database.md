@@ -47,7 +47,7 @@ yourself so the pool types match. What it does with the database:
   table, so code that holds a transaction must run every query through it (`ctx.db_on(&tx)`)
   or it waits on itself. Server API calls made with `.in_tx(&tx)` do this for you: the
   adapter they run on is bound to the app's transaction
-  ([Sharing a transaction](04-sessions.md#sharing-a-transaction)).
+  ([Sharing a transaction](01-sessions.md#sharing-a-transaction)).
 
 ## The schema
 
@@ -63,8 +63,8 @@ Core tables (column names in snake_case; JSON uses camelCase):
 Passwords live on `account` (provider `credential`), like Better Auth, so a user can have a
 password and a GitHub login at once. Plugins and `user_fields` add tables and columns to
 this: two-factor adds `two_factor` and `user.two_factor_enabled`; the
-[organization](12-organization.md#setup), [admin](13-admin.md#setup) and
-[API key](14-api-keys.md#setup) pages list theirs.
+[organization](../plugins/access/01-organization.md#setup), [admin](../plugins/access/02-admin.md#setup) and
+[API key](../plugins/tokens/03-api-keys.md#setup) pages list theirs.
 
 `cargo run --bin fastauth -- schema` ([Migrations](#migrations) has the binary) prints the
 merged schema for your config, with the owner of each column. With a `plan` user field and
@@ -168,7 +168,7 @@ Option 3 is what `cargo run --bin fastauth -- generate` does: it writes
 `migrations/<UTC timestamp>_fastauth.sql` (`20261125090503_fastauth.sql`) in sqlx-cli's
 format, with the plan's warnings as comments at the top, and writes nothing when the plan
 is empty. The binary is yours (three lines with the facade's `cli` feature, see
-[Quickstart](02-quickstart.md#4-tables)) because only your code knows your config. That's
+[Quickstart](../get-started/02-quickstart.md#4-tables)) because only your code knows your config. That's
 the Rust version of Better Auth's CLI loading `auth.ts`. The `fastauth` command from
 `cargo install fastauth-cli` only generates secrets, and its `--help` says why.
 
@@ -187,7 +187,7 @@ also exits 1 when it can't reach the database.
 
 Inside plugins, hooks and event handlers, `ctx.db()` gives a typed query builder over
 models. (Outside them, `auth.api().db()` does the same.) With the `AccessToken` model from
-[Plugins](05-plugins.md#tables-derivemodel):
+[Plugins](../reference/01-plugin-authoring.md#tables-derivemodel):
 
 ```rust
 let token = ctx.db().find::<AccessToken>(AccessToken::TOKEN_HASH.eq(hash)).one().await?;  // Option<AccessToken>
@@ -288,4 +288,4 @@ and deletes, unique violations, transaction commit, rollback and drop,
 `session_with_user`, and the migrator round trip (create, then an empty plan, then added
 columns on a table with rows). `MemoryAdapter` and both `fastauth-sqlx` databases run it.
 
-Secondary storage (Redis), MySQL and other adapters are [planned](01-overview.md#planned).
+Secondary storage (Redis), MySQL and other adapters are [planned](../get-started/01-overview.md#planned).

@@ -42,7 +42,7 @@ pub async fn can_deploy(auth: &AppAuth, key: &str) -> Result<bool, AuthError> {
 }
 ```
 
-Full page: `docs/14-api-keys.md`.
+Full page: `docs/plugins/tokens/03-api-keys.md`.
 
 ## Setup
 

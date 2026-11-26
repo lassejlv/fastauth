@@ -25,7 +25,7 @@ server API) and moves the type safety from TypeScript inference into the Rust co
   server for other apps would be a plugin, not core.
 - **A frontend SDK.** fastauth is wire-compatible with Better Auth's TypeScript client for
   the core endpoints and the first-party plugins, so existing React, Vue and Svelte clients
-  work against a Rust backend ([Better Auth's client](11-better-auth-client.md)).
+  work against a Rust backend ([Better Auth's client](../integrations/02-better-auth-client.md)).
 - **An ORM.** The adapter does the handful of queries auth needs. Your app keeps using
   sqlx (or whatever it uses) directly, and can share a transaction with fastauth.
 
@@ -92,33 +92,56 @@ argon2id is always on; it isn't a feature.
 
 ## The docs
 
+### Get started
+
 | Page | What it covers |
 |---|---|
 | [Quickstart](02-quickstart.md) | From `cargo new` to sign-up, sign-in and a protected route |
 | [Configuration](03-configuration.md) | Every builder option: secrets, email and password, social providers, sessions, cookies, rate limits, ids, user fields, events |
-| [Sessions and the server API](04-sessions.md) | Extractors, typed user fields, calling auth from your own code, shared transactions |
-| [Plugins](05-plugins.md) | Using plugins, and writing one: schema, endpoints, resolvers, hooks, gates, events, errors, dependencies |
-| [Databases](06-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
-| [HTTP integrations](07-http.md) | axum, tower, the outgoing HTTP client, writing an integration |
-| [Internals](08-internals.md) | The type-level plugin list, the build step, the request path, the session hot path |
-| [Security](09-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
-| [Decisions](10-open-questions.md) | The design decisions, including the ones made since 0.1 |
-| [Better Auth's client](11-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
-| [Organization](12-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
-| [Admin](13-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
-| [API keys](14-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
-| [Magic links](15-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
-| [Email OTP](16-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
-| [Bearer tokens](17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
-| [JWT](18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
-| [Passkeys](19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
-| [Usernames](20-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
-| [Anonymous users](21-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
-| [Multiple sessions](22-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
+
+### Core concepts
+
+| Page | What it covers |
+|---|---|
+| [Sessions and the server API](../concepts/01-sessions.md) | Extractors, typed user fields, calling auth from your own code, shared transactions |
+| [Databases](../concepts/02-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
+| [Security](../concepts/03-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
+
+### Integrations
+
+| Page | What it covers |
+|---|---|
+| [HTTP and axum](../integrations/01-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
+| [Better Auth client](../integrations/02-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
+
+### Plugins
+
+| Page | What it covers |
+|---|---|
+| [All plugins](../plugins/README.md) | Every first-party plugin with its crate and feature, and how to register plugins |
+| [Magic links](../plugins/sign-in/01-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
+| [Email OTP](../plugins/sign-in/02-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
+| [Passkeys](../plugins/sign-in/03-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
+| [Usernames](../plugins/sign-in/04-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
+| [Anonymous users](../plugins/sign-in/05-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
+| [Bearer tokens](../plugins/tokens/01-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
+| [JWT](../plugins/tokens/02-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
+| [API keys](../plugins/tokens/03-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
+| [Organizations](../plugins/access/01-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
+| [Admin](../plugins/access/02-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
+| [Multiple sessions](../plugins/access/03-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
+
+### Reference
+
+| Page | What it covers |
+|---|---|
+| [Plugin authoring](../reference/01-plugin-authoring.md) | Writing a plugin: schema, endpoints, resolvers, hooks, gates, events, errors, dependencies, tests |
+| [Internals](../reference/02-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
+| [Decisions](../reference/03-decisions.md) | The design decisions, including the ones made since 0.1 |
 
 ## The decisions that shape everything else
 
-Each of these is explained in [Internals](08-internals.md); this is the short version.
+Each of these is explained in [Internals](../reference/02-internals.md); this is the short version.
 
 **Plugins are a type-level list.** `.plugin(TwoFactor::new())` changes the builder's
 plugin list type from `Nil` to `Cons<TwoFactor, Nil>`. Everything that needs to know "is
@@ -140,7 +163,7 @@ on top and give compile-checked column references.
 calls it; the server API (`auth.api().sign_in_email(..)`) calls it directly with no JSON.
 
 **Ids are opaque strings.** ULIDs by default, with UUID and custom strategies
-([Ids](06-database.md#ids)). Plugins create them with `ctx.new_id()?` and never parse them.
+([Ids](../concepts/02-database.md#ids)). Plugins create them with `ctx.new_id()?` and never parse them.
 
 ## Planned
 

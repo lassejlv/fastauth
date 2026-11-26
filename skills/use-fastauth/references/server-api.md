@@ -99,7 +99,7 @@ impl Mailer for ConsoleMailer {
   session. Plugin server APIs are extension traits: `auth.two_factor()`.
 - With sqlx, `.in_tx(&tx)` runs calls on the app's transaction: wrap it in
   `SharedTx::new(pool.begin().await?)`, commit with `tx.commit()`, and events fire after the
-  commit (`docs/04-sessions.md#sharing-a-transaction`). `auth.api().create_user(..)` is
+  commit (`docs/concepts/01-sessions.md#sharing-a-transaction`). `auth.api().create_user(..)` is
   server-only.
 
 ## App-level hooks and events

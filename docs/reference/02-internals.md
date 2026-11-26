@@ -60,8 +60,8 @@ pub trait Has<P: Plugin, I>: PluginSet {
 
 That's why the error reads "plugin `TwoFactor` is not registered on this auth instance"
 instead of "the trait `Has<TwoFactor, _>` is not implemented for `Nil`"
-([Sessions](04-sessions.md#typed-plugin-data-on-the-user) and
-[Plugins](05-plugins.md#depending-on-another-plugin) show real output).
+([Sessions](../concepts/01-sessions.md#typed-plugin-data-on-the-user) and
+[Plugins](01-plugin-authoring.md#depending-on-another-plugin) show real output).
 
 ### Dependencies
 
@@ -152,7 +152,7 @@ Work done here so it isn't done per request:
 - **SQL is rendered once per shape.** The sqlx adapter caches the SQL text for each
   `(operation, table, columns, filter shape)`, and sqlx caches the prepared statement per
   connection. A steady-state query neither builds strings nor re-prepares.
-- **Keys are derived** with HKDF ([Security](09-security.md#secrets)).
+- **Keys are derived** with HKDF ([Security](../concepts/03-security.md#secrets)).
 
 `Auth` is two `Arc`s, the plugin list and the shared state, so cloning it into axum state
 or a spawned task is cheap.
@@ -200,7 +200,7 @@ the price of keeping plugin generics out of handler compile times.
 
 Both start with the cookie signature check, so garbage cookies are rejected without I/O.
 Requests without a session cookie then go through the session resolvers, such as the API
-key plugin's. A Redis tier between the two is [planned](01-overview.md#planned).
+key plugin's. A Redis tier between the two is [planned](../get-started/01-overview.md#planned).
 
 On sqlx, the database lookup is a single statement, prepared once:
 

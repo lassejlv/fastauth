@@ -16,7 +16,7 @@ fastauth = { version = "0.3", features = ["magic-link"] }
 
 The plugin lives at `fastauth::plugins::magic_link` (crate `fastauth-plugin-magic-link`).
 It sends links through the app's mailer, so configure one
-([Email](03-configuration.md)):
+([Email](../../get-started/03-configuration.md)):
 
 ```rust
 use fastauth::plugins::magic_link::MagicLink;
@@ -143,7 +143,7 @@ let verified = auth
 
 Both endpoint types (`SignInMagicLink` and `VerifyMagicLink`) are hookable. `metadata` from
 the sign-in request doesn't reach the mailer; read it in a
-`hook::<SignInMagicLink>().before(..)` ([Hooks](05-plugins.md#hooks)).
+`hook::<SignInMagicLink>().before(..)` ([Hooks](../../reference/01-plugin-authoring.md#hooks)).
 
 ## How tokens are stored
 

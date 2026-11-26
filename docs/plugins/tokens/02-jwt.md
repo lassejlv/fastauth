@@ -38,12 +38,12 @@ pub fn build(pool: PgPool) -> Result<AppAuth, BuildError> {
 ```
 
 `Jwt` depends on no other plugin. Native clients often pair it with
-[Bearer](17-bearer.md): `plugins![Bearer, Jwt]`.
+[Bearer](01-bearer.md): `plugins![Bearer, Jwt]`.
 
 ### The `jwks` table
 
 The plugin adds one table, `jwks`. Run migrations after adding it
-([Migrations](06-database.md#migrations)). `cargo run --bin fastauth -- schema` prints it:
+([Migrations](../../concepts/02-database.md#migrations)). `cargo run --bin fastauth -- schema` prints it:
 
 ```
 jwks
@@ -257,7 +257,7 @@ const { payload } = await jwtVerify(token, jwks, {
   re-exported as `fastauth_plugin_jwt::jsonwebtoken`.
 - **Encrypted at rest.** `private_key` holds the PKCS#8 key encrypted with
   XChaCha20-Poly1305 under a key derived from the app secret, the same encryption core uses
-  for other secrets ([Security](09-security.md)). A database dump alone can't sign tokens.
+  for other secrets ([Security](../../concepts/03-security.md)). A database dump alone can't sign tokens.
   The secret must stay the same, or be kept in `.secrets([new, old])` when you rotate it:
   a key that no configured secret decrypts fails every signing with `500 INTERNAL_SERVER_ERROR`. To start
   over, delete the `jwks` rows; a new key is created on the next request.

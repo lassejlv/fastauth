@@ -1,64 +1,11 @@
-# Plugins
+# Plugin authoring
 
 A plugin is a value you pass to `.plugin(..)`. It can add tables and columns, HTTP
 endpoints, hooks around other endpoints, sign-in gates, session resolvers, events,
 rate-limit rules, error codes, and typed server-side methods on `Auth`. Social sign-in and
 every first-party feature beyond email and password are built this way, so a plugin can
-do anything they do.
-
-## Using plugins
-
-```rust
-use fastauth::plugins::{admin::Admin, api_key::ApiKeys, organization::Organization, two_factor::TwoFactor};
-
-pub type AppAuth = Auth<Sqlx<Postgres>, (), plugins![TwoFactor, Organization, Admin, ApiKeys]>;
-
-FastAuth::builder()
-    // ...
-    .plugin(TwoFactor::new().issuer("Acme").backup_codes(10))
-    .plugin(Organization::default().allow_user_to_create_organization(true).invitation_ttl(Duration::days(3)))
-    .plugin(Admin::new())
-    .plugin(ApiKeys::new())
-    .build()
-```
-
-The alias lists plugins **in registration order**. If the order differs, the compiler
-says so (here with `plugins![Admin, TwoFactor]` and `TwoFactor` registered first):
-
-```
-error[E0308]: mismatched types
-  --> src/auth.rs:8:5
-   |
- 7 |   pub fn build() -> Result<AppAuth, BuildError> {
-   |                     --------------------------- expected `Result<Auth<MemoryAdapter, (), Cons<Admin, Cons<TwoFactor, Nil>>>, _>` because of return type
-...
-14 | |         .build()
-   | |________________^ expected `Admin`, found `TwoFactor`
-```
-
-The order matters for two reasons: a plugin's dependencies must come before it, and hooks
-and sign-in gates run in registration order. Run your migrations after adding a plugin
-that adds tables or columns ([Databases](06-database.md#migrations)).
-
-### First-party plugins
-
-| Plugin | Feature | Adds |
-|---|---|---|
-| `social::Social` (`fastauth-oauth`) | `oauth` | Social sign-in: GitHub, Google, your own `OAuthProvider`s; linked accounts ([Configuration](03-configuration.md#social-providers)) |
-| `plugins::two_factor::TwoFactor` | `two-factor` | TOTP, OTP by email, backup codes, trusted devices; a sign-in gate |
-| `plugins::organization::Organization` | `organization` | Organizations, members, invitations, roles and permissions ([Organization](12-organization.md)) |
-| `plugins::admin::Admin` | `admin` | Roles and permissions, ban and unban, impersonation, user management ([Admin](13-admin.md)) |
-| `plugins::api_key::ApiKeys` | `api-key` | Hashed API keys with expiry, usage limits and rate limits; optional sessions from keys ([API keys](14-api-keys.md)) |
-| `plugins::magic_link::MagicLink` | `magic-link` | Sign-in links by email, with sign-up on first use ([Magic links](15-magic-link.md)) |
-| `plugins::email_otp::EmailOtp` | `email-otp` | One-time codes by email for sign-in, email verification and password reset ([Email OTP](16-email-otp.md)) |
-| `plugins::bearer::Bearer` | `bearer` | Sessions from `Authorization: Bearer`; the `set-auth-token` header; a session resolver ([Bearer tokens](17-bearer.md)) |
-| `plugins::jwt::Jwt` | `jwt` | `/token`, `/jwks`, the `set-auth-jwt` header, rotating signing keys in a `jwks` table ([JWT](18-jwt.md)) |
-| `plugins::passkey::Passkey` | `passkey` | WebAuthn registration and sign-in, a `passkey` table; sign-in runs the gates ([Passkeys](19-passkey.md)) |
-| `plugins::username::Username` | `username` | `username` and `display_username` on `user`, `/sign-in/username`, `/is-username-available` ([Usernames](20-username.md)) |
-| `plugins::anonymous::Anonymous` | `anonymous` | `/sign-in/anonymous`, `is_anonymous` on `user`, linking to the real account on sign-in ([Anonymous users](21-anonymous.md)) |
-| `plugins::multi_session::MultiSession` | `multi-session` | Several accounts per browser: device-session cookies, `/multi-session/*` ([Multiple sessions](22-multi-session.md)) |
-
-More plugins are [planned](01-overview.md#planned).
+do anything they do. This page is about writing one; [All plugins](../plugins/README.md)
+lists the first-party plugins and how to use them.
 
 ## Writing a plugin
 
@@ -124,7 +71,7 @@ impl Plugin for AccessTokens {
   `user` and `session`, `()` for none. They're added to the schema for you.
 - `init` runs once, inside `.build()`. Nothing it registers is generic at request time:
   the builder erases each endpoint and hook into the route table
-  ([Internals](08-internals.md#the-build-step)).
+  ([Internals](02-internals.md#the-build-step)).
 
 ### Tables: `#[derive(Model)]`
 
@@ -163,7 +110,7 @@ Every field is a column, typed by its Rust type (`Option<T>` is nullable; field 
 
 `created_at` and `updated_at` are ordinary fields: declare them (usually `#[model(default = now)]`)
 when the table wants them. Create ids with `ctx.new_id()?` and treat `Id` as an opaque
-string: the app picks the [id strategy](06-database.md#ids).
+string: the app picks the [id strategy](../concepts/02-database.md#ids).
 
 ### Columns on `user` and `session`: `#[derive(Fields)]`
 
@@ -326,7 +273,7 @@ An endpoint that only Rust code may call isn't registered with `app.endpoint(..)
 would give it a route. Declare it with `app.server_endpoint::<E>()` instead: it gets no
 route, but hooks can target it like any other endpoint. Code runs it with
 `auth.api().call(&endpoint, input)`. The API key plugin's
-[server-only endpoints](14-api-keys.md#endpoints) and core's `CreateUser` work this way.
+[server-only endpoints](../plugins/tokens/03-api-keys.md#endpoints) and core's `CreateUser` work this way.
 
 When the HTTP route and the server API need different rules on the same input, keep one
 endpoint type with a flag, the way the API key plugin's `CreateApiKey::client(..)` and
@@ -727,7 +674,7 @@ To run the same test on SQLite or Postgres, build with `Sqlx::new(pool)` and cal
 `auth.migrator().run()` first; `SqlitePool::connect("sqlite::memory:")` needs no server. To
 go through the HTTP layer, put `auth.router()` in an axum `Router` and send requests with
 `tower::ServiceExt::oneshot`. A test helper like Better Auth's `getTestInstance` is
-[planned](01-overview.md#planned).
+[planned](../get-started/01-overview.md#planned).
 
 ## Publishing
 

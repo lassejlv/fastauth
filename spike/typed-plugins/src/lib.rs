@@ -1,5 +1,5 @@
 //! Spike for the fastauth plugin type system. It proves four claims from
-//! `docs/08-internals.md` with real rustc:
+//! `docs/reference/02-internals.md` with real rustc:
 //!
 //! 1. Plugins live in a type-level list, and `Has<P, I>` finds one by type with the
 //!    index `I` inferred, so callers never name it.

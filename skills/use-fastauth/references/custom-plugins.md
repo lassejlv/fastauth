@@ -3,7 +3,7 @@
 A plugin is a value passed to `.plugin(..)` and listed in the alias. It can add tables and
 user columns, endpoints, hooks, sign-in gates, session resolvers, events, rate limits and
 error codes. Import everything from `fastauth::plugin_prelude` (a published plugin crate
-depends on `fastauth-core` and imports `fastauth_core::plugin_prelude`). `docs/05-plugins.md`
+depends on `fastauth-core` and imports `fastauth_core::plugin_prelude`). `docs/reference/01-plugin-authoring.md`
 explains the design with the same example.
 
 The running example is a personal access token plugin (not the real API key plugin, which is

@@ -63,7 +63,7 @@ case-insensitive. A request with a valid token gets the same session a cookie wo
   `/update-user`, `/sign-out`, plugin routes);
 - the axum `Session<AppAuth>`, `Option<Session<AppAuth>>` and `FreshSession<AppAuth>`
   extractors, the session layer, and plugin extractors built on them
-  ([Sessions](04-sessions.md));
+  ([Sessions](../../concepts/01-sessions.md));
 - `auth.get_session(&headers)` and server API calls made with `.headers(&headers)`.
 
 ```rust
@@ -85,7 +85,7 @@ A token with a bad signature, an unknown or expired token, or another scheme
 session answer `401 UNAUTHORIZED`.
 
 **Sessions refresh.** A bearer session is extended like a cookie session, at most once per
-`update_age` ([Sessions](04-sessions.md)). The refresh sets the session cookie again, so that
+`update_age` ([Sessions](../../concepts/01-sessions.md)). The refresh sets the session cookie again, so that
 response carries `set-auth-token` too. The token itself doesn't change; clients can store
 the new value or keep the old one.
 
@@ -150,18 +150,6 @@ PORT=3001 compat/better-auth/run-bearer.sh
 - **Secrets rotate.** Signed tokens verify against every configured secret, so
   `.secrets([new, old])` keeps old tokens working while you rotate.
 
-## With other plugins
-
-- **JWT.** Bearer and [JWT](18-jwt.md) are often used together: a native client signs in,
-  keeps the bearer token, and calls `GET /token` with it to get a JWT for other services.
-  `/get-session` with a bearer token answers with `set-auth-jwt` as well.
-- **API keys.** If `ApiKeys` also reads `Authorization: Bearer` (through a `key_getter`),
-  register `ApiKeys` first and have its getter return only values with your key prefix.
-  Resolvers run in registration order and the bearer plugin claims every bearer value, so a
-  key that reaches it is treated as an unknown session token.
-
-## Security
-
 `set-auth-token` and its `Access-Control-Expose-Headers` entry let page scripts read the
 signed session token on every response that sets the session cookie, browser sign-ins
 included. The session cookie stays `HttpOnly`, but an XSS on your origin, or on an origin
@@ -170,6 +158,16 @@ a bearer token. Better Auth's plugin behaves the same; its client reads `set-aut
 the sign-in response, so the header can't be limited to requests that already carry a bearer
 token without breaking that flow. Register `Bearer` only in apps whose clients need it, and
 serve browser-only apps from an `Auth` without it.
+
+## With other plugins
+
+- **JWT.** Bearer and [JWT](02-jwt.md) are often used together: a native client signs in,
+  keeps the bearer token, and calls `GET /token` with it to get a JWT for other services.
+  `/get-session` with a bearer token answers with `set-auth-jwt` as well.
+- **API keys.** If `ApiKeys` also reads `Authorization: Bearer` (through a `key_getter`),
+  register `ApiKeys` first and have its getter return only values with your key prefix.
+  Resolvers run in registration order and the bearer plugin claims every bearer value, so a
+  key that reaches it is treated as an unknown session token.
 
 ## Known gaps
 

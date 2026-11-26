@@ -7,19 +7,22 @@ import { GITHUB, version } from "../lib/site";
 const v = version();
 ---
 <header class="topbar">
-  <div class="topbar-brand"><Logo /></div>
-  <button type="button" class="search-trigger topbar-search" data-search-open aria-keyshortcuts="Meta+K Control+K">
-    <Icon name="search" size={14} />
-    <span class="label">Search docs</span>
-    <kbd class="kbd" data-mod-k>⌘K</kbd>
-  </button>
-  <div class="topbar-actions">
-    {v && <a class="version" href="/changelog/" aria-label={`Version ${v}, changelog`}>v{v}</a>}
-    <a class="icon-button" href={GITHUB} aria-label="fastauth on GitHub"><Icon name="github" /></a>
-    <ThemeToggle />
-  </div>
-  <div class="topbar-mobile">
-    <button type="button" class="icon-button touch" data-search-open aria-label="Search docs"><Icon name="search" size={20} /></button>
-    <button type="button" class="icon-button touch" data-nav-open aria-label="Open navigation" aria-controls="nav-sheet"><Icon name="menu" size={20} /></button>
+  <div class="topbar-inner">
+    <div class="topbar-brand"><Logo /></div>
+    <button type="button" class="search-trigger topbar-search" data-search-open aria-keyshortcuts="Meta+K Control+K">
+      <Icon name="search" size={14} />
+      <span class="label">Search docs</span>
+      <kbd class="kbd" data-mod-k>⌘K</kbd>
+    </button>
+    <div class="topbar-dither" aria-hidden="true"></div>
+    <div class="topbar-actions">
+      {v && <a class="version" href="/changelog/" aria-label={`Version ${v}, changelog`}>v{v}</a>}
+      <a class="icon-button" href={GITHUB} aria-label="fastauth on GitHub"><Icon name="github" /></a>
+      <ThemeToggle />
+    </div>
+    <div class="topbar-mobile">
+      <button type="button" class="icon-button touch" data-search-open aria-label="Search docs"><Icon name="search" size={20} /></button>
+      <button type="button" class="icon-button touch" data-nav-open aria-label="Open navigation" aria-controls="nav-sheet"><Icon name="menu" size={20} /></button>
+    </div>
   </div>
 </header>

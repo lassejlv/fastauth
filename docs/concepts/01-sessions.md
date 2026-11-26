@@ -31,7 +31,7 @@ async fn whoami(session: Session<AppAuth>) -> String {
 }
 ```
 
-Ids are opaque strings (`Id`), ULIDs by default ([Databases](06-database.md#ids)).
+Ids are opaque strings (`Id`), ULIDs by default ([Databases](02-database.md#ids)).
 `session.session_plugin::<P, _>()` reads columns a plugin added to `session`, such as the
 organization plugin's active organization.
 
@@ -121,8 +121,8 @@ async fn ban_user(
 ```
 
 The organization plugin has `ActiveMember`, `OrgMember<A, FromPath<P>>` and
-`RequirePermission<A, P, S>` ([Organization](12-organization.md#axum-extractors)); the
-admin plugin's are on [Admin](13-admin.md#axum-extractor).
+`RequirePermission<A, P, S>` ([Organization](../plugins/access/01-organization.md#axum-extractors)); the
+admin plugin's are on [Admin](../plugins/access/02-admin.md#axum-extractor).
 
 ## The server API
 
@@ -254,5 +254,5 @@ because `Auth` is generic over the adapter: on `Auth<Sqlx<Postgres>, ..>` it acc
 | Sign out | `POST /sign-out` | `auth.api().headers(&headers).sign_out()` |
 
 Sessions are listed and revoked by `id`: the database only stores a hash of each token,
-so there is no token to hand back ([Security](09-security.md#session-tokens)).
+so there is no token to hand back ([Security](03-security.md#session-tokens)).
 `/revoke-session` also takes `{ token }` and hashes it, for Better Auth's client.

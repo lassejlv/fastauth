@@ -1,9 +1,9 @@
-# HTTP integrations
+# HTTP and axum
 
 `fastauth-core` handles requests as `http::Request` and returns `http::Response`. A
 framework integration converts to and from those types, mounts the handler, and gives
 handlers a way to get the session. axum is the integration that ships; others are
-[planned](01-overview.md#planned).
+[planned](../get-started/01-overview.md#planned).
 
 ## axum
 
@@ -45,8 +45,8 @@ compose with `Json` bodies):
 
 Rejections are `AuthError`, which implements `IntoResponse` as the same JSON body the auth
 routes use. Your handlers can return `Result<T, AuthError>` and get consistent errors. The
-plugin extractors are described on the [admin](13-admin.md#axum-extractor) and
-[organization](12-organization.md#axum-extractors) pages.
+plugin extractors are described on the [admin](../plugins/access/02-admin.md#axum-extractor) and
+[organization](../plugins/access/01-organization.md#axum-extractors) pages.
 
 ## Any tower-based server
 
@@ -101,7 +101,7 @@ Endpoints see the client IP and user agent through `ctx.ip()` and `ctx.user_agen
 IP comes from the socket address by default (`ClientIp::Socket`). Behind a proxy, configure
 the header to trust with `.client_ip(ClientIp::Header(..))` for a single-address header, or
 `ClientIp::TrustedProxies { .. }` for `x-forwarded-for`; never `ClientIp::Header` with
-`x-forwarded-for` ([Configuration](03-configuration.md#rate-limits)).
+`x-forwarded-for` ([Configuration](../get-started/03-configuration.md#rate-limits)).
 
 ## The outgoing HTTP client
 

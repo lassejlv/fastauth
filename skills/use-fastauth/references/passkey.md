@@ -28,7 +28,7 @@ pub async fn rename_first(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Aut
 }
 ```
 
-Full page: `docs/19-passkey.md`.
+Full page: `docs/plugins/sign-in/03-passkey.md`.
 
 - `fastauth = { version = "0.3", features = ["passkey"] }`; path `fastauth::plugins::passkey`.
   Built on webauthn-rs 0.6.

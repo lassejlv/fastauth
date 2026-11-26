@@ -1,29 +1,40 @@
 ---
-import type { NavGroup } from "../lib/site";
+import type { NavGroup, NavLink } from "../lib/site";
 import { GITHUB } from "../lib/site";
 
 type Props = { groups: NavGroup[]; current?: string; idPrefix: string };
 const { groups, current, idPrefix } = Astro.props;
 const here = (href: string) => (href === current ? "page" : undefined);
+const runs = (pages: NavLink[]) =>
+  pages.reduce<{ section?: string; pages: NavLink[] }[]>((out, page) => {
+    const last = out[out.length - 1];
+    if (last && last.section === page.section) last.pages.push(page);
+    else out.push({ section: page.section, pages: [page] });
+    return out;
+  }, []);
 ---
 <nav class="nav" aria-label="Documentation">
   {
     groups.map((group, i) => (
       <div class="nav-group">
         <p class="nav-label" id={`${idPrefix}-g${i}`}>{group.label}</p>
-        <ul aria-labelledby={`${idPrefix}-g${i}`}>
-          {group.pages.map((page) => (
-            <li>
-              <a href={page.href} aria-current={here(page.href)}>{page.title}</a>
-            </li>
-          ))}
-        </ul>
+        {runs(group.pages).map((run, j) => (
+          <>
+            {run.section && <p class="nav-sublabel" id={`${idPrefix}-g${i}-${j}`}>{run.section}</p>}
+            <ul aria-labelledby={run.section ? `${idPrefix}-g${i}-${j}` : `${idPrefix}-g${i}`}>
+              {run.pages.map((page) => (
+                <li>
+                  <a href={page.href} aria-current={here(page.href)}>{page.title}</a>
+                </li>
+              ))}
+            </ul>
+          </>
+        ))}
       </div>
     ))
   }
   <div class="nav-group nav-extra">
     <ul>
-      <li><a href="/changelog/" aria-current={here("/changelog/")}>Changelog</a></li>
       <li><a href={GITHUB}>GitHub</a></li>
     </ul>
   </div>
