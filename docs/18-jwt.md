@@ -77,7 +77,7 @@ so a `jwks` table from a Better Auth app can't be reused.
 | `expiration_time(d)` | 15 minutes | How long tokens are valid |
 | `define_payload(f)` | the user | The claims a session's token carries |
 | `rotation_interval(d)` | never | Keys expire this long after they're created; the next signing creates a new one |
-| `grace_period(d)` | 30 days | How long an expired key stays in the JWKS |
+| `grace_period(d)` | 30 days | How long an expired key stays in the JWKS and keeps verifying |
 | `disable_jwt_header()` | header on | Stop signing a token into `set-auth-jwt` on every `/get-session` |
 
 These are Better Auth's `jwks.keyPairConfig.alg`, `jwt.issuer`, `jwt.audience`,
@@ -162,9 +162,9 @@ A session's token is signed with the newest live key and carries:
 |---|---|---|
 | `headers(&h).token()` | The token for the session in `h`, as `/token` answers | `auth.api.getToken({ headers })` |
 | `sign(claims)` | Signs any claims with the current key, adding `exp`, `iss` and `aud` unless set | `auth.api.signJWT({ body: { payload } })` |
-| `verify(token)` | `Some(claims)` when a stored key signed it and `exp`, `iss` and `aud` check out, else `None` | `auth.api.verifyJWT({ body: { token } })` |
+| `verify(token)` | `Some(claims)` when a key `/jwks` publishes signed it and `exp`, `nbf`, `iss` and `aud` check out, else `None` | `auth.api.verifyJWT({ body: { token } })` |
 | `jwks()` | The JWKS, as `/jwks` answers | `auth.api.getJwks()` |
-| `rotate()` | Retires every live key and creates a new one, returning its `kid` | `createJwk` |
+| `rotate()` | Retires every live key, deletes keys past their grace period, and creates a new key, returning its `kid` | `createJwk` |
 
 ```rust
 pub async fn service_token(auth: &AppAuth) -> Result<String, AuthError> {
@@ -228,7 +228,14 @@ async fn user_of(
 (no clock leeway unless you set `.leeway(seconds)`), `iss`, and `aud`, and requires `exp`,
 `sub`, `iss` and `aud`. The algorithm comes from the key, never from the token header.
 `VerifyError::UnknownKey` means the token names a key the verifier hasn't seen: after a
-rotation, fetch the JWKS again, as above. Every other failure is `VerifyError::Invalid`.
+rotation, fetch the JWKS again, as above. Every other failure, a token without a `kid`
+included, is `VerifyError::Invalid`.
+
+The `kid` comes from the token's header, which nobody has checked yet, so anyone can make
+`UnknownKey` happen with a made-up `kid`. Refetch at most once per cool-down (30 seconds or
+more; jose's `createRemoteJWKSet` waits 30 seconds by default), or every such request makes
+your server fetch the JWKS again. The example above refetches on every miss; keep the time of
+the last fetch next to the verifier and skip the refetch inside the cool-down.
 
 Any JOSE library works the same way; with `jose` in JavaScript:
 
@@ -261,6 +268,9 @@ const { payload } = await jwtVerify(token, jwks, {
 - **Rotation on demand.** `auth.jwt().rotate()` sets `expires_at` to now on every live key and
   creates a new one, for example after a suspected leak. With a leak, also shorten the grace
   period or delete the old rows, so the old key stops verifying.
+- **Retired keys.** A key stops verifying, in `auth.jwt().verify()` as in the JWKS, when its
+  grace period ends, and the next `rotate()` deletes its row. Better Auth's `verifyJWT`
+  keeps trusting every stored key.
 - **Changing the algorithm.** After `algorithm(..)` changes, the next signing creates a key of
   the new algorithm. Old keys stay in the JWKS until they expire, so tokens they signed keep
   verifying.

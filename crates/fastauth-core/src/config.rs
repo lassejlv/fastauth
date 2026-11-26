@@ -414,12 +414,40 @@ impl CoreConfig {
             || self.trusted_origins.iter().any(|o| o == origin)
     }
 
-    /// Accepts relative paths (`/dashboard`) and absolute URLs on a trusted origin.
+    /// Accepts relative paths (`/dashboard`) and absolute URLs on a trusted origin. See
+    /// [`CoreConfig::resolve_redirect`].
     pub fn is_safe_redirect(&self, target: &str) -> bool {
-        if target.starts_with('/') {
-            return !target.starts_with("//") && !target.starts_with("/\\");
+        self.resolve_redirect(target).is_some()
+    }
+
+    /// Where a browser lands when redirected to `target`, or `None` when that isn't safe.
+    ///
+    /// Control characters and backslashes are refused anywhere, because browsers drop or
+    /// reinterpret them (`/\t/evil.example` opens `//evil.example`). A relative target must
+    /// start with a single `/`, have no encoded `/` or `\` (`%2f`, `%5c`) in its path, and
+    /// still be on `base_url`'s origin once resolved against it. An absolute target must be on
+    /// a trusted origin.
+    pub fn resolve_redirect(&self, target: &str) -> Option<Url> {
+        if target.chars().any(char::is_control) || target.contains('\\') {
+            return None;
         }
-        Url::parse(target).is_ok_and(|u| self.is_trusted_origin(&u.origin().ascii_serialization()))
+        if !target.starts_with('/') {
+            return Url::parse(target)
+                .ok()
+                .filter(|u| self.is_trusted_origin(&u.origin().ascii_serialization()));
+        }
+        let path = target
+            .split(['?', '#'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if target.starts_with("//") || path.contains("%2f") || path.contains("%5c") {
+            return None;
+        }
+        self.base_url
+            .join(target)
+            .ok()
+            .filter(|u| u.origin() == self.base_url.origin())
     }
 
     /// Whether `session` was created within `fresh_age`, the rule behind `Fresh` access.

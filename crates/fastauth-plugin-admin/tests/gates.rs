@@ -84,7 +84,10 @@ async fn the_ban_gate_covers_social_sign_in() {
         .build()
         .unwrap();
     let mut browser = Client::new(auth.clone());
-    assert_eq!(github_sign_in(&mut browser).await, "/dashboard");
+    assert_eq!(
+        github_sign_in(&mut browser).await,
+        "http://localhost:3000/dashboard"
+    );
     let user = browser.get("/get-session").await.json["user"].clone();
     assert_eq!(user["role"], "user");
     let id = Id::from(user["id"].as_str().unwrap());
@@ -97,12 +100,15 @@ async fn the_ban_gate_covers_social_sign_in() {
     let mut browser = Client::new(auth.clone());
     assert_eq!(
         github_sign_in(&mut browser).await,
-        "/error?error=BANNED_USER"
+        "http://localhost:3000/error?error=BANNED_USER"
     );
     assert_eq!(browser.get("/get-session").await.json, Value::Null);
 
     auth.admin().unban(&id).await.unwrap();
-    assert_eq!(github_sign_in(&mut browser).await, "/dashboard");
+    assert_eq!(
+        github_sign_in(&mut browser).await,
+        "http://localhost:3000/dashboard"
+    );
 }
 
 #[tokio::test]

@@ -128,8 +128,16 @@ OAuth 2.0 steps, so adding one takes about 60 lines.
 Accounts link by verified email by default: a social sign-in whose email matches an
 existing user is attached to that user only when the provider reports the email as
 verified. If that user never verified their email, their password and sessions are removed
-first ([Security](09-security.md#oauth)). `AccountLinking::Off` never links by email;
-signed-in users can still link with `/link-social`.
+first ([Security](09-security.md#oauth)). `AccountLinking::Off` never links: a social
+sign-in by email fails with `account_not_linked`, and `/link-social` with
+`unable_to_link_account`.
+
+`/link-social` adds a provider to the signed-in user only when the provider verified the
+email and it is the user's email, and only while the session that started the link is still
+live; otherwise the callback redirects to `errorCallbackURL` with
+`?error=unable_to_link_account` or `?error=email_doesn't_match`. To let users link an
+account with another email (a work account and a personal GitHub), set
+`.allow_different_emails(true)`, Better Auth's `allowDifferentEmails`.
 
 A social sign-up fills `email`, `name`, `image` and `email_verified` from the provider's
 profile. Every other user column needs a default or a value from `map_profile`, which runs

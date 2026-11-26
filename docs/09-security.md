@@ -56,8 +56,24 @@ OAuth state and [API keys](14-api-keys.md) are stored as hashes.
 browsers. On top of that, every non-`GET` request that carries a session cookie must send an
 `Origin` (or, failing that, `Referer`) matching `base_url` or a trusted origin: 403
 `INVALID_ORIGIN` for an untrusted one, 403 `MISSING_OR_NULL_ORIGIN` when it's missing or
-`null`, as in Better Auth. Callback URLs
-(`callbackURL`, `redirectTo`) are checked against the same list, which closes open redirects.
+`null`, as in Better Auth.
+
+## Redirects
+
+Every URL a request names as a place to send the browser (`callbackURL`,
+`newUserCallbackURL`, `errorCallbackURL`, `redirectTo`) goes through
+`CoreConfig::resolve_redirect`, on core routes, social sign-in and linking, magic links and
+username sign-in. It refuses ASCII control characters and backslashes anywhere, since
+browsers drop or reinterpret them (`/<TAB>/evil.example` opens `//evil.example`). A relative
+URL must start with a single `/`, have no `%2f` or `%5c` in its path, and still be on
+`base_url`'s origin once resolved against it; an absolute URL must be on `base_url`'s origin
+or a trusted origin. Anything else answers 403 `INVALID_CALLBACK_URL`.
+
+A redirect's `Location` is the resolved, serialized URL (`http://localhost:3000/dashboard`
+for `callbackURL: "/dashboard"`), never the string the request sent, and a redirect that
+fails the check answers 403 instead. Better Auth runs the same checks
+(`isSafeRelativeURL`) but sends relative targets back as they came; a browser lands in the
+same place either way.
 
 ## Passwords
 
@@ -80,7 +96,21 @@ browsers. On top of that, every non-`GET` request that carries a session cookie 
 Email verification, password reset and two-factor OTP values are random, single use,
 short-lived (default 1 hour, 15 minutes for OTP), and stored hashed in `verification`.
 Codes are compared in constant time (`subtle`). OTPs allow 5 attempts before the code is
-burned.
+burned. Each guess claims an attempt with a compare-and-swap on the stored counter before
+the code is compared, and a guess that loses the swap tries again, so concurrent guesses
+are counted one by one and can't try more than 5 codes.
+
+## Two-factor sign-in
+
+A sign-in that two-factor challenges is stored server-side as a `verification` row, and the
+`two_factor` cookie only names it (signed, as every cookie). The row allows 5 guesses in all
+across TOTP, emailed and backup codes, counted the same way as OTP attempts; after that it
+is deleted, the cookie is cleared, and the next guess answers 400
+`TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE`, so the user signs in with their password again. A
+correct code deletes the row before the session is created, so a copy of the cookie can't
+finish the sign-in a second time. The row expires with `two_factor_cookie_max_age` (10
+minutes by default). Better Auth also caps attempts per challenge; it doesn't cap TOTP
+guesses for a signed-in user, and neither does fastauth beyond the rate limit.
 
 ## OAuth
 
@@ -95,6 +125,16 @@ burned.
 - Provider access and refresh tokens are stored encrypted (XChaCha20-Poly1305).
 - Accounts link by email only when the provider reports the email as verified and linking
   isn't turned off (`AccountLinking::Off`).
+- `/link-social` links a provider account to the signed-in user only when the session that
+  started the link is still live when the provider sends the browser back, linking isn't
+  `AccountLinking::Off`, and the provider verified the email (else
+  `?error=unable_to_link_account`), and when the provider's email is the user's, ignoring
+  case (else `?error=email_doesn't_match`, unless `Social::allow_different_emails(true)`).
+  These are Better Auth's `linkOAuthAccount` checks. Better Auth also links an unverified
+  email from a provider on its `trustedProviders` list; fastauth has no such list.
+- A token response's `expires_in` and `refresh_token_expires_in` are clamped to 10 years,
+  and negative values are ignored, so a broken or hostile token endpoint can't crash the
+  callback.
 - Linking to a user whose email was never verified closes the pre-registration attack (someone
   signs up with your email and a password before you first sign in with Google). In one
   transaction, the user's `credential` account is deleted, all of the user's sessions are
@@ -102,6 +142,21 @@ burned.
   proved the email through the provider ends up as the only one who can sign in. A legitimate
   owner who never verified their email loses their password and can set a new one with a
   password reset.
+
+## Bearer tokens and JWTs
+
+- With the [bearer plugin](17-bearer.md), every response that sets the session cookie also
+  returns the signed session token in `set-auth-token`, readable by page scripts. The cookie
+  stays `HttpOnly`, but an XSS on your origin (or on an origin your CORS config allows with
+  credentials) can read the token from that header. Register `Bearer` only for apps whose
+  clients need it. Better Auth behaves the same.
+- [JWTs](18-jwt.md): `JwksVerifier` and `auth.jwt().verify()` check `nbf` as well as `exp`,
+  `iss` and `aud`. Server-side `verify` uses only the keys `/jwks` publishes, so a retired
+  key stops verifying when its grace period ends, and `rotate()` deletes keys past it.
+  Better Auth's `verifyJWT` trusts every stored key.
+- `VerifyError::UnknownKey` comes from the token's unauthenticated header, so anyone can
+  trigger it. A resource server that refetches the JWKS on it should do so at most once per
+  cool-down (30 seconds or more). A token without a `kid` is `Invalid`.
 
 ## Rate limiting
 

@@ -20,8 +20,8 @@ pub enum AccountLinking {
     /// Link when the provider reports the email as verified (default).
     #[default]
     ByVerifiedEmail,
-    /// Never link by email; the sign-in fails with `account_not_linked`. Signed-in users can
-    /// still link through `/link-social`.
+    /// Never link: a sign-in by email fails with `account_not_linked`, and `/link-social`
+    /// fails with `unable_to_link_account`, like Better Auth's `accountLinking.enabled: false`.
     Off,
 }
 
@@ -106,6 +106,7 @@ pub struct Social {
     pub(crate) providers: Vec<ConfiguredProvider>,
     pub(crate) http: Arc<dyn DynHttpClient>,
     pub(crate) account_linking: AccountLinking,
+    pub(crate) allow_different_emails: bool,
     pub(crate) map_profile: Option<Arc<MapProfile>>,
 }
 
@@ -114,6 +115,7 @@ impl fmt::Debug for Social {
         f.debug_struct("Social")
             .field("providers", &self.providers)
             .field("account_linking", &self.account_linking)
+            .field("allow_different_emails", &self.allow_different_emails)
             .field("map_profile", &self.map_profile.is_some())
             .finish_non_exhaustive()
     }
@@ -139,6 +141,7 @@ impl Social {
             providers: Vec::new(),
             http: Arc::new(client),
             account_linking: AccountLinking::default(),
+            allow_different_emails: false,
             map_profile: None,
         }
     }
@@ -174,6 +177,14 @@ impl Social {
 
     pub fn account_linking(mut self, linking: AccountLinking) -> Self {
         self.account_linking = linking;
+        self
+    }
+
+    /// Lets `/link-social` link a provider account whose email differs from the signed-in
+    /// user's. Off by default: such a link fails with `?error=email_doesn't_match`. Better
+    /// Auth's `accountLinking.allowDifferentEmails`.
+    pub fn allow_different_emails(mut self, allow: bool) -> Self {
+        self.allow_different_emails = allow;
         self
     }
 

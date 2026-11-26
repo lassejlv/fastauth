@@ -40,6 +40,9 @@ struct StateData {
     error_callback_url: Option<String>,
     new_user_callback_url: Option<String>,
     link_user_id: Option<Id>,
+    /// The session that started a link; the link completes only while it is live.
+    #[serde(default)]
+    link_session_id: Option<Id>,
 }
 
 struct Start<'a> {
@@ -48,7 +51,7 @@ struct Start<'a> {
     callback_url: Option<String>,
     error_callback_url: Option<String>,
     new_user_callback_url: Option<String>,
-    link_user_id: Option<Id>,
+    link: Option<(Id, Id)>,
 }
 
 fn identifier(provider: &str) -> String {
@@ -97,7 +100,8 @@ async fn start<D: Adapter, A>(
             .unwrap_or_else(|| config.base_url.to_string()),
         error_callback_url: start.error_callback_url,
         new_user_callback_url: start.new_user_callback_url,
-        link_user_id: start.link_user_id,
+        link_user_id: start.link.as_ref().map(|(user_id, _)| user_id.clone()),
+        link_session_id: start.link.map(|(_, session_id)| session_id),
     };
     let data = serde_json::to_string(&data).map_err(AuthError::internal)?;
     let state = ctx
@@ -157,7 +161,7 @@ impl<D: Adapter> Endpoint<D> for SignInSocial {
                 callback_url: input.callback_url,
                 error_callback_url: input.error_callback_url,
                 new_user_callback_url: input.new_user_callback_url,
-                link_user_id: None,
+                link: None,
             },
         )
         .await?;
@@ -208,7 +212,10 @@ impl<D: Adapter> Endpoint<D> for LinkSocial {
                 callback_url: input.callback_url,
                 error_callback_url: input.error_callback_url,
                 new_user_callback_url: None,
-                link_user_id: Some(ctx.session().user.id.clone()),
+                link: Some((
+                    ctx.session().user.id.clone(),
+                    ctx.session().session.id.clone(),
+                )),
             },
         )
         .await?;
@@ -342,6 +349,8 @@ impl SocialCallback {
         let existing = internal.find_account(provider_id, &profile.id).await?;
 
         if let Some(user_id) = data.link_user_id {
+            self.check_link(ctx, &user_id, data.link_session_id.as_ref(), &profile)
+                .await?;
             match existing {
                 Some(found) if found.user_id != user_id => {
                     return Err(fail("account_already_linked_to_different_user"));
@@ -405,6 +414,47 @@ impl SocialCallback {
             SignInResult::SignedIn(_) => Ok(data.callback_url),
             SignInResult::Challenge(body) => Ok(with_challenge(data.callback_url, &body)),
         }
+    }
+
+    /// The checks of Better Auth's `linkOAuthAccount`: the session that started the link is
+    /// still live and the user's, linking isn't off, the provider verified the email, and the
+    /// email is the user's unless [`Social::allow_different_emails`] is set.
+    async fn check_link<D: Adapter>(
+        &self,
+        ctx: &Ctx<D, Public>,
+        user_id: &Id,
+        session_id: Option<&Id>,
+        profile: &OAuthProfile,
+    ) -> Result<(), Fail> {
+        let session = match session_id {
+            Some(id) => ctx
+                .db()
+                .find::<Session>(Session::ID.eq(id))
+                .one()
+                .await
+                .map_err(AuthError::from)?,
+            None => None,
+        };
+        let live = session.is_some_and(|s| &s.user_id == user_id && s.expires_at > ctx.now());
+        if !live || self.0.account_linking == AccountLinking::Off || !profile.email_verified {
+            return Err(fail("unable_to_link_account"));
+        }
+        if self.0.allow_different_emails {
+            return Ok(());
+        }
+        let user = ctx
+            .internal()
+            .find_user_by_id(user_id)
+            .await?
+            .ok_or_else(|| fail("unable_to_link_account"))?;
+        let same_email = profile
+            .email
+            .as_deref()
+            .is_some_and(|email| email.eq_ignore_ascii_case(&user.email));
+        if !same_email {
+            return Err(fail("email_doesn't_match"));
+        }
+        Ok(())
     }
 
     /// Runs the profile mapping for a new user and checks its columns against `user`, like

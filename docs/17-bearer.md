@@ -160,6 +160,17 @@ PORT=3001 compat/better-auth/run-bearer.sh
   Resolvers run in registration order and the bearer plugin claims every bearer value, so a
   key that reaches it is treated as an unknown session token.
 
+## Security
+
+`set-auth-token` and its `Access-Control-Expose-Headers` entry let page scripts read the
+signed session token on every response that sets the session cookie, browser sign-ins
+included. The session cookie stays `HttpOnly`, but an XSS on your origin, or on an origin
+your CORS config allows with credentials, can read the token from that header and use it as
+a bearer token. Better Auth's plugin behaves the same; its client reads `set-auth-token` from
+the sign-in response, so the header can't be limited to requests that already carry a bearer
+token without breaking that flow. Register `Bearer` only in apps whose clients need it, and
+serve browser-only apps from an `Auth` without it.
+
 ## Known gaps
 
 - When a request has both a session cookie and a bearer token, fastauth uses the cookie.
