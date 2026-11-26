@@ -125,7 +125,10 @@ Under your `base_path` (`/api/auth` by default):
 
 "Fresh session" means a session younger than `fresh_age` (one day by default,
 [Sessions](04-sessions.md)), as Better Auth's `freshSessionMiddleware` requires: `401`
-without a session, `403 SESSION_NOT_FRESH` with an old one.
+without a session, `403 SESSION_NOT_FRESH` with an old one or an API key's. Registration also
+reads the session again from the database, skipping the cookie cache, as Better Auth's
+`sensitiveSessionMiddleware` does: a revoked session gets `401`, and an impersonation session
+`403 NOT_ALLOWED_WHILE_IMPERSONATING` ([Admin](13-admin.md#impersonation)).
 
 ### Adding a passkey
 

@@ -352,6 +352,21 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         crate::session::by_token(&self.ctx.shared, self.ctx.adapter(), token).await
     }
 
+    /// The request-only session a resolver's [`Resolved::User`](crate::endpoint::Resolved)
+    /// gets for this user, after the session gates. `None` when the user doesn't exist; the
+    /// gate's error when one refuses the user (a banned user, with the admin plugin). For
+    /// plugins that act for a user without a session, such as an API key's owner.
+    pub async fn ephemeral_session(&self, user_id: &Id) -> Result<Option<SessionView>, AuthError> {
+        crate::session::for_user(
+            &self.ctx.shared,
+            self.ctx.within.as_ref(),
+            &self.ctx.request,
+            &self.ctx.effects,
+            user_id,
+        )
+        .await
+    }
+
     /// Makes `token` the request's session: sets the session cookie (for the configured
     /// lifetime, or for the browser session when `remember_me` is false) and drops the
     /// cookie cache, which belonged to the previous session.

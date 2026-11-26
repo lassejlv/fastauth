@@ -141,6 +141,7 @@ async fn invite_and_accept(
     assert_eq!(res.status, StatusCode::OK, "{}", res.json);
     let id = res.json["id"].as_str().unwrap().to_owned();
     let mut invitee = user(auth, email).await;
+    verify_email(auth, email).await;
     let res = invitee
         .post(
             "/organization/accept-invitation",
@@ -584,6 +585,7 @@ async fn invitations_email_a_link_and_accepting_joins() {
     );
 
     let mut ada = user(&auth, "ada@acme.dk").await;
+    verify_email(&auth, "ada@acme.dk").await;
     let details = ada
         .get(&format!("/organization/get-invitation?id={id}"))
         .await
@@ -900,6 +902,106 @@ async fn verify_email(auth: &AppAuth, email: &str) {
         .exec()
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn invitations_need_a_verified_email_by_default() {
+    for require in [None, Some(false)] {
+        let plugin = match require {
+            Some(require) => {
+                Organization::default().require_email_verification_on_invitation(require)
+            }
+            None => Organization::default(),
+        };
+        let Setup { auth, .. } = setup(plugin);
+        let mut owner = user(&auth, "owner@acme.dk").await;
+        create(&mut owner, "acme").await;
+        let id = owner
+            .post(
+                "/organization/invite-member",
+                json!({ "email": "ada@acme.dk", "role": "member" }),
+            )
+            .await
+            .json["id"]
+            .clone();
+        let mut ada = user(&auth, "ada@acme.dk").await;
+        let res = ada
+            .post(
+                "/organization/accept-invitation",
+                json!({ "invitationId": id }),
+            )
+            .await;
+        if require.is_none() {
+            assert_err(
+                &res,
+                StatusCode::FORBIDDEN,
+                "EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION",
+            );
+        } else {
+            assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+        }
+    }
+}
+
+#[tokio::test]
+async fn only_pending_invitations_can_be_cancelled() {
+    let Setup { auth, .. } = app();
+    let Team { org, mut owner, .. } = team(&auth).await;
+    let id = owner
+        .post(
+            "/organization/invite-member",
+            json!({ "email": "ada@acme.dk", "role": "member", "organizationId": org }),
+        )
+        .await
+        .json["id"]
+        .clone();
+    let mut ada = user(&auth, "ada@acme.dk").await;
+    verify_email(&auth, "ada@acme.dk").await;
+    let res = ada
+        .post(
+            "/organization/accept-invitation",
+            json!({ "invitationId": id }),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    let res = owner
+        .post(
+            "/organization/cancel-invitation",
+            json!({ "invitationId": id }),
+        )
+        .await;
+    assert_err(&res, StatusCode::BAD_REQUEST, "INVITATION_NOT_FOUND");
+    let listed = owner
+        .get(&format!(
+            "/organization/list-invitations?organizationId={org}"
+        ))
+        .await;
+    let statuses: Vec<&Value> = listed
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| &i["status"])
+        .collect();
+    assert!(statuses.contains(&&json!("accepted")), "{}", listed.json);
+}
+
+#[tokio::test]
+async fn remove_member_answers_not_found_for_another_organizations_owner() {
+    let Setup { auth, .. } = app();
+    let Team {
+        org, mut member, ..
+    } = team(&auth).await;
+    let mut eve = user(&auth, "eve@evil.dk").await;
+    create(&mut eve, "evil").await;
+    let eve_member = eve.get("/organization/get-active-member").await.json["id"].clone();
+    let res = member
+        .post(
+            "/organization/remove-member",
+            json!({ "memberIdOrEmail": eve_member, "organizationId": org }),
+        )
+        .await;
+    assert_err(&res, StatusCode::BAD_REQUEST, "MEMBER_NOT_FOUND");
 }
 
 #[tokio::test]

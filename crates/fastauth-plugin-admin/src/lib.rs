@@ -31,7 +31,11 @@
 //! the same operations from server code without a session.
 //!
 //! A sign-in gate refuses banned users with `403 BANNED_USER` for every sign-in method,
-//! and lifts expired bans.
+//! and lifts expired bans. A session gate refuses them the same way on every request,
+//! whatever the session came from (cookie, cookie cache, bearer token, API key), and refuses
+//! impersonation sessions in endpoints that create credentials
+//! (`403 NOT_ALLOWED_WHILE_IMPERSONATING`). Admins without `user:impersonate-admins` can't
+//! act on another admin's account (`403 YOU_CANNOT_MANAGE_ADMINS`).
 //!
 //! With the `axum` feature, [`RequireRole`] guards your own routes by role.
 
@@ -254,6 +258,31 @@ impl Plugin for Admin {
                         None => Gate::Allow,
                     },
                 )
+            }
+        });
+
+        app.fixed_session_expiry(|session| {
+            session
+                .fields::<AdminSession>()
+                .is_ok_and(|fields| fields.impersonated_by.is_some())
+        });
+
+        let plugin = self.clone();
+        app.session_gate(move |ctx, session, usage| {
+            let plugin = plugin.clone();
+            async move {
+                if let Some(err) = endpoints::ban_error(&plugin, &ctx, &session.user).await? {
+                    return Err(err);
+                }
+                let impersonating = session
+                    .fields::<AdminSession>()
+                    .map_err(AuthError::internal)?
+                    .impersonated_by
+                    .is_some();
+                if usage == SessionUse::Sensitive && impersonating {
+                    return Err(AdminError::NotAllowedWhileImpersonating.into());
+                }
+                Ok(())
             }
         });
 

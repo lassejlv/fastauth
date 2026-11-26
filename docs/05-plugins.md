@@ -253,7 +253,7 @@ impl<D: Adapter> Endpoint<D> for CreateToken {
 | `Public` | runs | method doesn't exist |
 | `MaybeAuthenticated` | runs | `Option<&SessionView>` |
 | `Authenticated` | `401 UNAUTHORIZED`, `call` never runs | `&SessionView` |
-| `Fresh` | `401`, or `403 SESSION_NOT_FRESH` when too old | `&SessionView` |
+| `Fresh` | `401`, or `403 SESSION_NOT_FRESH` when too old or ephemeral (an API key's) | `&SessionView` |
 
 So an endpoint can't forget to check the session, and can't unwrap one that might be
 missing. `PATH` is relative to the base path and may hold `{name}` parameters
@@ -265,6 +265,23 @@ Also on `ctx`: `db()`, `new_id()`, `now()`, `emit(event)`, `plugin::<P>()` and
 (`set_signed_cookie`, `signed_cookie`, `delete_cookie`), `redirect(url)`, and `internal()`
 for the core operations plugins build on: finding and creating users, accounts and
 sessions, `sign_in` and `complete_sign_in`, verification values, and `send_email`.
+
+An endpoint that creates or changes a credential (a key, a passkey, a linked account,
+two-factor) should act on `ctx.sensitive_session().await?` rather than `ctx.session()`. It
+reads the session again from the database, skipping the cookie cache, so a session revoked
+elsewhere gets `401`; it answers `401` for an ephemeral session (`Resolved::User`, such as an
+API key's), which has nothing stored; and it runs the [session gates](#session-gates) with
+`SessionUse::Sensitive`, where the admin plugin refuses impersonation sessions. Without a
+session it answers `401`, whatever the access level. The API key, passkey, two-factor and
+`/link-social` endpoints use it:
+
+```rust
+    async fn call(&self, ctx: Ctx<D, Authenticated>, input: CreateTokenInput) -> Result<CreatedToken, AuthError> {
+        let session = ctx.sensitive_session().await?;
+        let (row, token) = mint(&ctx, &session.user.id, input.name).await?;
+        Ok(CreatedToken { id: row.id, token })
+    }
+```
 
 A list endpoint:
 
@@ -348,6 +365,10 @@ impl<D: Adapter> SessionResolver<D> for TokenResolver {
 to the `session` table (`session.view().ephemeral` is true). `Resolved::Token` hands back a
 session token found somewhere other than the cookie, such as a bearer header. Every
 `Session<AppAuth>` extractor in the app now accepts access tokens, with no handler changes.
+An ephemeral session is never fresh and can't pass `ctx.sensitive_session()`, so it can't
+mint credentials. The [session gates](#session-gates) run on resolved sessions of both kinds.
+`ctx.internal().ephemeral_session(&user_id)` builds the same session for a user, gates
+included, for plugins that act for a user outside a request's session.
 
 ### Errors
 
@@ -540,6 +561,45 @@ gate that denies returns its error; one that challenges returns `SignInResult::C
 `ctx.internal().create_session(..)` is the gate-free primitive underneath; don't use it to
 finish a sign-in. Two gates that both challenge the same user keep challenging each other,
 so a plugin should challenge only for its own reason.
+
+### Session gates
+
+Sign-in gates judge a sign-in once. A session gate judges a session every time a request uses
+one: the cookie, the cookie cache, a bearer token, an API key's ephemeral session, and every
+`ctx.sensitive_session()`. Answering `Err` refuses the session, and the request fails with
+that error. The admin plugin's gate is how a ban reaches sessions that already exist and
+sessions that never went through a sign-in:
+
+```rust
+app.session_gate(|_ctx, session: SessionView, usage: SessionUse| async move {
+    let fields: BanFields = session.user.fields().map_err(AuthError::internal)?;
+    if fields.banned {
+        return Err(BanError::Banned.into());
+    }
+    if usage == SessionUse::Sensitive && is_borrowed(&session) {
+        return Err(BanError::NotWithThisSession.into());
+    }
+    Ok(())
+});
+```
+
+`SessionUse::Request` is the lookup every request with a session does, so keep that path
+cheap: the user row is already in `session.user`. `SessionUse::Sensitive` comes from
+`ctx.sensitive_session()`, before a credential is created or changed. With the cookie cache
+on, a cached session's user row is as old as the cache cookie, so a gate that reads it sees
+a change only once the cache expires; `ctx.sensitive_session()` always reads it fresh.
+
+A plugin that creates sessions with a deliberately short life marks them with
+`app.fixed_session_expiry(|session| ..)`: the refresh never extends a session it answers
+true for. Every other session slides as usual. The admin plugin marks impersonation sessions:
+
+```rust
+app.fixed_session_expiry(|session| {
+    session
+        .fields::<AdminSession>()
+        .is_ok_and(|fields| fields.impersonated_by.is_some())
+});
+```
 
 ### After a session is created
 

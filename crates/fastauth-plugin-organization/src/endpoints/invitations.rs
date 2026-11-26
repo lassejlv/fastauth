@@ -340,7 +340,8 @@ impl<D: Adapter> Endpoint<D> for RejectInvitation {
 }
 
 /// `POST /organization/cancel-invitation`: needs `invitation: [cancel]` in the
-/// invitation's organization. Answers the cancelled invitation.
+/// invitation's organization. Answers the cancelled invitation. Only a pending invitation can
+/// be cancelled; an accepted, rejected or cancelled one answers `INVITATION_NOT_FOUND`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CancelInvitation;
 
@@ -372,11 +373,16 @@ impl<D: Adapter> Endpoint<D> for CancelInvitation {
             return Err(OrganizationError::YouAreNotAllowedToCancelThisInvitation.into());
         }
         organization(&ctx, &invitation.organization_id).await?;
-        ctx.db()
-            .update::<Invitation>(Invitation::ID.eq(&invitation.id))
-            .set(Invitation::STATUS, InvitationStatus::Canceled)
-            .exec()
-            .await?;
+        if !update_status(
+            &ctx,
+            &invitation.id,
+            InvitationStatus::Pending,
+            InvitationStatus::Canceled,
+        )
+        .await?
+        {
+            return Err(OrganizationError::InvitationNotFound.into());
+        }
         Ok(Invitation {
             status: InvitationStatus::Canceled,
             ..invitation

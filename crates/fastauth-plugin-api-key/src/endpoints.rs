@@ -116,6 +116,18 @@ fn owner(
     }
 }
 
+/// The session of a request that creates or changes a key, read from the database
+/// (`Ctx::sensitive_session`): a key's own session, an impersonation session or a revoked
+/// one still in the cookie cache can't mint or widen keys. `None` without a session.
+async fn key_manager<D: Adapter>(
+    ctx: &Ctx<D, MaybeAuthenticated>,
+) -> Result<Option<SessionView>, AuthError> {
+    match ctx.session() {
+        Some(_) => ctx.sensitive_session().await.map(Some),
+        None => Ok(None),
+    }
+}
+
 /// The caller's key `id`, or `KEY_NOT_FOUND` (also for another user's key).
 async fn owned_key<D: Adapter, A>(
     ctx: &Ctx<D, A>,
@@ -255,8 +267,9 @@ impl<D: Adapter> Endpoint<D> for CreateApiKey {
         if !self.trusted && server_only {
             return Err(ApiKeyError::ServerOnlyProperty.into());
         }
+        let session = key_manager(&ctx).await?;
         let user_id = owner(
-            ctx.session(),
+            session.as_ref(),
             input.user_id,
             self.trusted,
             ApiKeyError::UnauthorizedSession.into(),
@@ -505,8 +518,9 @@ impl<D: Adapter> Endpoint<D> for UpdateApiKey {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: UpdateApiKeyInput,
     ) -> Result<ApiKeyView, AuthError> {
+        let session = key_manager(&ctx).await?;
         let owner = owner(
-            ctx.session(),
+            session.as_ref(),
             input.user_id,
             self.trusted,
             ApiKeyError::UnauthorizedSession.into(),

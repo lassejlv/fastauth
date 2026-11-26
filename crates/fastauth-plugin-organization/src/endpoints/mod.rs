@@ -194,6 +194,19 @@ async fn is_last_owner<D: Adapter, A>(ctx: &Ctx<D, A>, member: &Member) -> Resul
     Ok(owners <= 1)
 }
 
+/// Whether the organization still has an owner. Checked again after removing or demoting an
+/// owner: each of two concurrent requests checks after its own change, so the later one sees
+/// both and undoes its own, and no organization is left without an owner.
+async fn has_owner<D: Adapter, A>(
+    ctx: &Ctx<D, A>,
+    organization_id: &Id,
+) -> Result<bool, AuthError> {
+    Ok(members_of(ctx, organization_id)
+        .await?
+        .iter()
+        .any(|m| m.has_role(OWNER)))
+}
+
 /// The organization a request acts on: the one it names, else the session's active one.
 fn requested_organization(
     session: &SessionView,

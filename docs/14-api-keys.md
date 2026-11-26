@@ -345,10 +345,18 @@ The plugin adds no extractors of its own. What changes:
   with several of them counts once, but a call to `auth.get_session(&headers)` counts again.
 - **The session is ephemeral.** It exists only for that request and isn't stored.
   `session.view().ephemeral` is `true`, `session.session.id` is `"ephemeral"`, and
-  `/sign-out` has nothing to revoke. It counts as just created, so `FreshSession` accepts it.
+  `/sign-out` has nothing to revoke. It is never fresh: `FreshSession` and `Fresh` endpoints
+  answer `403 SESSION_NOT_FRESH`.
+- **It can't mint credentials.** Creating or updating a key, registering a passkey, linking
+  a social account and turning two-factor on or off need a stored session and answer
+  `401 UNAUTHORIZED` to a key's session, so a limited key can't create an unlimited one or
+  lift its own expiry. Better Auth lets a key's session create and update keys.
+- **Bans apply.** The core session gates run on it, so a banned owner's key answers
+  `403 BANNED_USER` ([Admin](13-admin.md#bans)), and banning disables the owner's keys.
 - **Permissions aren't checked.** A key with `{ "files": ["read"] }` gets a full session for
-  its owner, as in Better Auth. The handler can't tell which key was used, so to enforce
-  permissions, call [`verify`](#verifying-a-key) with them instead.
+  its owner, as in Better Auth: every route that takes a session, `/admin/*` included for an
+  admin's key. The handler can't tell which key was used, so to enforce permissions, call
+  [`verify`](#verifying-a-key) with them instead, or leave `.sessions` off.
 - **A session cookie wins.** If the request has a session cookie, the key isn't read at all.
   Better Auth checks the key first.
 - **A bad key fails the request**, even on routes that take `Option<Session<AppAuth>>`: an
@@ -487,6 +495,9 @@ Known gaps:
 - In a session from a key, `session.id` is `"ephemeral"` and there's no token. Better Auth
   uses the key's id and the key itself.
 - A request with both a session cookie and a key uses the cookie; Better Auth uses the key.
+- `/api-key/create` and `/api-key/update` read the caller's session from the database, as
+  Better Auth does, and also refuse a key's own session and an impersonation session, which
+  Better Auth allows.
 - Better Auth deletes every expired key each time a key signs a request in. fastauth only
   deletes the key being used, so call `delete_all_expired()` yourself.
 

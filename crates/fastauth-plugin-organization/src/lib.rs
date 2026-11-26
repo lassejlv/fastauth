@@ -85,7 +85,7 @@ impl Default for Organization {
             organization_limit: None,
             invitation_ttl: Duration::hours(48),
             invitation_url: None,
-            require_email_verification_on_invitation: false,
+            require_email_verification_on_invitation: true,
         }
     }
 }
@@ -126,7 +126,10 @@ impl Organization {
     }
 
     /// Only users with a verified email may view, accept or reject invitations (default
-    /// `false`). Invitation ids are unguessable, so possessing the link is the default proof.
+    /// `true`). Without it, anyone who signs up with the invitee's address without verifying
+    /// it can accept an invitation whose id they know or guess (ids from a custom
+    /// `IdStrategy` may be guessable). Better Auth skips the check by default for its own
+    /// random ids; turn it off only when sign-up verifies email or ids are unguessable.
     pub fn require_email_verification_on_invitation(mut self, require: bool) -> Self {
         self.require_email_verification_on_invitation = require;
         self

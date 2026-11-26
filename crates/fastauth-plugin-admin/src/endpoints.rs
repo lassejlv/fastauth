@@ -91,6 +91,25 @@ fn may(
     ))
 }
 
+/// Refuses acting on another admin's account without `user:impersonate-admins`, the line
+/// impersonation draws, so an admin can't take another admin over by setting their
+/// password or email. Server calls (`None`) and acting on yourself pass.
+fn check_target(
+    plugin: &Admin,
+    session: Option<&SessionView>,
+    target: &UserView,
+) -> Result<(), AuthError> {
+    let Some(session) = session.filter(|s| s.user.id != target.id) else {
+        return Ok(());
+    };
+    if plugin.is_admin(&target.id, admin_fields(target)?.role.as_deref())
+        && !may(plugin, Some(session), "user", "impersonate-admins")?
+    {
+        return Err(AdminError::YouCannotManageAdmins.into());
+    }
+    Ok(())
+}
+
 fn admin_fields(user: &UserView) -> Result<AdminUser, AuthError> {
     user.fields().map_err(AuthError::internal)
 }
@@ -688,14 +707,15 @@ impl<D: Adapter> Endpoint<D> for SetRole {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: SetRoleInput,
     ) -> Result<UserOutput, AuthError> {
-        self.0.check(
+        let session = self.0.check(
             &ctx,
             "user",
             "set-role",
             AdminError::YouAreNotAllowedToChangeUsersRole,
         )?;
         let role = input.role.stored(&self.0.plugin)?;
-        find_user(&ctx, &input.user_id).await?;
+        let target = find_user(&ctx, &input.user_id).await?;
+        check_target(&self.0.plugin, session, &target)?;
         ctx.db()
             .update::<User>(User::ID.eq(&input.user_id))
             .set(AdminUser::ROLE, Some(role))
@@ -772,10 +792,11 @@ impl<D: Adapter> Endpoint<D> for BanUser {
         let session = self
             .0
             .check(&ctx, "user", "ban", AdminError::YouAreNotAllowedToBanUsers)?;
-        find_user(&ctx, &input.user_id).await?;
+        let target = find_user(&ctx, &input.user_id).await?;
         if session.is_some_and(|s| s.user.id == input.user_id) {
             return Err(AdminError::YouCannotBanYourself.into());
         }
+        check_target(plugin, session, &target)?;
         let reason = input
             .ban_reason
             .filter(|r| !r.is_empty())
@@ -902,6 +923,8 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
                 AdminError::YouAreNotAllowedToSetUsersEmail,
             )?;
         }
+        let target = find_user(&ctx, &input.user_id).await?;
+        check_target(&caller.plugin, session, &target)?;
         if let Some(email) = data.get("email") {
             let email = normalize_email(email.as_str().unwrap_or_default())?;
             let existing = ctx.internal().find_user_by_email(&email).await?;
@@ -920,7 +943,6 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
             }
             set.push((column.name, column_value(&column, key, json)?));
         }
-        find_user(&ctx, &input.user_id).await?;
         let mut update = ctx.db().update::<User>(User::ID.eq(&input.user_id));
         for (column, value) in set {
             update = update.set_raw(column, value);
@@ -961,7 +983,7 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: SetUserPasswordInput,
     ) -> Result<Status, AuthError> {
-        self.0.check(
+        let session = self.0.check(
             &ctx,
             "user",
             "set-password",
@@ -969,7 +991,8 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
         )?;
         let internal = ctx.internal();
         internal.validate_new_password(&input.new_password)?;
-        find_user(&ctx, &input.user_id).await?;
+        let target = find_user(&ctx, &input.user_id).await?;
+        check_target(&self.0.plugin, session, &target)?;
         internal
             .set_password(&input.user_id, &input.new_password)
             .await?;
@@ -1009,6 +1032,7 @@ impl<D: Adapter> Endpoint<D> for RemoveUser {
             return Err(AdminError::YouCannotRemoveYourself.into());
         }
         let user = find_user(&ctx, &input.user_id).await?;
+        check_target(&self.0.plugin, session, &user)?;
         ctx.internal()
             .revoke_user_sessions(&input.user_id, None)
             .await?;
@@ -1092,7 +1116,7 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSession {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: RevokeUserSessionInput,
     ) -> Result<Success, AuthError> {
-        self.0.check(
+        let caller = self.0.check(
             &ctx,
             "session",
             "revoke",
@@ -1104,6 +1128,9 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSession {
             .one()
             .await?;
         if let Some(session) = found {
+            if let Some(owner) = ctx.internal().find_user_by_id(&session.user_id).await? {
+                check_target(&self.0.plugin, caller, &owner)?;
+            }
             ctx.internal()
                 .revoke_session(&session.user_id, &session.id)
                 .await?;
@@ -1127,12 +1154,15 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSessions {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: UserIdInput,
     ) -> Result<Success, AuthError> {
-        self.0.check(
+        let session = self.0.check(
             &ctx,
             "session",
             "revoke",
             AdminError::YouAreNotAllowedToRevokeUsersSessions,
         )?;
+        if let Some(target) = ctx.internal().find_user_by_id(&input.user_id).await? {
+            check_target(&self.0.plugin, session, &target)?;
+        }
         ctx.internal()
             .revoke_user_sessions(&input.user_id, None)
             .await?;

@@ -126,7 +126,8 @@ where
 }
 
 /// A session created within `fresh_age`, for sensitive actions. Rejects with `401` without
-/// a session and `403 SESSION_NOT_FRESH` when it is older: the rule of core's `Fresh` access.
+/// a session and `403 SESSION_NOT_FRESH` when it is older or ephemeral (an API key's): the
+/// rule of core's `Fresh` access.
 pub struct FreshSession<A: AuthInstance>(Session<A>);
 
 impl<A: AuthInstance> Clone for FreshSession<A> {
@@ -154,7 +155,7 @@ where
         let session = resolve::<A, S>(parts, state)
             .await?
             .ok_or(AuthError::unauthorized())?;
-        if !A::from_ref(state).config().is_fresh(&session.session) {
+        if session.view().ephemeral || !A::from_ref(state).config().is_fresh(&session.session) {
             return Err(AuthError::not_fresh());
         }
         Ok(Self(session))

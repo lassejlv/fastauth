@@ -174,7 +174,9 @@ impl<D: Adapter> Endpoint<D> for SignInSocial {
 
 // ---------------------------------------------------------------------------- link
 
-/// `POST /link-social`: link another provider to the signed-in user.
+/// `POST /link-social`: link another provider to the signed-in user. Needs a session read
+/// from the database (`Ctx::sensitive_session`), so API-key and impersonation sessions can't
+/// link accounts.
 pub struct LinkSocial(pub(crate) Arc<Social>);
 
 #[derive(Debug, Deserialize)]
@@ -203,6 +205,7 @@ impl<D: Adapter> Endpoint<D> for LinkSocial {
         ctx: Ctx<D, Authenticated>,
         input: LinkSocialInput,
     ) -> Result<AuthorizationUrl, AuthError> {
+        let session = ctx.sensitive_session().await?;
         let url = start(
             &self.0,
             &ctx,
@@ -212,10 +215,7 @@ impl<D: Adapter> Endpoint<D> for LinkSocial {
                 callback_url: input.callback_url,
                 error_callback_url: input.error_callback_url,
                 new_user_callback_url: None,
-                link: Some((
-                    ctx.session().user.id.clone(),
-                    ctx.session().session.id.clone(),
-                )),
+                link: Some((session.user.id.clone(), session.session.id.clone())),
             },
         )
         .await?;
