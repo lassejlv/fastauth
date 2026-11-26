@@ -79,6 +79,7 @@ pub fn organization() -> Organization {
         .allow_user_to_create_organization(false)
         .organization_limit(5)
         .invitation_ttl(Duration::days(7))
+        .invitation_limit(20)
         .invitation_url("https://app.acme.dk/invite/{id}")
         .require_email_verification_on_invitation(true)
 }
@@ -90,6 +91,7 @@ pub fn organization() -> Organization {
 | `.allow_user_to_create_organization(bool)` | `true` | With `false`, `POST /organization/create` answers 403 `YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION` and only the server API's `create` makes organizations. |
 | `.organization_limit(u64)` | no limit | How many organizations a user may belong to before creating another is refused (403 `YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS`). It counts memberships, not ownership, and applies to the server API's `create` too. It doesn't stop invitations or `add_member`. |
 | `.invitation_ttl(Duration)` | 48 hours | How long an invitation can be accepted. Resending an invitation restarts the clock. |
+| `.invitation_limit(u64)` | 100 | How many pending, unexpired invitations one organization may have. A new invitation past it answers 403 `INVITATION_LIMIT_REACHED`, as in Better Auth; resending an existing one isn't counted. Each invitation emails an address the inviter picks, so this bounds how many addresses one account can mail through your app. |
 | `.invitation_url(template)` | `{base_url}/accept-invitation/{id}` | The link in invitation emails. `{id}` is replaced with the invitation id. |
 | `.require_email_verification_on_invitation(bool)` | `true` | Invitees need a verified email to view, accept or reject an invitation. Without it, anyone who signs up with the invitee's address can accept an invitation whose id they know. Better Auth skips the check for its own random ids; turn it off only when sign-up verifies email or your ids are unguessable. |
 
@@ -199,7 +201,9 @@ it like a token.
 
 Inviting an address that already has a live pending invitation answers 400
 `USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION`; pass `resend: true` to extend that
-invitation and send the email again.
+invitation and send the email again. An organization with `invitation_limit` pending
+invitations (100 by default) can't invite anyone new until one is accepted, rejected,
+canceled or expires: `invite-member` answers 403 `INVITATION_LIMIT_REACHED`.
 
 ## Server API
 
@@ -498,6 +502,7 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_ALLOWED_TO_INVITE_USERS_TO_THIS_ORGANIZATION` | 403 | `invite-member` without `invitation: [create]` |
 | `YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE` | 403 | a non-owner invites as `owner` |
 | `USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION` | 400 | a live pending invitation exists and `resend` isn't set |
+| `INVITATION_LIMIT_REACHED` | 403 | `invite-member` when the organization already has `invitation_limit` pending invitations |
 | `INVITATION_NOT_FOUND` | 400 | unknown, no longer pending, or (to accept or view) expired |
 | `YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION` | 403 | the session's email isn't the invited one |
 | `EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION` | 403 | accept or reject with `require_email_verification_on_invitation` and an unverified email |

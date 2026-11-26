@@ -7,7 +7,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
-use http::header::{COOKIE, ORIGIN, REFERER, USER_AGENT};
+use http::header::{CACHE_CONTROL, COOKIE, ORIGIN, REFERER, USER_AGENT};
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use serde::Serialize;
 use url::Url;
@@ -68,6 +68,7 @@ impl FastAuth {
             client_ip: ClientIp::Socket,
             ids: IdStrategy::default(),
             mailer: None,
+            allow_insecure: false,
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -94,6 +95,7 @@ pub struct Builder<D, U, P, S, B> {
     client_ip: ClientIp,
     ids: IdStrategy,
     mailer: Option<Arc<dyn DynMailer>>,
+    allow_insecure: bool,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
 }
@@ -126,6 +128,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             client_ip: self.client_ip,
             ids: self.ids,
             mailer: self.mailer,
+            allow_insecure: self.allow_insecure,
             app_init: self.app_init,
             _state: PhantomData,
         }
@@ -217,6 +220,15 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// Builds a configuration that `.build()` refuses for production, logging each problem
+    /// as a warning instead: an `http://` `base_url` on a host other than localhost, or a
+    /// secret with too little entropy. For local development, CI and staging setups on a
+    /// private network only. A localhost `base_url` gets the same leniency without it.
+    pub fn allow_insecure_config(mut self, allow: bool) -> Self {
+        self.allow_insecure = allow;
+        self
+    }
+
     /// The app's own columns on `user`.
     pub fn user_fields<U2: Fields>(self) -> Builder<D, U2, P, S, B> {
         self.retype(|p| p)
@@ -250,6 +262,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             client_ip: self.client_ip,
             ids: self.ids,
             mailer: self.mailer,
+            allow_insecure: self.allow_insecure,
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -298,6 +311,46 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
                 Url::parse("http://localhost").expect("valid URL")
             }
         };
+        if !base_url.username().is_empty()
+            || base_url.password().is_some()
+            || base_url.query().is_some()
+            || base_url.fragment().is_some()
+        {
+            problems.push(format!(
+                "base_url `{base_url}` has credentials, a query or a fragment; emailed links are \
+                 built from it, so give only the scheme, host, port and path"
+            ));
+        }
+        let local = is_local(&base_url);
+        let mut unsafe_in_production = Vec::new();
+        if let Some(bits) = self
+            .secrets
+            .iter()
+            .map(Secret::entropy_bits)
+            .min_by(f64::total_cmp)
+            .filter(|bits| *bits < Secret::MIN_ENTROPY_BITS)
+        {
+            unsafe_in_production.push(format!(
+                "a secret has about {bits:.0} bits of entropy, less than {:.0}; generate one with \
+                 `fastauth secret`",
+                Secret::MIN_ENTROPY_BITS
+            ));
+        }
+        if base_url.scheme() == "http" && !local {
+            unsafe_in_production.push(format!(
+                "base_url `{base_url}` is http:// on a host other than localhost, so cookies \
+                 would be sent without Secure; serve the app over https"
+            ));
+        }
+        if local || self.allow_insecure {
+            for problem in &unsafe_in_production {
+                tracing::warn!("fastauth: {problem} (allowed outside production)");
+            }
+        } else {
+            problems.extend(unsafe_in_production.into_iter().map(|problem| {
+                format!("{problem} (for local development: .allow_insecure_config(true))")
+            }));
+        }
         let base_path = format!("/{}", self.base_path.trim_matches('/'));
         if self
             .email_password
@@ -413,7 +466,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             user_input_hooks: registry.user_input_hooks,
             events: registry.events,
             router,
-            rate_limiter: RateLimiter::new(rate_limit),
+            rate_limiter: RateLimiter::new(rate_limit, !local && !self.allow_insecure),
             cache_fingerprint,
         };
         Ok(Auth {
@@ -421,6 +474,16 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             plugins: Arc::new(self.plugins),
             _user: PhantomData,
         })
+    }
+}
+
+/// Whether `url` points at this machine: `localhost`, `*.localhost` or a loopback address.
+fn is_local(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain == "localhost" || domain.ends_with(".localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
     }
 }
 
@@ -527,13 +590,14 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
             .into_response();
         }
 
-        let ip = config.client_ip.resolve(&parts).map(|ip| ip.to_string());
-        let allowed = match &ip {
-            Some(ip) => shared.rate_limiter.check(ip, path),
+        let client = config.client_ip.resolve(&parts);
+        let allowed = match client {
+            Some(client) => shared.rate_limiter.check(client, path, &body),
             None => shared
                 .rate_limiter
                 .check_without_ip(&config.client_ip, path, &body),
         };
+        let ip = client.map(|ip| ip.to_string());
         if !allowed {
             return AuthError::too_many_requests().into_response();
         }
@@ -569,10 +633,15 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
             headers: parts.headers,
             ip,
         };
-        endpoint
+        let mut response = endpoint
             .clone()
             .handle(shared, Arc::new(request), body)
-            .await
+            .await;
+        response
+            .headers_mut()
+            .entry(CACHE_CONTROL)
+            .or_insert(HeaderValue::from_static("no-store"));
+        response
     }
 
     /// The session for these request headers, plus `Set-Cookie` values the caller should

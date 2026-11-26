@@ -23,8 +23,8 @@ axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).a
 `AuthRouter` is also in `fastauth::prelude`. `auth.router()` returns `Router<S>` for any
 state `S` with `AppAuth: FromRef<S>`. `into_make_service_with_connect_info` passes the
 socket address along, which rate limiting and the session's `ip_address` use; without it
-fastauth can't tell clients apart, logs a warning, and limits per account or for everyone
-at once. You can also nest the routes yourself if you
+fastauth can't tell clients apart, logs an error (a warning while `base_url` is local), and
+limits per account or for everyone at once. You can also nest the routes yourself if you
 want auth somewhere else:
 
 ```rust

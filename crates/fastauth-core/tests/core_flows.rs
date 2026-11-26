@@ -557,7 +557,7 @@ async fn cookie_cache_answers_without_the_database() {
 #[tokio::test]
 async fn sessions_refresh_after_update_age() {
     let auth = FastAuth::builder()
-        .secret(secret())
+        .secret(Secret::from_base64(&Secret::generate()))
         .base_url("https://acme.dk")
         .database(MemoryAdapter::new())
         .email_password(fast_hasher())

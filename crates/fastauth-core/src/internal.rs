@@ -904,7 +904,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         if binding.as_deref() == Some(user_binding(user).as_str()) {
             return Ok(true);
         }
-        let Some(token) = self.ctx.signed_cookie(crate::session::SESSION_TOKEN) else {
+        let Some(token) = self.ctx.signed_token_cookie(crate::session::SESSION_TOKEN) else {
             return Ok(false);
         };
         Ok(self
@@ -1006,6 +1006,17 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         clear_session_cookies(self.ctx.config(), &self.ctx.effects);
     }
 
+    /// Deletes every expired verification, as Better Auth does on lookup. Runs before each
+    /// new one is stored, so rows anyone can mint (OAuth states, passkey challenges, magic
+    /// links) don't pile up.
+    async fn purge_expired_verifications(&self) -> Result<(), AuthError> {
+        self.ctx
+            .db()
+            .delete::<Verification>(Verification::EXPIRES_AT.lt(self.ctx.now()))
+            .await?;
+        Ok(())
+    }
+
     /// Stores a single-use value and returns it. Only its hash is kept.
     pub async fn create_verification(
         &self,
@@ -1013,6 +1024,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         ttl: Duration,
         data: Option<String>,
     ) -> Result<String, AuthError> {
+        self.purge_expired_verifications().await?;
         let token = random_token();
         let now = self.ctx.now();
         let verification = Verification {
@@ -1036,6 +1048,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         ttl: Duration,
         data: Option<String>,
     ) -> Result<(), AuthError> {
+        self.purge_expired_verifications().await?;
         self.ctx
             .db()
             .delete::<Verification>(Verification::IDENTIFIER.eq(identifier))

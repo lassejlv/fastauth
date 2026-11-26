@@ -7,7 +7,7 @@
 //! use fastauth_plugin_passkey::{Passkey, PasskeyExt};
 //!
 //! let auth: Auth<MemoryAdapter, (), plugins![Passkey]> = FastAuth::builder()
-//!     .secret(Secret::from_bytes(vec![1u8; 32]))
+//!     .secret(Secret::from_base64(&Secret::generate()))
 //!     .base_url("https://acme.dk")
 //!     .database(MemoryAdapter::new())
 //!     .email_password(EmailPassword::default())

@@ -28,7 +28,6 @@
 //! Raw tokens are accepted unless [`Bearer::require_signature`] is set. When a request
 //! carries both a session cookie and a bearer token, the cookie wins.
 
-use fastauth_core::crypto::SignPurpose;
 use fastauth_core::endpoint::Response;
 use fastauth_core::plugin_prelude::*;
 use http::HeaderValue;
@@ -72,9 +71,7 @@ impl Bearer {
         let decoded = percent_encoding::percent_decode_str(token)
             .decode_utf8()
             .ok()?;
-        ctx.keys()
-            .verify(SignPurpose::Cookie, &decoded)
-            .map(str::to_owned)
+        ctx.keys().verify_token(&decoded).map(str::to_owned)
     }
 }
 

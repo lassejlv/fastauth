@@ -18,12 +18,53 @@ separate key per purpose:
 So a bug that leaks one derived key doesn't expose the others, and plugins can't reach
 core's keys.
 
-**Rotation.** `.secrets([new, old])`: the first signs and encrypts, all verify and
-decrypt. Encrypted values carry a one-byte key id, so values encrypted under an old secret
-still decrypt. Cookies signed with the old secret expire within one session lifetime (7
-days by default), but encrypted columns (OAuth tokens, two-factor secrets) keep needing it:
-there is no re-encryption command yet, so keep the old secret in the list until those rows
-are rewritten.
+**Rotation.** `.secrets([new, old])`: the first secret signs, verifies and encrypts.
+Every secret in the list still decrypts, and still verifies a signed session token and the
+`rememberMe: false` marker (`Keys::verify_token`). A session token only points to a session
+row and the marker only shortens a session, so a retired secret gains nothing from them,
+and a rotation signs nobody out.
+
+A retired secret verifies nothing else. Values that carry their own meaning are accepted
+only when the current secret signed them: the cookie cache, two-factor trusted-device
+cookies, and any other cookie a plugin reads with `Ctx::signed_cookie` (a plugin cookie
+that holds a session token uses `Ctx::signed_token_cookie` instead). Right after a
+rotation:
+
+- cookie caches signed with the old secret are ignored, so the next request reads the
+  session from the database and caches it again;
+- trusted devices ask for the second factor once more;
+- a sign-in in flight that holds a short-lived signed cookie (OAuth state, a passkey
+  challenge, a pending two-factor sign-in, minutes at most) has to start again.
+
+So a leaked secret, once rotated out, can no longer sign a cookie cache, which would
+otherwise let its holder act as any user without a session row.
+
+Encrypted values carry a one-byte key id, so values encrypted under an old secret still
+decrypt. Encrypted columns (OAuth tokens, two-factor secrets) keep needing the old secret:
+there is no re-encryption command yet, so keep it in the list until those rows are
+rewritten. A leaked secret still decrypts the values written under it.
+
+## Checks at build time
+
+`.build()` refuses configuration that is unsafe in production:
+
+- **Always:** a `base_url` with credentials (`https://user:pw@..`), a query or a fragment.
+  Emailed links are built from `base_url`, so each of these would break them.
+- **When `base_url` isn't local:** an `http://` `base_url`, since cookies would go out
+  without `Secure`, and a secret with less than `Secret::MIN_ENTROPY_BITS` (120) bits of
+  estimated entropy. The estimate (`Secret::entropy_bits`) is the length times log2 of the
+  number of distinct bytes: a secret from `fastauth secret` scores about 370, 32 zero bytes
+  score 0.
+
+Local means `localhost`, `*.localhost` or a loopback address; there both problems are only
+logged as warnings. `Builder::allow_insecure_config(true)` does the same for any host, for
+local development, CI and staging on a private network. Never set it in production. Better
+Auth only warns about a weak secret and doesn't check an `http://` `base_url`, so fastauth
+is stricter here.
+
+A wrong client IP setting can't be caught here: the socket address only exists per
+request. fastauth logs the first request without a client IP instead, as an error when
+`base_url` isn't local and `allow_insecure_config` is off ([Rate limiting](#rate-limiting)).
 
 ## Session tokens
 
@@ -49,6 +90,10 @@ OAuth state and [API keys](../plugins/tokens/03-api-keys.md) are stored as hashe
 | `SameSite` | `Lax` |
 | `Path` | `/` |
 | `Max-Age` | session expiry; refreshed with the session |
+
+Every response from the auth routes carries `Cache-Control: no-store` unless the endpoint
+set its own, so a shared cache or CDN never stores `/get-session` or a response holding a
+session token. Better Auth sets it on `/get-session`.
 
 ## Sessions that aren't a sign-in
 
@@ -155,6 +200,21 @@ same place either way.
 - `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. Verifying scrypt hashes
   imported from a Better Auth database is [planned](../get-started/01-overview.md#planned).
 
+## Email addresses
+
+Every route that takes an email (core, admin, organization invitations, and plugins that
+call `routes::normalize_email`) trims and lowercases it, then accepts only one plain
+address, with the rules of Better Auth's `z.email()`:
+
+- a local part of letters, digits and `_'+-.`, not starting with a dot, without `..`, and
+  not ending in `.` or `'`;
+- a domain of labels made of letters, digits and `-`, ending in a top-level domain of two
+  or more letters.
+
+So address lists, spaces, control characters, quotes, a second `@` and non-ASCII addresses
+answer `400 INVALID_EMAIL`, and a mailer never gets a `To` it could split into several
+recipients.
+
 ## Verification values
 
 Email verification, password reset and two-factor OTP values are random, single use,
@@ -163,6 +223,10 @@ Codes are compared in constant time (`subtle`). OTPs allow 5 attempts before the
 burned. Each guess claims an attempt with a compare-and-swap on the stored counter before
 the code is compared, and a guess that loses the swap tries again, so concurrent guesses
 are counted one by one and can't try more than 5 codes.
+
+Storing a new verification value first deletes every expired one, so the rows anyone can
+create (OAuth states, passkey challenges, magic links) don't pile up. Better Auth cleans up
+the same way when it looks one up.
 
 ## Two-factor sign-in
 
@@ -194,6 +258,11 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
   did before 0.4. Like Better Auth's `runInBackgroundOrAwait`, except that fastauth always
   sends in the background. A send that fails is logged with `tracing::error!`, since the
   client already has its answer; emails still in flight when the process exits are lost.
+- Background sends are bounded, because password hashing runs on the same blocking pool:
+  at most 8 run at once per process, up to 10,000 more wait, and past that an email is
+  dropped and logged. A send that takes longer than 60 seconds is abandoned and logged;
+  the timeout fires when the mailer's future yields, so a mailer that blocks its thread
+  isn't cut off. A slow SMTP server delays email but can't starve sign-in.
 - The branch that sends nothing does the database work of the branch that does: a
   verification-table lookup for an unknown email on reset and verification, as Better Auth
   does, and email OTP issues and discards a code.
@@ -312,6 +381,21 @@ limiter is GCRA (one timestamp per key, no sliding-window bookkeeping) in a shar
 in-memory map, so each process counts on its own; a shared store is
 [planned](../get-started/01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
 
+- **IPv6 clients are limited per /64** by default, as Better Auth's `ipv6Subnet` does: a
+  home connection or a cloud VM gets a whole /64, so per-address limits wouldn't limit it.
+  `RateLimit::ipv6_prefix(bits)` changes the prefix; 128 limits each address on its own.
+  IPv4-mapped IPv6 addresses count as IPv4.
+- **Each account has a limit too.** On every route with a rule of its own (core's strict
+  routes, the plugins' rules and yours, not the default limit), each account the JSON body
+  names, its `email` and its `username`, gets 30 requests per 10 minutes per rule,
+  whatever the client IP. So guesses at one password spread over many addresses still
+  stop. `RateLimit::account_limit(Some(Limit::per(..)))` changes it and `None` turns it
+  off. Better Auth has no per-account limit, so fastauth is stricter here.
+- **Memory is bounded.** The limiter keeps at most `RateLimit::max_keys(n)` keys (100,000
+  by default). Each shard drops its expired keys every 1024 checks and when it's full, and
+  if it's still full, the half of its keys closest to expiry. Account names are kept as a
+  keyed 64-bit hash, never the value from the body, so a long `email` costs no memory.
+
 **The client IP** decides whose limit a request counts against, so it must be one the
 client can't choose ([Configuration](../get-started/03-configuration.md#rate-limits)):
 
@@ -322,11 +406,22 @@ client can't choose ([Configuration](../get-started/03-configuration.md#rate-lim
   takes the `proxies`-th address from the right. **Never `ClientIp::Header("x-forwarded-for")`**:
   its first value is whatever the client sent. A header value that isn't a valid IP counts
   as no IP, so a client can't invent one.
-- A request without a client IP is logged once (`tracing::warn!`). It is limited per account
-  when its JSON body names one (`email` or `username`), and otherwise shares one bucket with
-  every other request without an IP. Better Auth puts all of them in one shared bucket, where
-  three wrong passwords from anyone lock everyone out of sign-in; fastauth keeps the limit on
-  each account instead, so only guesses at the same account count against it.
+- A request without a client IP is logged once: with `tracing::error!` when `base_url`
+  isn't local and `allow_insecure_config` is off, else with `tracing::warn!`. `.build()`
+  can't check the setting, because the socket address only exists per request. The request
+  is limited per account when its JSON body names one, on its `email` and on its
+  `username` when it has both, so a junk `email` doesn't buy a fresh bucket for username
+  guesses. Without either it shares one bucket with every other request without an IP.
+  Better Auth puts all of them in one shared bucket, where three wrong passwords from anyone
+  lock everyone out of sign-in; fastauth keeps the limit on each account instead, so only
+  guesses at the same account count against it.
+
+## Logs
+
+`Debug` output never shows a secret value: `VerifyEmail` and `ResetPassword` print
+`[redacted]` for the link and token, `PluginEmail` for the text, link and code, and
+`SessionView` for the session token. Logging request bodies or cookie headers yourself
+still puts passwords and tokens in your logs.
 
 ## The database
 
@@ -373,7 +468,12 @@ In production:
 
 ## What fastauth doesn't do for you
 
+[Production checklist](../reference/04-production-checklist.md) lists what to set before real
+users.
+
 - **TLS.** Terminate it in front of the app; set `base_url` to https so cookies get `Secure`.
+  Connect to the database over TLS that checks the certificate as well
+  ([Databases](02-database.md#mysql)).
 - **Account enumeration via other routes.** If your own `/users/:email` endpoint answers
   differently for unknown emails, the sign-in timing work above doesn't help.
 - **Bot protection.** There's no CAPTCHA plugin yet; a [sign-in gate](../reference/01-plugin-authoring.md#sign-in-gates)

@@ -209,9 +209,16 @@ from the JSON body; `Empty` is `{}`. A body that doesn't deserialize answers `40
 
 Also on `ctx`: `db()`, `new_id()`, `now()`, `emit(event)`, `plugin::<P>()` and
 `try_plugin::<P>()`, `config()`, `keys()`, `headers()`, `ip()`, `user_agent()`, cookies
-(`set_signed_cookie`, `signed_cookie`, `delete_cookie`), `redirect(url)`, and `internal()`
-for the core operations plugins build on: finding and creating users, accounts and
-sessions, `sign_in` and `complete_sign_in`, verification values, and `send_email`.
+(`set_signed_cookie`, `signed_cookie`, `signed_token_cookie`, `delete_cookie`),
+`redirect(url)`, and `internal()` for the core operations plugins build on: finding and
+creating users, accounts and sessions, `sign_in` and `complete_sign_in`, verification
+values, and `send_email`.
+
+`signed_cookie` accepts only a cookie the current secret signed, so after a
+[rotation](../concepts/03-security.md#secrets) a retired secret can't forge one. A cookie that
+holds a session token is read with `signed_token_cookie`, which accepts every configured
+secret: the token means nothing until its session row is found, and the cookie keeps
+working across a rotation.
 
 An endpoint that creates or changes a credential (a key, a passkey, a linked account,
 two-factor) should act on `ctx.sensitive_session().await?` rather than `ctx.session()`. It
@@ -612,7 +619,7 @@ cookie:
 
 ```rust
 app.on_session_created(|ctx, session: SessionView| async move {
-    let previous = match ctx.signed_cookie("session_token") {
+    let previous = match ctx.signed_token_cookie("session_token") {
         Some(token) => ctx.internal().find_session_by_token(&token).await?,
         None => None,
     };

@@ -14,6 +14,8 @@ const SESSION_TOKEN_COOKIE: &str = "session_token";
 const DONT_REMEMBER_COOKIE: &str = "dont_remember";
 const SESSION_CACHE_COOKIE: &str = "session_data";
 const BAN_COLUMNS: [&str; 3] = ["banned", "banReason", "banExpires"];
+/// Users `/admin/list-users` answers without a `limit`, as in Better Auth.
+const DEFAULT_PAGE_SIZE: u64 = 100;
 
 /// Who an admin endpoint runs for: an HTTP request, whose session needs the right
 /// permissions, or the server API, which is trusted.
@@ -189,6 +191,20 @@ fn user_column<D: Adapter, A>(ctx: &Ctx<D, A>, key: &str) -> Result<ColumnDef, A
         .ok_or_else(|| invalid_field(format!("unknown field `{key}`")))
 }
 
+/// A `user` column the admin routes may write from `data`: core, app and admin columns,
+/// and other plugins' columns that clients may set on themselves. The rest (two-factor's
+/// `twoFactorEnabled`) only change through their plugin's own routes.
+fn writable_user_column<D: Adapter, A>(ctx: &Ctx<D, A>, key: &str) -> Result<ColumnDef, AuthError> {
+    let column = user_column(ctx, key)?;
+    if column.input || matches!(column.owner, "core" | "app" | "admin") {
+        return Ok(column);
+    }
+    Err(invalid_field(format!(
+        "field `{key}` belongs to the `{}` plugin and can't be set here",
+        column.owner
+    )))
+}
+
 fn column_value(column: &ColumnDef, key: &str, json: &Json) -> Result<Value, AuthError> {
     Value::from_json(column.ty, json)
         .filter(|v| !v.is_null() || column.nullable)
@@ -196,18 +212,8 @@ fn column_value(column: &ColumnDef, key: &str, json: &Json) -> Result<Value, Aut
 }
 
 fn normalize_email(email: &str) -> Result<String, AuthError> {
-    let email = email.trim().to_lowercase();
-    let valid = email.len() <= 254
-        && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.')
-        });
-    if !valid {
-        return Err(AuthError::bad_request(
-            codes::INVALID_EMAIL,
-            "Invalid email",
-        ));
-    }
-    Ok(email)
+    fastauth_core::routes::normalize_email(email)
+        .map_err(|_| AuthError::bad_request(codes::INVALID_EMAIL, "Invalid email"))
 }
 
 fn email_taken() -> AuthError {
@@ -312,8 +318,9 @@ pub struct CreateUserInput {
     pub data: Map<String, Json>,
 }
 
-/// `POST /admin/create-user`: needs `user:create`, plus `user:set-role` to pick a role
-/// and `user:ban` to set ban columns.
+/// `POST /admin/create-user`: needs `user:create`, plus `user:set-role` to pick a role,
+/// `user:ban` to set ban columns and `user:set-email` to set `emailVerified`. Columns
+/// another plugin owns and clients can't set (`twoFactorEnabled`) are refused.
 pub struct CreateUser(pub(crate) Caller);
 
 impl<D: Adapter> Endpoint<D> for CreateUser {
@@ -373,9 +380,17 @@ impl<D: Adapter> Endpoint<D> for CreateUser {
         if internal.find_user_by_email(&email).await?.is_some() {
             return Err(email_taken());
         }
+        if input.data.contains_key("emailVerified") {
+            caller.also(
+                session,
+                "user",
+                "set-email",
+                AdminError::YouAreNotAllowedToSetUsersEmail,
+            )?;
+        }
         let mut extra = vec![("role", Value::Text(role))];
         for (key, json) in &input.data {
-            let column = user_column(&ctx, key)?;
+            let column = writable_user_column(&ctx, key)?;
             if matches!(
                 column.name,
                 "id" | "email" | "name" | "created_at" | "updated_at"
@@ -472,6 +487,7 @@ pub struct ListUsersQuery {
     pub search_value: Option<String>,
     pub search_field: Option<SearchField>,
     pub search_operator: Option<SearchOperator>,
+    /// At most this many users; 100 when unset.
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     /// A user column in camelCase.
@@ -640,9 +656,7 @@ impl<D: Adapter> Endpoint<D> for ListUsers {
         if let Some(offset) = query.offset {
             find = find.offset(offset);
         }
-        if let Some(limit) = query.limit {
-            find = find.limit(limit);
-        }
+        find = find.limit(query.limit.unwrap_or(DEFAULT_PAGE_SIZE));
         let users = find
             .all_rows()
             .await?
@@ -874,6 +888,7 @@ pub struct UpdateUserInput {
 
 /// `POST /admin/update-user`: needs `user:update`, plus `user:set-role` for `role`,
 /// `user:ban` for the ban columns and `user:set-email` for `email` and `emailVerified`.
+/// Columns another plugin owns and clients can't set (`twoFactorEnabled`) are refused.
 /// Answers the user itself, unwrapped. Setting `banned: true` revokes the user's sessions.
 pub struct UpdateUser(pub(crate) Caller);
 
@@ -954,7 +969,7 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
             if matches!(key.as_str(), "role" | "email") {
                 continue;
             }
-            let column = user_column(&ctx, key)?;
+            let column = writable_user_column(&ctx, key)?;
             if matches!(column.name, "created_at" | "updated_at") {
                 return Err(invalid_field(format!("field `{key}` can't be set")));
             }
@@ -1259,7 +1274,7 @@ impl<D: Adapter> Endpoint<D> for ImpersonateUser {
         }
 
         let now = ctx.now();
-        let dont_remember = ctx.signed_cookie(DONT_REMEMBER_COOKIE).is_some();
+        let dont_remember = ctx.signed_token_cookie(DONT_REMEMBER_COOKIE).is_some();
         let remaining = admin.session.expires_at - now;
         let session = ctx
             .internal()
@@ -1303,7 +1318,7 @@ impl<D: Adapter> Endpoint<D> for StopImpersonating {
             .ok_or(AdminError::NotImpersonating)?;
         let missing = || AuthError::internal("failed to find the admin session");
         let cookie = ctx
-            .signed_cookie(ADMIN_SESSION_COOKIE)
+            .signed_token_cookie(ADMIN_SESSION_COOKIE)
             .ok_or_else(missing)?;
         let (token, dont_remember) = cookie.split_once(':').ok_or_else(missing)?;
         let row = ctx

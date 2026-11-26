@@ -67,8 +67,8 @@ impl Serialize for UserView {
     }
 }
 
-/// A session as endpoints and plugins see it.
-#[derive(Clone, Debug)]
+/// A session as endpoints and plugins see it. Debug output never shows the raw token.
+#[derive(Clone)]
 pub struct SessionView {
     pub session: Session,
     pub row: Row,
@@ -79,6 +79,18 @@ pub struct SessionView {
     pub ephemeral: bool,
     /// Read from the cookie cache, so it may be stale; see `Ctx::authoritative_session`.
     pub(crate) from_cache: bool,
+}
+
+impl std::fmt::Debug for SessionView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionView")
+            .field("session", &self.session)
+            .field("row", &self.row)
+            .field("user", &self.user)
+            .field("token", &self.token.as_ref().map(|_| "[redacted]"))
+            .field("ephemeral", &self.ephemeral)
+            .finish()
+    }
 }
 
 impl SessionView {
@@ -418,7 +430,7 @@ pub(crate) async fn by_token<D: Adapter>(
 /// Whether the request carries the signed cookie of a `rememberMe: false` sign-in.
 fn dont_remember<D>(shared: &Shared<D>, request: &RequestInfo) -> bool {
     cookies::read(&request.headers, &shared.config.cookie_name(DONT_REMEMBER))
-        .and_then(|v| shared.keys.verify(SignPurpose::Cookie, v))
+        .and_then(|v| shared.keys.verify_token(v))
         .is_some()
 }
 
@@ -490,11 +502,7 @@ pub(crate) async fn resolve<D: Adapter>(
     let db = within.map_or(&shared.db, |db| &**db);
     let cookie_name = shared.config.cookie_name(SESSION_TOKEN);
     if let Some(raw) = cookies::read(&request.headers, &cookie_name) {
-        let Some(token) = shared
-            .keys
-            .verify(SignPurpose::Cookie, raw)
-            .map(str::to_owned)
-        else {
+        let Some(token) = shared.keys.verify_token(raw).map(str::to_owned) else {
             clear_session_cookies(&shared.config, effects);
             return Ok(None);
         };

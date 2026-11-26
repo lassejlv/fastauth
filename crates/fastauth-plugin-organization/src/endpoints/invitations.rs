@@ -104,6 +104,18 @@ impl<D: Adapter> Endpoint<D> for InviteMember {
                 }
             }
             None => {
+                let pending = ctx
+                    .db()
+                    .count::<Invitation>(
+                        Invitation::ORGANIZATION_ID
+                            .eq(&organization_id)
+                            .and(Invitation::STATUS.eq(InvitationStatus::Pending))
+                            .and(Invitation::EXPIRES_AT.gt(ctx.now())),
+                    )
+                    .await?;
+                if pending >= plugin.invitation_limit {
+                    return Err(OrganizationError::InvitationLimitReached.into());
+                }
                 ctx.db()
                     .insert(&Invitation {
                         id: ctx.new_id()?,
@@ -124,23 +136,7 @@ impl<D: Adapter> Endpoint<D> for InviteMember {
 }
 
 fn normalized_email(email: &str) -> Result<String, AuthError> {
-    let email = email.trim().to_lowercase();
-    let valid = email.len() <= 254
-        && !email.contains(char::is_whitespace)
-        && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty()
-                && !domain.contains('@')
-                && domain.contains('.')
-                && !domain.starts_with('.')
-                && !domain.ends_with('.')
-        });
-    if !valid {
-        return Err(AuthError::bad_request(
-            codes::INVALID_EMAIL,
-            "invalid email",
-        ));
-    }
-    Ok(email)
+    fastauth_core::routes::normalize_email(email)
 }
 
 async fn send_invitation_email<D: Adapter, A>(

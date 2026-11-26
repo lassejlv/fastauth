@@ -131,13 +131,13 @@ permission answers `401 UNAUTHORIZED` without a session, and `403` with the code
 
 | Method | Path | Better Auth client | Needs | Notes |
 |---|---|---|---|---|
-| `POST` | `/admin/create-user` | `authClient.admin.createUser` | `user:create`, plus `user:set-role` to pass a role and `user:ban` to set ban columns in `data` | Body `{ email, password?, name, role?, data? }`. Without `password` there's no credential account. `data` sets other user columns by camelCase name. Answers `{ user }`. |
+| `POST` | `/admin/create-user` | `authClient.admin.createUser` | `user:create`, plus `user:set-role` to pass a role, `user:ban` to set ban columns in `data` and `user:set-email` to set `emailVerified` in `data` | Body `{ email, password?, name, role?, data? }`. Without `password` there's no credential account. `data` sets other user columns by camelCase name, except columns another plugin owns ([Writing user columns](#writing-user-columns)). Answers `{ user }`. |
 | `GET` | `/admin/list-users` | `authClient.admin.listUsers` | `user:list` | See [Listing users](#listing-users). Answers `{ users, total, limit?, offset? }`. |
 | `GET` | `/admin/get-user?id=..` | `authClient.admin.getUser` | `user:get` | Answers the user itself, not `{ user }`. |
 | `POST` | `/admin/set-role` | `authClient.admin.setRole` | `user:set-role` | `role` is a string or an array. Every role must be defined. Answers `{ user }`. |
 | `POST` | `/admin/ban-user` | `authClient.admin.banUser` | `user:ban` | Body `{ userId, banReason?, banExpiresIn? }`, the expiry in seconds. Revokes every session of the user. Answers `{ user }`. |
 | `POST` | `/admin/unban-user` | `authClient.admin.unbanUser` | `user:ban` | Clears `banned`, `banReason` and `banExpires`. Answers `{ user }`. |
-| `POST` | `/admin/update-user` | `authClient.admin.updateUser` | `user:update`, plus `user:set-role` for `role`, `user:ban` for the ban columns, `user:set-email` for `email` and `emailVerified` | Body `{ userId, data }`. Refuses `password` and `id`. `banned: true` revokes the user's sessions. Answers the user itself. |
+| `POST` | `/admin/update-user` | `authClient.admin.updateUser` | `user:update`, plus `user:set-role` for `role`, `user:ban` for the ban columns, `user:set-email` for `email` and `emailVerified` | Body `{ userId, data }`. Refuses `password`, `id` and columns another plugin owns ([Writing user columns](#writing-user-columns)). `banned: true` revokes the user's sessions. Answers the user itself. |
 | `POST` | `/admin/set-user-password` | `authClient.admin.setUserPassword` | `user:set-password` | Body `{ userId, newPassword }`. Checks the password policy and creates the credential account if needed. Answers `{ status: true }`. |
 | `POST` | `/admin/remove-user` | `authClient.admin.removeUser` | `user:delete` | Deletes the user's sessions and accounts, then the user. Answers `{ success: true }`. |
 | `POST` | `/admin/list-user-sessions` | `authClient.admin.listUserSessions` | `session:list` | The user's unexpired sessions, newest first. Answers `{ sessions }`. |
@@ -161,6 +161,22 @@ impersonation draws: `set-user-password`, `update-user`, `set-role`, `ban-user`,
 another admin over by setting their password or email. Acting on yourself and server API
 calls aren't affected. Better Auth has no such check.
 
+### Writing user columns
+
+`create-user` and `update-user` apply the same rules to `data`:
+
+- `emailVerified` needs `user:set-email` on both. Better Auth checks it only on
+  `update-user`, so a role with `user:create` alone could create a verified user for any
+  address there.
+- Core, app and admin columns can be set. A column another plugin owns can be set only when
+  clients may set it on themselves (`#[field(input)]`); the others, such as two-factor's
+  `twoFactorEnabled`, change only through their plugin's own routes, and naming one answers
+  `400 INVALID_FIELD`. So a role with `user:update` can't turn off another user's
+  two-factor. Better Auth writes any column here, so fastauth is stricter.
+
+The built-in `admin` role has every permission, so this only changes what custom roles
+can do.
+
 ### Listing users
 
 `/admin/list-users` takes Better Auth's query parameters and runs the search, filter, sort
@@ -176,13 +192,17 @@ and paging in the database:
 | `filterOperator` | `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `in`, `not_in`, `contains`, `starts_with`, `ends_with` | `eq` |
 | `sortBy` | any user column, camelCase | none |
 | `sortDirection` | `asc`, `desc` | `asc` |
-| `limit`, `offset` | integers | every row |
+| `limit` | integer | 100 |
+| `offset` | integer | 0 |
 
 Search and the text filters are **case-sensitive**, as in Better Auth: `searchValue=ACME`
 doesn't find `ada@acme.dk`. Emails are stored lowercase, so lowercase an email search; names
 keep the case they were stored with. `in` and `not_in` take a comma-separated list, and the
 text operators work on text columns only. An unknown or hidden column answers
 `400 INVALID_FIELD`. `total` counts every match, not just the page.
+
+Without `limit`, at most 100 users come back, as in Better Auth, so page with `limit` and
+`offset`. The response's `limit` is set only when the request gave one.
 
 ## Server API
 
@@ -481,7 +501,7 @@ Codes, statuses and messages match Better Auth's admin plugin (`AdminError`):
 | `YOU_ARE_NOT_ALLOWED_TO_CHANGE_USERS_ROLE` | 403 | setting a role without `user:set-role` |
 | `YOU_ARE_NOT_ALLOWED_TO_BAN_USERS` | 403 | ban, unban or ban columns without `user:ban` |
 | `YOU_ARE_NOT_ALLOWED_TO_UPDATE_USERS` | 403 | `update-user` without `user:update` |
-| `YOU_ARE_NOT_ALLOWED_TO_SET_USERS_EMAIL` | 403 | `email` or `emailVerified` in `update-user` without `user:set-email` |
+| `YOU_ARE_NOT_ALLOWED_TO_SET_USERS_EMAIL` | 403 | `email` or `emailVerified` in `update-user`, or `emailVerified` in `create-user`, without `user:set-email` |
 | `YOU_ARE_NOT_ALLOWED_TO_SET_USERS_PASSWORD` | 403 | `set-user-password` without `user:set-password` |
 | `YOU_ARE_NOT_ALLOWED_TO_DELETE_USERS` | 403 | `remove-user` without `user:delete` |
 | `YOU_ARE_NOT_ALLOWED_TO_LIST_USERS_SESSIONS` | 403 | `list-user-sessions` without `session:list` |
@@ -502,7 +522,8 @@ Codes, statuses and messages match Better Auth's admin plugin (`AdminError`):
 
 The admin routes also answer with core codes: `401 UNAUTHORIZED` (no session),
 `404 USER_NOT_FOUND`, `400 INVALID_EMAIL`, `400 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`,
-`400 INVALID_FIELD` (an unknown, hidden or read-only column, or a value of the wrong type),
+`400 INVALID_FIELD` (an unknown, hidden or read-only column, a column another plugin owns,
+or a value of the wrong type),
 `400 INVALID_REQUEST_BODY` (`has-permission` without permissions), and the password policy
 codes such as `400 PASSWORD_TOO_SHORT`.
 
