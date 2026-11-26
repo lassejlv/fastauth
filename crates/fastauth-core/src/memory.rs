@@ -9,7 +9,7 @@ use crate::adapter::{
     Adapter, DbError, DbResult, Delete, Filter, Insert, Op, Order, Queries, Select, Transaction,
     Update,
 };
-use crate::migrate::{LiveSchema, MigrationPlan, Step};
+use crate::migrate::{LiveSchema, MigrationPlan, Step, duplicates_error, unique_key};
 use crate::schema::TableDef;
 use crate::value::{Row, Value};
 
@@ -111,7 +111,67 @@ fn check_unique(
             });
         }
     }
+    for unique in &table.uniques {
+        let positions: Vec<usize> = unique
+            .columns
+            .iter()
+            .filter_map(|c| table.position(c))
+            .collect();
+        if positions.iter().any(|&i| candidate[i].is_null()) {
+            continue;
+        }
+        let clash = rows
+            .iter()
+            .enumerate()
+            .any(|(r, row)| Some(r) != skip && positions.iter().all(|&i| row[i] == candidate[i]));
+        if clash {
+            return Err(DbError::UniqueViolation {
+                table: table.name.to_owned(),
+                column: None,
+            });
+        }
+    }
     Ok(())
+}
+
+/// Some rows of `table` that share non-null values in `columns`, for `Step::AddUnique`.
+fn duplicates<'t>(
+    table: &'t TableDef,
+    rows: &[Vec<Value>],
+    columns: &[&'t str],
+) -> Vec<Vec<(&'t str, Value)>> {
+    let positions: Vec<(&str, usize)> = table
+        .primary_key()
+        .map(|pk| pk.name)
+        .into_iter()
+        .chain(columns.iter().copied())
+        .filter_map(|c| table.position(c).map(|i| (c, i)))
+        .collect();
+    let key = |row: &Vec<Value>| -> Option<Vec<Value>> {
+        let values: Vec<Value> = columns
+            .iter()
+            .filter_map(|c| table.position(c))
+            .map(|i| row[i].clone())
+            .collect();
+        (!values.iter().any(Value::is_null)).then_some(values)
+    };
+    rows.iter()
+        .filter(|row| {
+            key(row).is_some_and(|k| {
+                rows.iter()
+                    .filter(|other| key(other) == Some(k.clone()))
+                    .count()
+                    > 1
+            })
+        })
+        .take(10)
+        .map(|row| {
+            positions
+                .iter()
+                .map(|&(c, i)| (c, row[i].clone()))
+                .collect()
+        })
+        .collect()
 }
 
 fn select(tables: &Tables, q: &Select<'_>) -> Vec<Vec<Value>> {
@@ -267,7 +327,22 @@ impl Adapter for MemoryAdapter {
     }
 
     async fn apply(&self, plan: &MigrationPlan) -> DbResult<()> {
+        let tables = self.tables.lock().unwrap();
+        for step in &plan.steps {
+            if let Step::AddUnique { table, columns } = step {
+                let rows = tables
+                    .get(table.name)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let clashing = duplicates(table, rows, columns);
+                if !clashing.is_empty() {
+                    return Err(duplicates_error(table.name, columns, &clashing));
+                }
+            }
+        }
+        drop(tables);
         let mut live = self.live.lock().unwrap();
+        let mut uniques = live.uniques.take().unwrap_or_default();
         for step in &plan.steps {
             match step {
                 Step::CreateTable(t) => {
@@ -275,12 +350,24 @@ impl Adapter for MemoryAdapter {
                         t.name.to_owned(),
                         t.columns.iter().map(|c| c.name.to_owned()).collect(),
                     );
+                    uniques.extend(
+                        t.columns
+                            .iter()
+                            .filter(|c| c.unique && !c.primary_key)
+                            .map(|c| unique_key(t.name, &[c.name])),
+                    );
                 }
                 Step::AddColumn { table, column } => {
                     live.tables
                         .entry(table.name.to_owned())
                         .or_default()
                         .insert(column.name.to_owned());
+                    if column.unique {
+                        uniques.insert(unique_key(table.name, &[column.name]));
+                    }
+                }
+                Step::AddUnique { table, columns } => {
+                    uniques.insert(unique_key(table.name, columns));
                 }
                 Step::CreateIndex { table, column } => {
                     live.indexes
@@ -288,6 +375,7 @@ impl Adapter for MemoryAdapter {
                 }
             }
         }
+        live.uniques = Some(uniques);
         Ok(())
     }
 }

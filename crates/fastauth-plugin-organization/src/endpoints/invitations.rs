@@ -125,7 +125,8 @@ impl<D: Adapter> Endpoint<D> for InviteMember {
 
 fn normalized_email(email: &str) -> Result<String, AuthError> {
     let email = email.trim().to_lowercase();
-    let valid = !email.contains(char::is_whitespace)
+    let valid = email.len() <= 254
+        && !email.contains(char::is_whitespace)
         && email.split_once('@').is_some_and(|(local, domain)| {
             !local.is_empty()
                 && !domain.contains('@')

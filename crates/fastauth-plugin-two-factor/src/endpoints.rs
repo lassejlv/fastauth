@@ -1,5 +1,6 @@
 //! The `/two-factor/*` endpoints, the sign-in gate, and the signed cookies they share.
 
+use fastauth_core::adapter::Transaction;
 use fastauth_core::crypto::{Keys, base64url, ct_eq, random_bytes};
 use fastauth_core::mail::{AuthEmail, PluginEmail};
 use fastauth_core::plugin_prelude::*;
@@ -84,7 +85,9 @@ pub struct BackupCodesOutput {
     pub backup_codes: Vec<String>,
 }
 
-/// `POST /two-factor/enable`: a new TOTP secret and backup codes, replacing any old ones.
+/// `POST /two-factor/enable`: a new TOTP secret and backup codes, replacing any old ones. The
+/// replacement runs in a transaction that locks the user's row first, so two enables at once
+/// leave one secret, the one the later answer shows.
 /// Two-factor turns on after the first `verify-totp`, or at once with
 /// `skip_verification_on_enable`. Needs a session read from the database
 /// (`Ctx::sensitive_session`): API-key and impersonation sessions can't enable two-factor.
@@ -107,18 +110,23 @@ impl<D: Adapter> Endpoint<D> for Enable {
         check_password(&ctx, &user.id, &input.password).await?;
         let secret = random_bytes::<20>();
         let backup_codes = new_backup_codes(self.0.backup_codes);
-        ctx.db()
-            .delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(&user.id))
+        let row = TwoFactorRow {
+            id: ctx.new_id()?,
+            user_id: user.id.clone(),
+            secret: ctx.keys().encrypt(&secret),
+            backup_codes: seal_codes(ctx.keys(), &backup_codes),
+            last_used_step: None,
+        };
+        let tx = ctx.adapter().begin().await?;
+        let db = ctx.db_on(&tx);
+        db.update::<User>(User::ID.eq(&user.id))
+            .set(User::ID, user.id.clone())
+            .exec()
             .await?;
-        ctx.db()
-            .insert(&TwoFactorRow {
-                id: ctx.new_id()?,
-                user_id: user.id.clone(),
-                secret: ctx.keys().encrypt(&secret),
-                backup_codes: seal_codes(ctx.keys(), &backup_codes),
-                last_used_step: None,
-            })
+        db.delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(&user.id))
             .await?;
+        db.insert(&row).await?;
+        tx.commit().await?;
         if self.0.skip_verification_on_enable {
             set_enabled(&ctx, &user.id, true).await?;
         }

@@ -238,7 +238,15 @@ async fn insert_member<D: Adapter, A>(
             role,
             created_at: ctx.now(),
         })
-        .await?;
+        .await
+        .map_err(|err| -> AuthError {
+            match err {
+                DbError::UniqueViolation { ref table, .. } if table == Member::TABLE => {
+                    OrganizationError::UserIsAlreadyAMemberOfThisOrganization.into()
+                }
+                other => other.into(),
+            }
+        })?;
     ctx.emit(MemberAdded {
         organization_id: member.organization_id.clone(),
         user_id: member.user_id.clone(),
@@ -288,6 +296,21 @@ fn slug_taken(err: DbError) -> AuthError {
         }
         other => other.into(),
     }
+}
+
+/// The longest slug an organization may have, in characters. Every database stores one this
+/// long in its unique key (MySQL keys hold 768), so a longer one is a 400, not a 500.
+const MAX_SLUG: usize = 255;
+
+fn require_slug(slug: &str) -> Result<(), AuthError> {
+    require_text(slug, "slug")?;
+    if slug.chars().count() > MAX_SLUG {
+        return Err(AuthError::bad_request(
+            codes::INVALID_BODY,
+            format!("slug must be at most {MAX_SLUG} characters"),
+        ));
+    }
+    Ok(())
 }
 
 fn require_text(value: &str, field: &str) -> Result<(), AuthError> {

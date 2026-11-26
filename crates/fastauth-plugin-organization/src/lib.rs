@@ -158,6 +158,7 @@ impl Plugin for Organization {
         schema
             .model::<OrganizationRow>()
             .model::<Member>()
+            .unique(Member::TABLE, &["organization_id", "user_id"])
             .model::<Invitation>();
     }
 

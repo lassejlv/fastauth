@@ -58,6 +58,7 @@ impl Driver for MySql {
     const TEXT_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '!'");
     const WILDCARD: char = '%';
     const UNIQUE_ON_ADD_COLUMN: bool = false;
+    const KEY_BYTES: Option<usize> = Some(3072);
 
     fn param(_n: usize, out: &mut String) {
         out.push('?');
@@ -167,6 +168,14 @@ impl Driver for MySql {
             "SELECT DISTINCT CAST(TABLE_NAME AS CHAR), CAST(INDEX_NAME AS CHAR) \
              FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE())",
         )
+        .bind(schema.clone())
+        .fetch_all(&mut *conn)
+        .await?;
+        let uniques = sqlx::query_as(
+            "SELECT CAST(TABLE_NAME AS CHAR), CAST(INDEX_NAME AS CHAR), CAST(COLUMN_NAME AS CHAR) \
+             FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) \
+             AND NON_UNIQUE = 0 AND INDEX_NAME <> 'PRIMARY'",
+        )
         .bind(schema)
         .fetch_all(conn)
         .await?;
@@ -174,6 +183,7 @@ impl Driver for MySql {
             columns,
             indexes,
             id_storage,
+            uniques,
         })
     }
 

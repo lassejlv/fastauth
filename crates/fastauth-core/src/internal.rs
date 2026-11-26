@@ -85,6 +85,20 @@ fn user_exists(err: DbError) -> AuthError {
     }
 }
 
+fn account_linked(err: DbError) -> AuthError {
+    match err {
+        DbError::UniqueViolation {
+            ref table,
+            column: None,
+        } if table == Account::TABLE => AuthError::new(
+            StatusCode::CONFLICT,
+            codes::SOCIAL_ACCOUNT_ALREADY_LINKED,
+            "social account already linked",
+        ),
+        other => other.into(),
+    }
+}
+
 pub(crate) fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
@@ -179,7 +193,9 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let db = self.ctx.db_on(&tx);
         let row = db.insert_row::<User>(values).await.map_err(user_exists)?;
         if let Some(account) = account {
-            db.insert_row::<Account>(account).await?;
+            db.insert_row::<Account>(account)
+                .await
+                .map_err(account_linked)?;
         }
         tx.commit().await?;
         let view = UserView::from_row(row).map_err(AuthError::internal)?;
@@ -200,7 +216,8 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .ctx
             .db()
             .insert_row::<Account>(self.account_values(user_id, account)?)
-            .await?;
+            .await
+            .map_err(account_linked)?;
         self.ctx.emit(AccountLinked {
             user_id: user_id.clone(),
             provider_id,

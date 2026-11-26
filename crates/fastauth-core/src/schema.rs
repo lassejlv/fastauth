@@ -133,11 +133,22 @@ impl ColumnDef {
     }
 }
 
+/// A unique constraint over several columns of one table, added with
+/// [`SchemaBuilder::unique`]. A single unique column is [`ColumnDef::unique`] instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UniqueDef {
+    pub columns: Vec<&'static str>,
+    /// The plugin id, `"core"` or `"app"`.
+    pub owner: &'static str,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableDef {
     pub name: &'static str,
     pub owner: &'static str,
     pub columns: Vec<ColumnDef>,
+    /// Unique constraints over several columns. Single unique columns aren't listed here.
+    pub uniques: Vec<UniqueDef>,
     positions: HashMap<&'static str, usize>,
     id_storage: IdStorage,
 }
@@ -148,6 +159,7 @@ impl TableDef {
             name,
             owner,
             columns: Vec::new(),
+            uniques: Vec::new(),
             positions: HashMap::new(),
             id_storage: IdStorage::default(),
         }
@@ -169,6 +181,16 @@ impl TableDef {
 
     pub fn primary_key(&self) -> Option<&ColumnDef> {
         self.columns.iter().find(|c| c.primary_key)
+    }
+
+    /// Every set of columns the database keeps unique, primary key aside: each unique
+    /// column on its own, then each [`UniqueDef`].
+    pub fn unique_sets(&self) -> impl Iterator<Item = Vec<&'static str>> + '_ {
+        self.columns
+            .iter()
+            .filter(|c| c.unique && !c.primary_key)
+            .map(|c| vec![c.name])
+            .chain(self.uniques.iter().map(|u| u.columns.clone()))
     }
 }
 
@@ -252,6 +274,38 @@ impl SchemaBuilder {
             column.owner = owner;
             def.positions.insert(column.name, def.columns.len());
             def.columns.push(column);
+        }
+        self
+    }
+
+    /// Makes `columns` of `table` unique together, enforced by the database. Adapters
+    /// report a violation as `DbError::UniqueViolation` on `table` with no column.
+    pub fn unique(&mut self, table: &'static str, columns: &[&'static str]) -> &mut Self {
+        let owner = self.owner;
+        let Some(def) = self.tables.iter_mut().find(|t| t.name == table) else {
+            self.errors.push(format!(
+                "`{owner}` adds a unique constraint to unknown table `{table}`"
+            ));
+            return self;
+        };
+        if columns.len() < 2 {
+            self.errors.push(format!(
+                "`{owner}`: a unique constraint on `{table}` needs two or more columns; \
+                 use `ColumnDef::unique` for one"
+            ));
+            return self;
+        }
+        if let Some(missing) = columns.iter().find(|c| def.column(c).is_none()) {
+            self.errors.push(format!(
+                "`{owner}` adds a unique constraint on missing column `{table}.{missing}`"
+            ));
+            return self;
+        }
+        if !def.uniques.iter().any(|u| u.columns == columns) {
+            def.uniques.push(UniqueDef {
+                columns: columns.to_vec(),
+                owner,
+            });
         }
         self
     }

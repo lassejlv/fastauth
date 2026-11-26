@@ -541,9 +541,80 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
                     quote::<DB>(column.name)
                 ));
             }
+            Step::AddUnique { table, columns } => {
+                let name = unique_name(&names.physical(table.name), &columns.join("_"));
+                let parts: Vec<String> = columns
+                    .iter()
+                    .map(|column| key_part::<DB>(table, columns, column))
+                    .collect();
+                out.push(format!(
+                    "CREATE UNIQUE INDEX {} ON {} ({})",
+                    quote::<DB>(&DB::ident(name)),
+                    names.qualified::<DB>(table.name),
+                    parts.join(", ")
+                ));
+            }
         }
     }
     out
+}
+
+/// One column of a unique index over `columns`. Where keys are small (MySQL), each text
+/// column of a multi-column index gets an equal share of the key as a prefix length. Ids
+/// and the provider ids fastauth stores are far shorter than their share (at least 384
+/// characters for two text columns), so the prefix is the whole value in practice.
+fn key_part<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> String {
+    let quoted = quote::<DB>(column);
+    let Some(budget) = DB::KEY_BYTES.filter(|_| columns.len() > 1) else {
+        return quoted;
+    };
+    let ty = |name: &str| table.column(name).map(|c| stored_type(table, c.ty));
+    if ty(column) != Some(ColumnType::Text) {
+        return quoted;
+    }
+    let texts = columns
+        .iter()
+        .filter(|c| ty(c) == Some(ColumnType::Text))
+        .count();
+    let fixed: usize = columns
+        .iter()
+        .map(|c| match ty(c) {
+            Some(ColumnType::Text) => 0,
+            Some(ColumnType::Bytes) => 255,
+            _ => 16,
+        })
+        .sum();
+    format!("{quoted}({})", budget.saturating_sub(fixed) / 4 / texts)
+}
+
+/// The rows of `table` that share non-null values in `columns` (some of them), primary
+/// key first, for refusing a `Step::AddUnique` with a message that names them.
+pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &[&str]) -> SqlStr {
+    let qualified = names.qualified::<DB>(table.name);
+    let list = |cols: &[&str]| {
+        cols.iter()
+            .map(|c| quote::<DB>(c))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let keys = list(columns);
+    let selected: Vec<&str> = table
+        .primary_key()
+        .map(|pk| pk.name)
+        .into_iter()
+        .chain(columns.iter().copied())
+        .collect();
+    let not_null = columns
+        .iter()
+        .map(|c| format!("{} IS NOT NULL", quote::<DB>(c)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    AssertSqlSafe(format!(
+        "SELECT {} FROM {qualified} WHERE ({keys}) IN (SELECT {keys} FROM {qualified} \
+         WHERE {not_null} GROUP BY {keys} HAVING COUNT(*) > 1) ORDER BY {keys} LIMIT 10",
+        list(&selected)
+    ))
+    .into_sql_str()
 }
 
 fn column_def<DB: Driver>(
@@ -557,7 +628,11 @@ fn column_def<DB: Driver>(
         || column.unique
         || column.index
         || column.references.is_some()
-        || column.ty == ColumnType::Id;
+        || column.ty == ColumnType::Id
+        || table
+            .uniques
+            .iter()
+            .any(|u| u.columns.contains(&column.name));
     let mut def = format!(
         "{} {}",
         quote::<DB>(column.name),
