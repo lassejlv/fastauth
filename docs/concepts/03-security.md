@@ -62,13 +62,33 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   so a ban stops a user's API keys and cached sessions too, and banning disables their keys.
 - **Ephemeral sessions are never fresh.** An API key's session fails `Fresh` endpoints and
   `FreshSession` with `403 SESSION_NOT_FRESH`.
-- **Credentials need a stored, authoritative session.** Creating or updating an API key,
-  registering a passkey, `/link-social` and turning two-factor on or off use
-  `ctx.sensitive_session()`: the session is read again from the database, skipping the cookie
-  cache, so a revoked session gets `401`; an API key's session has nothing stored and gets
-  `401`; and the admin plugin refuses impersonation sessions with
-  `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a stolen cookie
-  can't turn into a lasting credential.
+- **Credentials need a stored, authoritative session.** Creating, updating or deleting an API
+  key, registering, renaming or deleting a passkey, `/link-social`, `/unlink-account`,
+  `/change-password`, `/delete-anonymous-user`, turning two-factor on or off, reading the TOTP
+  URI and generating backup codes use `ctx.sensitive_session()`: the session is read again
+  from the database, skipping the cookie cache, so a revoked session gets `401`; an API key's
+  session has nothing stored and gets `401`; and the admin plugin refuses impersonation
+  sessions with `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a
+  stolen cookie can't turn into a lasting credential.
+- **Authorization reads the session from the database.** Admin permission checks
+  (`/admin/*`, impersonation, `/admin/has-permission`), organization role and permission
+  checks on every endpoint that changes something, and `/revoke-session`,
+  `/revoke-sessions` and `/revoke-other-sessions` use `ctx.authoritative_session()`. When
+  the cookie cache answered the request, the session and user are read again and the session
+  gates run on the stored rows, so a revoked session gets `401` and a demotion or a ban
+  counts at once instead of after the cache's max age. Without the cookie cache the session
+  was already read from the database and nothing is queried twice. Unlike
+  `sensitive_session()`, it lets API-key and impersonation sessions through, as any request
+  does. Read-only lists (organizations, members) still answer from the cache.
+- **Sessions end when they should.** A `rememberMe: false` sign-in gets a session that
+  lives one day at most (or `expires_in`, if that's shorter) and is never extended by the
+  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. A session
+  revoked while a request is refreshing it gets no refreshed cookie: the request answers
+  signed out and clears the cookies. When a session hook refuses a new session, the row is
+  deleted and the response sets none of its cookies.
+- **The cookie cache hides hidden columns.** Columns marked `returned = false` are left out
+  of the readable cache payload and stored encrypted (field-encryption key) inside it, so
+  they never reach the browser in clear.
 - **Impersonation stays short.** The admin plugin marks impersonation sessions with
   `PluginBuilder::fixed_session_expiry`, so the refresh never extends them and they end after
   `impersonation_session_duration`.
@@ -78,7 +98,12 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
 
 Better Auth checks bans only when a session is created, lets a key's session create keys,
 and doesn't stop impersonation sessions from minting credentials, so fastauth is stricter
-here. Its passkey registration and API-key creation also read the session from the database.
+here. Its passkey registration, API-key creation, admin checks, `/change-password`,
+`/revoke-*` and backup-code generation also read the session from the database. Better Auth
+lets a cached session read the TOTP URI, unlink an account and rename or delete a passkey, an
+API key's session generate backup codes, and impersonation or API-key sessions delete API
+keys, and it answers organization role checks from the cookie cache; fastauth refuses or
+re-reads in those cases, so it is stricter there too.
 
 API-key `permissions` still don't limit the key's session: it can do what its owner can on
 every route that takes a session. Check permissions with `auth.api_keys().verify(..)`, or

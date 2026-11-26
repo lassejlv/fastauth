@@ -178,7 +178,7 @@ impl<D: Adapter> Endpoint<D> for GetTotpUri {
         ctx: Ctx<D, Authenticated>,
         input: PasswordInput,
     ) -> Result<TotpUriOutput, AuthError> {
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         check_password(&ctx, &user.id, &input.password).await?;
         let row = find_row(&ctx, &user.id)
             .await?
@@ -340,7 +340,7 @@ impl<D: Adapter> Endpoint<D> for GenerateBackupCodes {
         ctx: Ctx<D, Authenticated>,
         input: PasswordInput,
     ) -> Result<BackupCodesOutput, AuthError> {
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         check_password(&ctx, &user.id, &input.password).await?;
         let enabled = is_enabled(user)?;
         let row = find_row(&ctx, &user.id)

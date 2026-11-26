@@ -76,7 +76,7 @@ pub mod plugin_prelude {
     };
     pub use crate::error::{AuthError, ErrorCodes, codes};
     pub use crate::events::Event;
-    pub use crate::internal::{Claim, NewAccount, NewUser, SignInResult, UserInput};
+    pub use crate::internal::{Claim, NewAccount, NewSession, NewUser, SignInResult, UserInput};
     pub use crate::model::{Col, Fields, Model, OnTable};
     pub use crate::models::{Account, Session, User, Verification};
     pub use crate::plugin::{Plugin, PluginBuilder};

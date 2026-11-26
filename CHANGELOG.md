@@ -4,6 +4,33 @@
 
 ### Security
 
+- **SESS-1:** with the cookie cache on, `/admin/*` and `impersonate-user` authorized from the
+  cached session, so a revoked, demoted or banned admin kept admin rights for the cache's max
+  age. Admin checks now read the session and user from the database.
+- **SESS-2:** `/two-factor/get-totp-uri`, `/two-factor/generate-backup-codes` and
+  `/change-password` accepted a cached or API-key session, and `/revoke-session`,
+  `/revoke-sessions` and `/revoke-other-sessions` a cached one. The first three now need a
+  stored session (`sensitive_session`); the revoke routes read it from the database.
+- **SESS-3:** `/api-key/delete` accepted impersonation, API-key and revoked cached sessions. It
+  now needs a stored session, as create and update do; so do renaming and deleting a passkey,
+  `/unlink-account` and `/delete-anonymous-user`.
+- **SESS-4:** a `rememberMe: false` session lived the full `expires_in` (7 days) and slid on
+  refresh, and multi-session kept a persistent device cookie for it. It now lives one day at
+  most, is never extended, and its device cookie lasts the browser session.
+- **SESS-5:** `create_session` set the session cookie before the session hooks ran, so a
+  refused sign-in or impersonation left the browser signed in (for impersonation, with an
+  unmarked 7-day session for the target). Hooks now run first; on an error the row is deleted
+  and no cookie is set. Impersonation writes `impersonatedBy` and its expiry in the same insert.
+- **SESS-6:** the cookie cache carried `returned = false` columns to the browser in a signed,
+  readable cookie. Those values are now encrypted inside the cache payload.
+- **SESS-7:** a JWT from `/token` ran its full `expiration_time` even past the session it came
+  from (an impersonation session, for example). `exp` is now capped at the session's expiry.
+- **SESS-8:** the sliding refresh ignored the row count of its conditional update, so a
+  session revoked mid-request got a refreshed cookie and a fresh cookie-cache cookie. The
+  request now answers signed out and clears the cookies.
+- Organization role and permission checks on every route that changes something also read
+  the session from the database now (the SESS-1 class).
+
 Fixes from the FAST-45 security review. One claim model now covers every path that proves an
 email: whoever proves control of an address becomes the only owner of its user
 ([Claiming an email](docs/concepts/03-security.md#claiming-an-email)).
@@ -37,6 +64,21 @@ email: whoever proves control of an address becomes the only owner of its user
 
 ### Behaviour changes
 
+- With the cookie cache on, admin and organization routes that change something,
+  `/admin/has-permission`, `/organization/has-permission` and the `/revoke-*` routes cost one
+  extra database read, and answer `401` to a session revoked since the cache cookie was set.
+- An API key's session and an impersonation session can no longer read the TOTP URI,
+  generate backup codes, change the password, delete API keys, rename or delete passkeys,
+  unlink accounts or delete an anonymous user (`401` for a key's session,
+  `403 NOT_ALLOWED_WHILE_IMPERSONATING` while impersonating). Better Auth allows some of
+  these; see [Security](docs/concepts/03-security.md#sessions-that-arent-a-sign-in).
+- `rememberMe: false` sessions expire after one day (or `expires_in`, if shorter) and aren't
+  refreshed.
+- A session hook that returns an error now leaves no session behind: the row is deleted and
+  the response sets no session cookie.
+- JWTs expire with their session at the latest.
+- The cookie-cache format changed, so every existing cache cookie is ignored once (the next
+  request reads the database and writes a new one).
 - Opening a verification link signed out, in another browser than the one that signed up
   (no session and no `pending_verification` cookie), deletes the user's password with
   everything else from before the proof. The owner signs in with a magic link or code, or sets
@@ -60,9 +102,18 @@ email: whoever proves control of an address becomes the only owner of its user
 - **Plugins:** move credential cleanup from `on::<UserClaimed>` to `on_claim`.
   `Internal::claim_unverified_user` is deprecated in favour of `claim_user(user, None)`.
 
-### Core changes
+### Core
 
-- `Internal::claim_user(user, link)`, `prove_email`, `create_user_verification` /
+- `Ctx::authoritative_session()`: the request's session as the database holds it, re-read
+  only when the cookie cache answered. For authorization decisions; unlike
+  `sensitive_session()` it lets API-key and impersonation sessions through.
+- `Ctx::dont_remember()`: whether the session cookie this request sets, or carries, is from a
+  `rememberMe: false` sign-in.
+- `NewSession` and `Internal::create_session_with(user_id, remember_me, NewSession)`: a session
+  with its own expiry and plugin columns in one insert. `create_session` calls it.
+- `SessionView` has a new private field, so code outside core can't build one with a struct
+  literal any more.
+- Claim model: `Internal::claim_user(user, link)`, `prove_email`, `create_user_verification` /
   `consume_user_verification`, `link_account_unless_claimed`, `remember_password_holder` and
   `user_fields`; `PluginBuilder::on_claim` with `Claim` and `prepare_user_input` with
   `UserInput` (all in `plugin_prelude`); `User::SECURITY_STAMP` and

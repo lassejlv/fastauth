@@ -174,8 +174,6 @@ PORT=3001 compat/better-auth/run-anonymous.sh
   `generateName` and accepts async functions.
 - **Placeholder ids** come from the app's id strategy; Better Auth uses a 32-character random
   id.
-- **`/delete-anonymous-user`** accepts a session from the cookie cache; Better Auth reads the
-  session from the database for it.
 
 ### Not built
 

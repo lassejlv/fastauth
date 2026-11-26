@@ -694,6 +694,7 @@ impl<D: Adapter> Endpoint<D> for UnlinkAccount {
         ctx: Ctx<D, Authenticated>,
         input: UnlinkAccountInput,
     ) -> Result<Status, AuthError> {
+        ctx.sensitive_session().await?;
         let accounts = user_accounts(&ctx).await?;
         let target = accounts
             .iter()

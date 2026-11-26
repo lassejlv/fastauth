@@ -522,7 +522,8 @@ impl<D: Adapter> Endpoint<D> for RevokeSession {
         ctx: Ctx<D, Authenticated>,
         input: RevokeSessionInput,
     ) -> Result<Status, AuthError> {
-        let user_id = &ctx.session().user.id;
+        let current = ctx.authoritative_session().await?;
+        let user_id = &current.user.id;
         let target = match (input.id, input.token) {
             (Some(id), _) => Some(id),
             (None, Some(token)) => ctx
@@ -552,7 +553,7 @@ impl<D: Adapter> Endpoint<D> for RevokeSession {
                 "session not found",
             ));
         }
-        if target == ctx.session().session.id {
+        if target == current.session.id {
             ctx.internal().clear_session_cookies();
         }
         Ok(OK)
@@ -569,8 +570,9 @@ impl<D: Adapter> Endpoint<D> for RevokeSessions {
     type Output = Status;
 
     async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Status, AuthError> {
+        let current = ctx.authoritative_session().await?;
         ctx.internal()
-            .revoke_user_sessions(&ctx.session().user.id, None)
+            .revoke_user_sessions(&current.user.id, None)
             .await?;
         ctx.internal().clear_session_cookies();
         Ok(OK)
@@ -587,7 +589,7 @@ impl<D: Adapter> Endpoint<D> for RevokeOtherSessions {
     type Output = Status;
 
     async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Status, AuthError> {
-        let session = ctx.session();
+        let session = ctx.authoritative_session().await?;
         ctx.internal()
             .revoke_user_sessions(&session.user.id, Some(&session.session.id))
             .await?;
@@ -687,7 +689,7 @@ impl<D: Adapter> Endpoint<D> for ChangePassword {
         ctx: Ctx<D, Authenticated>,
         input: ChangePasswordInput,
     ) -> Result<ChangePasswordOutput, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.sensitive_session().await?;
         let internal = ctx.internal();
         let Some(hash) = internal
             .credential_account(&session.user.id)

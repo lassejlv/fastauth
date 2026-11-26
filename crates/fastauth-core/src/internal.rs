@@ -16,7 +16,7 @@ use crate::events::{
     AccountLinked, EmailVerified, SessionCreated, SessionRevoked, UserClaimed, UserCreated,
 };
 use crate::mail::{AuthEmail, VerifyEmail};
-use crate::model::Model;
+use crate::model::{Col, Model, OnTable};
 use crate::models::{Account, Session, User, Verification};
 use crate::query::Db;
 use crate::schema::Schema;
@@ -52,6 +52,39 @@ pub struct NewAccount {
     pub refresh_token_expires_at: Option<OffsetDateTime>,
     pub scope: Option<String>,
 }
+
+/// What [`Internal::create_session_with`] stores beyond a default session: a different expiry
+/// and plugin columns, written in the same insert.
+#[derive(Clone, Debug, Default)]
+pub struct NewSession {
+    expires_at: Option<OffsetDateTime>,
+    values: Vec<(&'static str, Value)>,
+}
+
+impl NewSession {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces the expiry `remember_me` and the session config give.
+    pub fn expires_at(mut self, expires_at: OffsetDateTime) -> Self {
+        self.expires_at = Some(expires_at);
+        self
+    }
+
+    /// Sets a plugin's or the app's session column.
+    pub fn set<O: OnTable<Table = Session>, T: ColumnValue>(
+        mut self,
+        column: Col<O, T>,
+        value: impl Into<T>,
+    ) -> Self {
+        self.values.push((column.name(), value.into().into_value()));
+        self
+    }
+}
+
+/// How long a `rememberMe: false` session lives at most, as in Better Auth.
+const DONT_REMEMBER_LIFETIME: Duration = Duration::days(1);
 
 impl NewAccount {
     pub fn credential(password_hash: String) -> Self {
@@ -439,29 +472,57 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     /// low-level primitive: sign a user in with [`sign_in`](Self::sign_in), and finish a
     /// challenged sign-in with [`complete_sign_in`](Self::complete_sign_in). Finishing one
     /// with this would skip every other plugin's gates, so a banned user would get a session.
+    ///
+    /// A `remember_me: false` session lives one day at most and is never extended. The session
+    /// hooks run before the response gets the session: when one fails, the session is deleted
+    /// and the response sets none of its cookies.
     pub async fn create_session(
         &self,
         user_id: &Id,
         remember_me: bool,
     ) -> Result<SessionView, AuthError> {
-        self.insert_session(user_id, None, remember_me).await
+        self.create_session_with(user_id, remember_me, NewSession::default())
+            .await
     }
 
-    /// `create_session`, refused with 401 when proof of the email claimed the user since
-    /// `stamp` was read: the session is deleted again before anyone sees its token.
+    /// [`create_session`](Self::create_session) with an expiry or plugin columns of its own,
+    /// stored in the one insert, so the session hooks and every later request see them.
+    pub async fn create_session_with(
+        &self,
+        user_id: &Id,
+        remember_me: bool,
+        options: NewSession,
+    ) -> Result<SessionView, AuthError> {
+        self.insert_session(user_id, None, remember_me, options)
+            .await
+    }
+
+    /// [`create_session_with`](Self::create_session_with), refused with 401 when proof of the
+    /// email claimed the user since `stamp` was read: the session is deleted again before
+    /// anyone sees its token.
     async fn insert_session(
         &self,
         user_id: &Id,
         stamp: Option<i64>,
         remember_me: bool,
+        options: NewSession,
     ) -> Result<SessionView, AuthError> {
         let now = self.ctx.now();
         let token = random_token();
+        let lifetime = match remember_me {
+            true => self.ctx.config().session.expires_in,
+            false => self
+                .ctx
+                .config()
+                .session
+                .expires_in
+                .min(DONT_REMEMBER_LIFETIME),
+        };
         let session = Session {
             id: self.ctx.new_id()?,
             token_hash: Hash::sha256(&token),
             user_id: user_id.clone(),
-            expires_at: now + self.ctx.config().session.expires_in,
+            expires_at: options.expires_at.unwrap_or(now + lifetime),
             ip_address: self.ctx.ip().map(str::to_owned),
             user_agent: self
                 .ctx
@@ -470,11 +531,10 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             created_at: now,
             updated_at: now,
         };
-        let row = self
-            .ctx
-            .db()
-            .insert_row::<Session>(session.encode())
-            .await?;
+        let mut values = session.encode();
+        values.extend(options.values);
+        let row = self.ctx.db().insert_row::<Session>(values).await?;
+        let session = Session::decode(&row).map_err(AuthError::internal)?;
         if let Some(stamp) = stamp
             && !self.stamp_holds(user_id, stamp).await?
         {
@@ -488,7 +548,16 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .find_user_by_id(user_id)
             .await?
             .ok_or_else(|| AuthError::internal("session for a missing user"))?;
+        let view = SessionView {
+            session,
+            row,
+            user,
+            token: Some(token.clone()),
+            ephemeral: false,
+            from_cache: false,
+        };
         let config = self.ctx.config();
+        let before = self.ctx.effects.lock().unwrap().cookies.clone();
         set_session_cookies(
             config,
             self.ctx.keys(),
@@ -496,23 +565,23 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             &token,
             remember_me,
         );
+        for hook in &self.ctx.shared.session_hooks {
+            if let Err(err) = hook(self.ctx.retype(), view.clone()).await {
+                self.ctx.effects.lock().unwrap().cookies = before;
+                self.ctx
+                    .db()
+                    .delete::<Session>(Session::ID.eq(&view.session.id))
+                    .await?;
+                return Err(err);
+            }
+        }
         self.ctx.set_cookie(crate::cookies::SetCookie::delete(
             config.cookie_name(SESSION_DATA),
         ));
         self.ctx.emit(SessionCreated {
-            session_id: session.id.clone(),
+            session_id: view.session.id.clone(),
             user_id: user_id.clone(),
         });
-        let view = SessionView {
-            session,
-            row,
-            user,
-            token: Some(token),
-            ephemeral: false,
-        };
-        for hook in &self.ctx.shared.session_hooks {
-            hook(self.ctx.retype(), view.clone()).await?;
-        }
         Ok(view)
     }
 
@@ -632,8 +701,13 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             }
         }
         Ok(SignInResult::SignedIn(Box::new(
-            self.insert_session(&user.id, Some(user.security_stamp()), remember_me)
-                .await?,
+            self.insert_session(
+                &user.id,
+                Some(user.security_stamp()),
+                remember_me,
+                NewSession::default(),
+            )
+            .await?,
         )))
     }
 

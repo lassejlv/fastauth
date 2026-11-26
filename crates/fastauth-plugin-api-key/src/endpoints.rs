@@ -645,7 +645,7 @@ impl<D: Adapter> Endpoint<D> for DeleteApiKey {
         input: DeleteApiKeyInput,
     ) -> Result<Success, AuthError> {
         let owner = owner(
-            ctx.session(),
+            key_manager(&ctx).await?.as_ref(),
             input.user_id,
             self.trusted,
             AuthError::unauthorized(),
