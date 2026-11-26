@@ -5,8 +5,8 @@ import "../styles/layout.css";
 import Ambient from "../components/Ambient.astro";
 import SearchDialog from "../components/SearchDialog.astro";
 
-type Props = { title: string; description: string };
-const { title, description } = Astro.props;
+type Props = { title: string; description: string; markdown?: string };
+const { title, description, markdown } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 <!doctype html>
@@ -17,6 +17,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    {markdown && <link rel="alternate" type="text/markdown" href={new URL(markdown, Astro.site)} />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
