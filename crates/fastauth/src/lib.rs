@@ -17,6 +17,7 @@
 //! | `email-otp` | [`fastauth::plugins::email_otp`](mod@crate::plugins): one-time codes by email for sign-in, verification and password reset |
 //! | `bearer` | [`fastauth::plugins::bearer`](mod@crate::plugins): `Authorization: Bearer` sessions and `set-auth-token` |
 //! | `jwt` | [`fastauth::plugins::jwt`](mod@crate::plugins): `/token`, `/jwks` and a verifier for resource servers |
+//! | `passkey` | [`fastauth::plugins::passkey`](mod@crate::plugins): passkeys (WebAuthn) on webauthn-rs |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
@@ -85,6 +86,10 @@ pub mod plugins {
     /// JWTs and a JWKS for other services: `.plugin(Jwt::new())`.
     #[cfg(feature = "jwt")]
     pub use fastauth_plugin_jwt as jwt;
+
+    /// Passkeys (WebAuthn): `.plugin(Passkey::new())`.
+    #[cfg(feature = "passkey")]
+    pub use fastauth_plugin_passkey as passkey;
 }
 
 /// Paths the derive macros expand to. Not public API.

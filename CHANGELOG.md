@@ -37,6 +37,16 @@
   `JwtExt` (`token`, `sign`, `verify`, `jwks`, `rotate`), and `JwksVerifier` for resource
   servers. Built on `jsonwebtoken` and aws-lc-rs. Wire-compatible with Better Auth's
   `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md))
+- **fastauth-plugin-passkey** (feature `passkey`, `fastauth::plugins::passkey`): passkeys on
+  webauthn-rs 0.6. Better Auth's seven routes (`/passkey/generate-register-options`,
+  `verify-registration`, `generate-authenticate-options`, `verify-authentication`,
+  `list-user-passkeys`, `update-passkey`, `delete-passkey`), its `passkey` table and
+  encodings, and `rp_id`, `rp_name` and `origin` options. Challenges live server-side for
+  five minutes and work once; the signature counter is checked and advanced with a
+  compare-and-swap; sign-in runs the sign-in gates with method `"passkey"`. User
+  verification is always required. `PasskeyExt` lists, renames and deletes passkeys.
+  Wire-compatible with `passkeyClient`, checked in headless Chrome with a virtual
+  authenticator (`compat/better-auth/run-passkey.sh`). ([docs/19](docs/19-passkey.md))
 
 ### Core
 
