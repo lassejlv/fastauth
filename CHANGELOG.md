@@ -1,5 +1,78 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- **RACE-2:** `organization_limit` held only for requests one at a time: parallel
+  `/organization/create` calls each counted the same memberships and all got through. The
+  count now runs inside the create's transaction after locking the user's row.
+- **RACE-3:** two adds or accepts of the same user at once could leave two `member` rows, and
+  `remove-member` then removed one and left the user in the organization. `member` is now
+  unique on `(organization_id, user_id)` in the database; the loser answers
+  `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`.
+- **RACE-4:** two `/two-factor/enable` calls at once could leave two TOTP secrets for one
+  user. `two_factor.user_id` is now unique, and enable replaces the row in a transaction that
+  locks the user's row first.
+- **DB-1:** on MySQL, a migration stopped between `ADD COLUMN` and its `UNIQUE` left the
+  column without its constraint, and the migrator didn't see it, so it was never added. The
+  migrator now reads unique constraints back on Postgres, SQLite and MySQL and plans the
+  missing ones, and a new column's foreign key is added in the same `ALTER TABLE` as the
+  column on MySQL.
+- **DB-2:** on MySQL, an organization slug or invitation email longer than its key column
+  answered 500 (or, with a non-strict `sql_mode`, was cut short into another value's key).
+  Slugs are now capped at 255 characters and invitation emails at 254 bytes, with a 400.
+- **DB-3:** documented that sqlx's default database TLS mode (`preferred` / `prefer`) checks
+  no certificate, and what to set in production.
+- **DB-4:** documented that under a UUID id strategy, Postgres and MySQL match other
+  spellings of a UUID while SQLite and string comparisons in Rust don't. No code change.
+- **DB-5:** documented that MariaDB is unsupported and fails at the first migration.
+- **Account links:** `account` is now unique on `(provider_id, account_id)`, so one provider
+  account can't be linked to two users by requests at once.
+
+### Upgrading
+
+- **The next migration adds three unique constraints** to a database made by 0.5 or
+  earlier: `account (provider_id, account_id)`, `member (organization_id, user_id)` (with
+  the organization plugin) and `two_factor (user_id)` (with two-factor). If a table already
+  holds duplicates, `migrator().apply(..)` changes nothing and fails with a message naming
+  up to 10 of the rows. [Unique constraints on an existing
+  database](docs/concepts/02-database.md#unique-constraints-on-an-existing-database) has a
+  query to find and fix the duplicates in each table. SQL from `generate` or
+  `migrator().sql()` has no such check, so run the queries first. `fastauth status` exits 1
+  until the constraints are added.
+- **On MySQL**, multi-column unique constraints index a 384-character prefix of each text
+  column, and new tables store `account.provider_id` as `varchar(768)` instead of
+  `longtext`.
+
+### Behaviour changes
+
+- A second link of a provider account that's already linked answers 409
+  `SOCIAL_ACCOUNT_ALREADY_LINKED` (Better Auth's code) instead of 500.
+- `/organization/create` and `/organization/update` answer 400 `INVALID_REQUEST_BODY` for a slug over
+  255 characters, and `/organization/invite-member` answers 400 `INVALID_EMAIL` for an address
+  over 254 bytes. Better Auth has no such caps.
+- Two parallel adds or accepts of one member answer `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`
+  for the loser, and with `organization_limit` set, parallel creates for one user wait for each
+  other on Postgres and MySQL.
+- Setting a password for a user who has none (a password reset or the admin plugin's
+  `set-user-password`) twice at once leaves one credential account, with the later
+  password, instead of two.
+
+**For adapter and plugin authors**
+
+- `SchemaBuilder::unique(table, &[columns])` declares a unique constraint over several
+  columns (`TableDef::uniques`, `UniqueDef`, `TableDef::unique_sets()`). Adapters report a
+  violation of one as `DbError::UniqueViolation { table, column: None }`.
+- `migrate::Step` has a new variant, `AddUnique { table, columns }`, and isn't
+  `#[non_exhaustive]`, so an exhaustive `match` on it needs an arm. Adapters must refuse it,
+  naming the rows (`migrate::duplicates_error`), when the table holds duplicates.
+- `LiveSchema` has a new public field, `uniques: Option<HashSet<(String, Vec<String>)>>`
+  (built with `migrate::unique_key`). Leave it `None` if your adapter can't read unique
+  constraints; existing tables then get none added. Code that builds `LiveSchema` without
+  `..Default::default()` needs it.
+- No public trait changed.
+
 ## 0.5.0 (2026-11-26)
 
 ### Highlights

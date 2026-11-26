@@ -515,15 +515,25 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
             }
             Step::AddColumn { table, column } => {
                 let qualified = names.qualified::<DB>(table.name);
-                out.push(format!(
+                let mut add = format!(
                     "ALTER TABLE {qualified} ADD COLUMN {}",
                     column_def::<DB>(names, table, column, true)
-                ));
+                );
                 if !DB::INLINE_CONSTRAINTS {
-                    for constraint in constraints::<DB>(names, table, column) {
-                        out.push(format!("ALTER TABLE {qualified} ADD {constraint}"));
+                    if let Some(foreign_key) = foreign_key::<DB>(names, table, column) {
+                        add.push_str(&format!(", ADD {foreign_key}"));
                     }
-                } else if column.unique && !DB::UNIQUE_ON_ADD_COLUMN {
+                    out.push(add);
+                    if column.unique {
+                        out.push(format!(
+                            "ALTER TABLE {qualified} ADD {}",
+                            unique_constraint::<DB>(names, table, column)
+                        ));
+                    }
+                    continue;
+                }
+                out.push(add);
+                if column.unique && !DB::UNIQUE_ON_ADD_COLUMN {
                     let name = unique_name(&names.physical(table.name), column.name);
                     out.push(format!(
                         "CREATE UNIQUE INDEX {} ON {qualified} ({})",
@@ -669,25 +679,40 @@ fn column_def<DB: Driver>(
 /// `column`'s PRIMARY KEY, UNIQUE and FOREIGN KEY constraints as table constraints, for a
 /// database that doesn't take them in the column definition.
 fn constraints<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> Vec<String> {
-    let physical = names.physical(table.name);
-    let name = |name: String| quote::<DB>(&DB::ident(name));
-    let quoted = quote::<DB>(column.name);
     let mut out = Vec::new();
     if column.primary_key {
-        let name = name(primary_key_name(&physical));
-        out.push(format!("CONSTRAINT {name} PRIMARY KEY ({quoted})"));
-    } else if column.unique {
-        let name = name(unique_name(&physical, column.name));
-        out.push(format!("CONSTRAINT {name} UNIQUE ({quoted})"));
-    }
-    if let Some(reference) = column.references {
-        let name = name(format!("{physical}_{}_fkey", column.name));
+        let name = quote::<DB>(&DB::ident(primary_key_name(&names.physical(table.name))));
         out.push(format!(
-            "CONSTRAINT {name} FOREIGN KEY ({quoted}) {}",
-            references::<DB>(names, reference)
+            "CONSTRAINT {name} PRIMARY KEY ({})",
+            quote::<DB>(column.name)
         ));
+    } else if column.unique {
+        out.push(unique_constraint::<DB>(names, table, column));
     }
+    out.extend(foreign_key::<DB>(names, table, column));
     out
+}
+
+fn unique_constraint<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> String {
+    let name = quote::<DB>(&DB::ident(unique_name(
+        &names.physical(table.name),
+        column.name,
+    )));
+    format!("CONSTRAINT {name} UNIQUE ({})", quote::<DB>(column.name))
+}
+
+fn foreign_key<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> Option<String> {
+    let reference = column.references?;
+    let name = quote::<DB>(&DB::ident(format!(
+        "{}_{}_fkey",
+        names.physical(table.name),
+        column.name
+    )));
+    Some(format!(
+        "CONSTRAINT {name} FOREIGN KEY ({}) {}",
+        quote::<DB>(column.name),
+        references::<DB>(names, reference)
+    ))
 }
 
 fn references<DB: Driver>(names: &Names, reference: Reference) -> String {

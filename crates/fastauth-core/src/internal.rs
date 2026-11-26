@@ -283,22 +283,30 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .hash(password)
             .await
             .map_err(AuthError::internal)?;
-        let updated = self
-            .ctx
-            .db()
-            .update::<Account>(
-                Account::USER_ID
-                    .eq(user_id)
-                    .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
-            )
-            .set(Account::PASSWORD_HASH, Some(hash.clone()))
-            .exec()
-            .await?;
-        if updated == 0 {
-            self.link_account(user_id, NewAccount::credential(hash))
-                .await?;
+        let update = || {
+            self.ctx
+                .db()
+                .update::<Account>(
+                    Account::USER_ID
+                        .eq(user_id)
+                        .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
+                )
+                .set(Account::PASSWORD_HASH, Some(hash.clone()))
+                .exec()
+        };
+        if update().await? > 0 {
+            return Ok(());
         }
-        Ok(())
+        match self
+            .link_account(user_id, NewAccount::credential(hash.clone()))
+            .await
+        {
+            Err(err) if err.code() == codes::SOCIAL_ACCOUNT_ALREADY_LINKED => {
+                update().await?;
+                Ok(())
+            }
+            other => other.map(|_| ()),
+        }
     }
 
     /// Creates a session and sets its cookies, running no sign-in gate at all. This is the
