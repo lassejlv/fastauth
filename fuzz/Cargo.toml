@@ -1,0 +1,73 @@
+[package]
+name = "fastauth-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: the root workspace (crates/*) never builds or publishes it.
+[workspace]
+members = ["."]
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+bytes = "1"
+fastauth-core = { path = "../crates/fastauth-core" }
+fastauth-plugin-admin = { path = "../crates/fastauth-plugin-admin" }
+fastauth-plugin-api-key = { path = "../crates/fastauth-plugin-api-key" }
+fastauth-plugin-bearer = { path = "../crates/fastauth-plugin-bearer" }
+fastauth-plugin-email-otp = { path = "../crates/fastauth-plugin-email-otp" }
+fastauth-plugin-jwt = { path = "../crates/fastauth-plugin-jwt" }
+fastauth-plugin-magic-link = { path = "../crates/fastauth-plugin-magic-link" }
+fastauth-plugin-organization = { path = "../crates/fastauth-plugin-organization" }
+fastauth-plugin-two-factor = { path = "../crates/fastauth-plugin-two-factor" }
+http = "1"
+libfuzzer-sys = "0.4"
+percent-encoding = "2"
+serde_json = "1"
+tokio = { version = "1", features = ["rt"] }
+url = "2"
+
+[[bin]]
+name = "signed_cookie"
+path = "fuzz_targets/signed_cookie.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bearer_token"
+path = "fuzz_targets/bearer_token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jwt_header"
+path = "fuzz_targets/jwt_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_body"
+path = "fuzz_targets/json_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "email_normalize"
+path = "fuzz_targets/email_normalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "callback_url"
+path = "fuzz_targets/callback_url.rs"
+test = false
+doc = false
+bench = false
