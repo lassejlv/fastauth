@@ -27,11 +27,12 @@
 }
 
 .topbar-dither {
+  position: relative;
   flex: 1;
   align-self: stretch;
   min-width: 0;
   margin: 0 24px;
-  background: var(--topbar-dither) right center / 1440px 56px no-repeat;
+  overflow: hidden;
   mask-image: linear-gradient(to right, transparent, #000 40%, #000 calc(100% - 48px), transparent);
 }
 
@@ -80,6 +81,7 @@
 
 .sidebar-col {
   border-right: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .sidebar {
@@ -260,10 +262,13 @@
 
 /* On this page */
 
-.outline {
+.outline-col {
   position: sticky;
   top: 104px;
   flex: 0 0 208px;
+}
+
+.outline {
   max-height: calc(100dvh - 136px);
   overflow: hidden auto;
 }
@@ -447,7 +452,7 @@
 /* Responsive */
 
 @media (max-width: 1180px) {
-  .outline {
+  .outline-col {
     display: none;
   }
 
@@ -498,6 +503,10 @@
 
   .docs {
     display: block;
+  }
+
+  .docs-main {
+    background: var(--bg);
   }
 
   .sidebar-col {
@@ -565,6 +574,7 @@
     margin: 24px 48px 0;
     border: 1px solid var(--border);
     border-radius: 8px;
+    background: var(--bg);
   }
 
   .outline-mobile summary {

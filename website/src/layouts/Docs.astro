@@ -49,7 +49,7 @@ const outline = headings.filter((h) => h.depth === 2 || h.depth === 3);
         )
       }
       <div class="docs-columns">
-        <article class="doc" data-pagefind-body>
+        <article class="doc ambient-cover" data-pagefind-body>
           <p class="eyebrow" data-pagefind-ignore>{eyebrow}</p>
           <h1>{title}</h1>
           <p hidden data-pagefind-meta="description">{description}</p>
@@ -84,16 +84,18 @@ const outline = headings.filter((h) => h.depth === 2 || h.depth === 3);
         </article>
         {
           outline.length > 0 && (
-            <nav class="outline" aria-labelledby="outline-title">
-              <p id="outline-title">On this page</p>
-              <ul>
-                {outline.map((h) => (
-                  <li class={`depth-${h.depth}`}>
-                    <a href={`#${h.slug}`}>{h.text}</a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
+            <div class="outline-col ambient-cover">
+              <nav class="outline" aria-labelledby="outline-title">
+                <p id="outline-title">On this page</p>
+                <ul>
+                  {outline.map((h) => (
+                    <li class={`depth-${h.depth}`}>
+                      <a href={`#${h.slug}`}>{h.text}</a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            </div>
           )
         }
       </div>

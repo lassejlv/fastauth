@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import "../styles/prose.css";
 import "../styles/layout.css";
+import Ambient from "../components/Ambient.astro";
 import SearchDialog from "../components/SearchDialog.astro";
 
 type Props = { title: string; description: string };
@@ -28,16 +29,25 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
         const stored = localStorage.getItem("theme");
         const dark = stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        try {
+          const ambient = JSON.parse(sessionStorage.getItem("ambient") ?? "null");
+          if (ambient) {
+            document.documentElement.style.setProperty("--ambient-x", `${ambient.x}px`);
+            document.documentElement.style.setProperty("--ambient-y", `${ambient.y}px`);
+          }
+        } catch {}
       })();
     </script>
     <slot name="head" />
   </head>
   <body>
+    <Ambient />
     <a class="skip-link" href="#main">Skip to content</a>
     <slot />
     <SearchDialog />
     <script>
       import "../scripts/site";
+      import "../scripts/ambient";
     </script>
   </body>
 </html>

@@ -32,7 +32,10 @@
 
   --hero-dither: url("/dither/hero-light.png");
   --hero-dither-mobile: url("/dither/hero-mobile.png");
-  --topbar-dither: none;
+  --ambient-dither: url("/dither/ambient.png");
+  --ambient-size: 560px;
+  --cover-fade: 64px;
+  --cover-solid: 24px;
   --scrollbar: #0000002e;
 
   --frame: 1440px;
@@ -74,7 +77,6 @@
 
   --hero-dither: url("/dither/ink-hero.png");
   --hero-dither-mobile: url("/dither/ink-mhero.png");
-  --topbar-dither: url("/dither/ink-topbar.png");
   --scrollbar: #ffffff2e;
 
   color-scheme: dark;
@@ -87,11 +89,13 @@
 }
 
 html {
+  overflow-x: clip;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
 body {
+  overflow-x: clip;
   margin: 0;
   background: var(--bg);
   color: var(--text);
@@ -403,6 +407,67 @@ pre {
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+/* Ambient dither: one cluster drifting behind the page (scripts/ambient.ts) */
+
+.ambient {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100lvh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.topbar-dither .ambient {
+  position: absolute;
+  width: 100vw;
+}
+
+.ambient-x,
+.ambient-y {
+  width: var(--ambient-size);
+  height: var(--ambient-size);
+  will-change: transform;
+}
+
+.ambient-x {
+  transform: translate3d(var(--ambient-x, -200vw), 0, 0);
+}
+
+.ambient-y {
+  transform: translate3d(0, var(--ambient-y, 0), 0);
+  background: var(--ambient-dither) center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}
+
+.ambient-cover {
+  position: relative;
+}
+
+.ambient-cover::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * (var(--cover-fade) + var(--cover-solid)));
+  z-index: -1;
+  background: var(--bg);
+  mask:
+    linear-gradient(to right, transparent, #000 var(--cover-fade) calc(100% - var(--cover-fade)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--cover-fade) calc(100% - var(--cover-fade)), transparent);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
+@media (max-width: 860px) {
+  :root {
+    --ambient-dither: url("/dither/ambient-sm.png");
+    --ambient-size: 320px;
+    --cover-fade: 24px;
+    --cover-solid: 8px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
