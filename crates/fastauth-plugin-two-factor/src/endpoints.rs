@@ -81,7 +81,8 @@ pub struct BackupCodesOutput {
 
 /// `POST /two-factor/enable`: a new TOTP secret and backup codes, replacing any old ones.
 /// Two-factor turns on after the first `verify-totp`, or at once with
-/// `skip_verification_on_enable`.
+/// `skip_verification_on_enable`. Needs a session read from the database
+/// (`Ctx::sensitive_session`): API-key and impersonation sessions can't enable two-factor.
 pub struct Enable(pub(crate) Arc<TwoFactor>);
 
 impl<D: Adapter> Endpoint<D> for Enable {
@@ -96,7 +97,8 @@ impl<D: Adapter> Endpoint<D> for Enable {
         ctx: Ctx<D, Authenticated>,
         input: EnableInput,
     ) -> Result<EnableOutput, AuthError> {
-        let user = &ctx.session().user;
+        let session = ctx.sensitive_session().await?;
+        let user = &session.user;
         check_password(&ctx, &user.id, &input.password).await?;
         let secret = random_bytes::<20>();
         let backup_codes = new_backup_codes(self.0.backup_codes);
@@ -130,6 +132,7 @@ impl<D: Adapter> Endpoint<D> for Enable {
 }
 
 /// `POST /two-factor/disable`: turns two-factor off and deletes the secret and backup codes.
+/// Needs a session read from the database, like `enable`.
 pub struct Disable;
 
 impl<D: Adapter> Endpoint<D> for Disable {
@@ -144,7 +147,8 @@ impl<D: Adapter> Endpoint<D> for Disable {
         ctx: Ctx<D, Authenticated>,
         input: PasswordInput,
     ) -> Result<Status, AuthError> {
-        let user_id = &ctx.session().user.id;
+        let session = ctx.sensitive_session().await?;
+        let user_id = &session.user.id;
         check_password(&ctx, user_id, &input.password).await?;
         ctx.db()
             .delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(user_id))

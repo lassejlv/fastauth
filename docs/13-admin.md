@@ -152,6 +152,14 @@ the same endpoints.
 Admins can't ban or remove themselves (`400 YOU_CANNOT_BAN_YOURSELF`,
 `400 YOU_CANNOT_REMOVE_YOURSELF`). The server API has no caller, so it can.
 
+Acting on another admin's account needs `user:impersonate-admins`, the same line
+impersonation draws: `set-user-password`, `update-user`, `set-role`, `ban-user`,
+`remove-user`, `revoke-user-session` and `revoke-user-sessions` answer
+`403 YOU_CANNOT_MANAGE_ADMINS` when the target is an admin (an admin role, or
+`admin_user_ids`) and the caller lacks it. Otherwise the built-in `admin` role could take
+another admin over by setting their password or email. Acting on yourself and server API
+calls aren't affected. Better Auth has no such check.
+
 ### Listing users
 
 `/admin/list-users` takes Better Auth's query parameters and runs the search, filter, sort
@@ -392,6 +400,14 @@ whatever the registration order. A user with two-factor turned on still gets the
 challenge first, and a correct code then answers `403 BANNED_USER` with no session
 ([Sign-in gates](05-plugins.md#sign-in-gates)). Banned users can't be impersonated either.
 
+A ban applies to every session, not only to sign-in: the plugin's
+[session gate](05-plugins.md#session-gates) refuses a banned user's requests with the same
+`403 BANNED_USER` whatever the session came from, a cookie-cache cookie, a bearer token or an
+API key's session included. Banning also disables the user's API keys (`enabled: false`), so
+`auth.api_keys().verify(..)` refuses them; they stay disabled after the ban lifts, until the
+owner or the server turns them back on. Better Auth checks bans only when a session is
+created, so its API-key sessions keep working for banned users.
+
 The message is `banned_user_message` followed by ` Reason: <reason>`:
 
 ```json
@@ -413,6 +429,12 @@ expired bans.
    `impersonation_session_duration` (one hour by default), and set as the session cookie.
 3. `stop-impersonating` revokes that session, restores the admin's session cookie, and
    deletes the `admin_session` and cookie-cache cookies.
+
+An impersonation session lasts `impersonation_session_duration` at most: the usual session
+refresh never extends it. It can't create or change the user's credentials either:
+creating or updating API keys, registering a passkey, linking a social account and turning
+two-factor on or off answer `403 NOT_ALLOWED_WHILE_IMPERSONATING`, so a support role can't
+leave itself a way back in after `stop-impersonating`.
 
 Impersonation sessions can't impersonate (`403 YOU_ARE_NOT_ALLOWED_TO_IMPERSONATE_USERS`),
 and they don't show up in the user's own `/list-sessions`. They do show up in
@@ -455,7 +477,9 @@ Codes, statuses and messages match Better Auth's admin plugin (`AdminError`):
 | `YOU_ARE_NOT_ALLOWED_TO_REVOKE_USERS_SESSIONS` | 403 | revoking sessions without `session:revoke` |
 | `YOU_ARE_NOT_ALLOWED_TO_IMPERSONATE_USERS` | 403 | `impersonate-user` without `user:impersonate`, or from an impersonation session |
 | `YOU_CANNOT_IMPERSONATE_ADMINS` | 403 | the target is an admin and the caller lacks `user:impersonate-admins` |
-| `BANNED_USER` | 403 | a banned user signs in, or is the impersonation target |
+| `BANNED_USER` | 403 | a banned user signs in, makes any request with a session (cookie cache, bearer token, API key), or is the impersonation target |
+| `YOU_CANNOT_MANAGE_ADMINS` | 403 | acting on another admin's account without `user:impersonate-admins` (fastauth only) |
+| `NOT_ALLOWED_WHILE_IMPERSONATING` | 403 | an impersonation session creates or changes a credential (fastauth only) |
 | `YOU_CANNOT_BAN_YOURSELF` | 400 | an admin bans themselves |
 | `YOU_CANNOT_REMOVE_YOURSELF` | 400 | an admin removes themselves |
 | `YOU_ARE_NOT_ALLOWED_TO_SET_NON_EXISTENT_VALUE` | 400 | a role that isn't defined |

@@ -4,6 +4,7 @@
 mod common;
 
 use common::{Client, Res, secret};
+use fastauth_core::adapter::Adapter;
 use fastauth_core::crypto::Argon2id;
 use fastauth_core::prelude::*;
 use fastauth_core::query::Db;
@@ -63,6 +64,7 @@ async fn invite_and_accept(
         .await;
     assert_eq!(res.status, StatusCode::OK, "{}", res.json);
     let mut invitee = user(auth, email).await;
+    verify_email(auth, email).await;
     let res = invitee
         .post(
             "/organization/accept-invitation",
@@ -81,6 +83,16 @@ fn refused(res: &Res, what: &str) {
         res.status,
         res.json
     );
+}
+
+/// Invitations need a verified email by default (AUTHZ-9).
+async fn verify_email<D: Adapter>(auth: &Auth<D, (), plugins![Organization]>, email: &str) {
+    Db::new(auth.adapter(), auth.schema())
+        .update::<User>(User::EMAIL.eq(email))
+        .set(User::EMAIL_VERIFIED, true)
+        .exec()
+        .await
+        .unwrap();
 }
 
 async fn members(auth: &AppAuth, org: &str) -> Vec<Member> {
@@ -330,6 +342,7 @@ async fn sec_org_invitation_is_bound_to_its_email_and_single_use() {
         .await;
     let invitation = res.json["id"].clone();
     let mut mallory = user(&auth, "mallory@evil.dk").await;
+    verify_email(&auth, "mallory@evil.dk").await;
     let res = mallory
         .post(
             "/organization/accept-invitation",
@@ -339,6 +352,7 @@ async fn sec_org_invitation_is_bound_to_its_email_and_single_use() {
     refused(&res, "accepting someone else's invitation");
 
     let mut frank = user(&auth, "FRANK@acme.dk").await;
+    verify_email(&auth, "frank@acme.dk").await;
     let res = frank
         .post(
             "/organization/accept-invitation",
@@ -419,6 +433,7 @@ async fn sec_org_concurrent_owner_leave_keeps_an_owner() {
             b.sign_up(&format!("b{run}@acme.dk"), PASSWORD).await.status,
             StatusCode::OK
         );
+        verify_email(&auth, &format!("b{run}@acme.dk")).await;
         let res = b
             .post(
                 "/organization/accept-invitation",

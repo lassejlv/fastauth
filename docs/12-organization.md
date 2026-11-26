@@ -91,7 +91,7 @@ pub fn organization() -> Organization {
 | `.organization_limit(u64)` | no limit | How many organizations a user may belong to before creating another is refused (403 `YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS`). It counts memberships, not ownership, and applies to the server API's `create` too. It doesn't stop invitations or `add_member`. |
 | `.invitation_ttl(Duration)` | 48 hours | How long an invitation can be accepted. Resending an invitation restarts the clock. |
 | `.invitation_url(template)` | `{base_url}/accept-invitation/{id}` | The link in invitation emails. `{id}` is replaced with the invitation id. |
-| `.require_email_verification_on_invitation(bool)` | `false` | Invitees need a verified email to view, accept or reject an invitation. |
+| `.require_email_verification_on_invitation(bool)` | `true` | Invitees need a verified email to view, accept or reject an invitation. Without it, anyone who signs up with the invitee's address can accept an invitation whose id they know. Better Auth skips the check for its own random ids; turn it off only when sign-up verifies email or your ids are unguessable. |
 
 The creator of an organization always gets the `owner` role; that name isn't configurable.
 
@@ -113,13 +113,13 @@ session and answers 401 `UNAUTHORIZED` without one. Where a body or query takes 
 | `POST` | `/organization/invite-member` | `authClient.organization.inviteMember` | `invitation: [create]` | `email`, `role` (a name, `"a,b"` or `["a", "b"]`), `organizationId?`, `resend?`. Only owners invite owners. Answers the invitation. |
 | `POST` | `/organization/accept-invitation` | `authClient.organization.acceptInvitation` | the invitee | `invitationId`. Joins with the invited role and makes the organization active. Answers `{ invitation, member }`. |
 | `POST` | `/organization/reject-invitation` | `authClient.organization.rejectInvitation` | the invitee | `invitationId`. Answers `{ invitation, member: null }`. |
-| `POST` | `/organization/cancel-invitation` | `authClient.organization.cancelInvitation` | `invitation: [cancel]` | `invitationId`. Answers the canceled invitation. |
+| `POST` | `/organization/cancel-invitation` | `authClient.organization.cancelInvitation` | `invitation: [cancel]` | `invitationId`. Only a pending invitation can be canceled (else `INVITATION_NOT_FOUND`). Answers the canceled invitation. |
 | `GET` | `/organization/get-invitation` | `authClient.organization.getInvitation` | the invitee | Query `id`. A pending, unexpired invitation with `organizationName`, `organizationSlug` and `inviterEmail`. |
 | `GET` | `/organization/list-invitations` | `authClient.organization.listInvitations` | `invitation: [create]` | Query `organizationId?`. Every invitation, whatever its status. |
 | `GET` | `/organization/list-user-invitations` | `authClient.organization.listUserInvitations` | a verified email | The pending invitations addressed to the caller, with `organizationName`. |
-| `POST` | `/organization/remove-member` | `authClient.organization.removeMember` | `member: [delete]` | `memberIdOrEmail`, `organizationId?`. Only owners remove owners, and never the last one. Answers `{ member }`. |
-| `POST` | `/organization/update-member-role` | `authClient.organization.updateMemberRole` | `member: [update]`, or owner | `memberId`, `role`, `organizationId?`. Only owners give or take away `owner`, and the last owner can't demote themselves. Answers the member. |
-| `POST` | `/organization/leave` | `authClient.organization.leave` | member | `organizationId` (required). The last owner can't leave. Answers the ended membership. |
+| `POST` | `/organization/remove-member` | `authClient.organization.removeMember` | `member: [delete]` | `memberIdOrEmail`, `organizationId?`. A member of another organization is `MEMBER_NOT_FOUND`, checked first. Only owners remove owners, and never the last one, even when two owners remove each other at once. Answers `{ member }`. |
+| `POST` | `/organization/update-member-role` | `authClient.organization.updateMemberRole` | `member: [update]`, or owner | `memberId`, `role`, `organizationId?`. Only owners give or take away `owner`, and the last owner can't demote themselves, even concurrently. Answers the member. |
+| `POST` | `/organization/leave` | `authClient.organization.leave` | member | `organizationId` (required). The last owner can't leave, even when two owners leave at once. Answers the ended membership. |
 | `GET` | `/organization/get-active-member` | `authClient.organization.getActiveMember` | member of the active organization | The caller's membership with `user: { id, name, email, image }`. |
 | `GET` | `/organization/list-members` | `authClient.organization.listMembers` | member | Query `limit`, `offset`, `sortBy` (`createdAt`, `role`, `userId`, `id`), `sortDirection` (`asc`, `desc`), `organizationId`, `organizationSlug`. Answers `{ members, total }`. |
 | `POST` | `/organization/has-permission` | `authClient.organization.hasPermission` | member | `{ "permissions": { "member": ["delete"] }, "organizationId"? }`. Answers `{ "error": null, "success": bool }`. |
@@ -527,8 +527,16 @@ repeated invite's error code), `getInvitation`, `acceptInvitation`, `getFullOrga
 member), `leave` (and the last owner's error), `setActive({ organizationId: null })` and
 `delete`. It isn't part of `compat/better-auth/run.sh` yet.
 
+The `compat_server` example turns `require_email_verification_on_invitation` off, because the
+script accepts an invitation with an unverified account, which Better Auth allows for its own
+random invitation ids. fastauth requires a verified email by default.
+
 Known gaps:
 
+- **Stricter than Better Auth:** accepting, rejecting or viewing an invitation needs a
+  verified email by default; `cancel-invitation` refuses invitations that are no longer
+  pending; `remove-member` answers `MEMBER_NOT_FOUND` for another organization's member
+  before checking roles, where Better Auth may answer an owner or permission error first.
 - **No teams, dynamic access control or `getActiveMemberRole`.** The client's team, role
   and `getActiveMemberRole` methods get 404 `NOT_FOUND`.
 - **`checkRolePermission` runs in the browser** against the client's own role definitions,

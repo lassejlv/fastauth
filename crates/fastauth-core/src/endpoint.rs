@@ -56,7 +56,8 @@ pub struct MaybeAuthenticated;
 /// 401 without a session; `ctx.session()` returns `&SessionView`.
 #[derive(Debug)]
 pub struct Authenticated;
-/// Like `Authenticated`, plus 403 `SESSION_NOT_FRESH` when the session is older than `fresh_age`.
+/// Like `Authenticated`, plus 403 `SESSION_NOT_FRESH` when the session is older than `fresh_age`
+/// or ephemeral (an API key's), which is never a recent sign-in.
 #[derive(Debug)]
 pub struct Fresh;
 
@@ -171,6 +172,11 @@ pub(crate) struct OwnedGate<D> {
 pub(crate) type ErasedResponseHook<D> = Arc<dyn Fn(&Ctx<D>, &mut Response) + Send + Sync>;
 pub(crate) type ErasedSessionHook<D> =
     Arc<dyn Fn(HookCtx<D>, SessionView) -> BoxFuture<'static, Result<(), AuthError>> + Send + Sync>;
+pub(crate) type ErasedSessionGate<D> = Arc<
+    dyn Fn(HookCtx<D>, SessionView, SessionUse) -> BoxFuture<'static, Result<(), AuthError>>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedEventHandler<D> = Arc<
     dyn Fn(Arc<dyn Any + Send + Sync>, Ctx<D>) -> BoxFuture<'static, Result<(), AuthError>>
         + Send
@@ -224,6 +230,16 @@ pub struct SignInAttempt {
     /// the method it started with.
     pub method: Cow<'static, str>,
     pub remember_me: bool,
+}
+
+/// What a session gate is checking a session for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionUse {
+    /// The request's session, from a cookie, the cookie cache or a resolver (bearer token,
+    /// API key). Runs on every request that looks a session up.
+    Request,
+    /// [`Ctx::sensitive_session`]: the session is about to create or change a credential.
+    Sensitive,
 }
 
 /// The context hooks, gates and event handlers get.
@@ -281,6 +297,7 @@ pub(crate) struct Shared<D> {
     pub resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub response_hooks: Vec<ErasedResponseHook<D>>,
     pub session_hooks: Vec<ErasedSessionHook<D>>,
+    pub session_gates: Vec<ErasedSessionGate<D>>,
     pub events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub router: matchit::Router<MethodTable<D>>,
     pub rate_limiter: RateLimiter,
@@ -485,6 +502,23 @@ impl<D: Adapter, A> Ctx<D, A> {
     pub(crate) fn mailer(&self) -> Option<&Arc<dyn DynMailer>> {
         self.shared.mailer.as_ref()
     }
+
+    /// The request's session read again from the database, for endpoints that create or
+    /// change a credential (API keys, passkeys, linked accounts, two-factor). Skips the
+    /// cookie cache, so a revoked session is refused at once, and runs the session gates
+    /// with [`SessionUse::Sensitive`], where plugins refuse sessions that shouldn't mint
+    /// credentials (admin: impersonation sessions). 401 without a stored session, including
+    /// ephemeral ones such as an API key's.
+    pub async fn sensitive_session(&self) -> Result<SessionView, AuthError> {
+        crate::session::sensitive(
+            &self.shared,
+            self.within.as_ref(),
+            &self.request,
+            &self.effects,
+            self.session.as_deref(),
+        )
+        .await
+    }
 }
 
 impl<D: Adapter> Ctx<D, MaybeAuthenticated> {
@@ -551,7 +585,7 @@ async fn run<D: Adapter, E: Endpoint<D>>(
     };
     match (level, &session) {
         (AccessLevel::Required | AccessLevel::Fresh, None) => return Err(AuthError::unauthorized()),
-        (AccessLevel::Fresh, Some(s)) if !shared.config.is_fresh(&s.session) => {
+        (AccessLevel::Fresh, Some(s)) if s.ephemeral || !shared.config.is_fresh(&s.session) => {
             return Err(AuthError::not_fresh());
         }
         _ => {}

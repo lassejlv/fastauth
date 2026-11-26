@@ -42,6 +42,58 @@ All additive; no public trait changed.
   it) and `Internal::set_session_cookies` (make a token the request's session).
 - Read-only getters for plugins: `EmailPassword::requires_email_verification()`,
   `EmailPassword::max_password_len()` and `SessionConfig::lifetime()`.
+- Session gates: `PluginBuilder::session_gate(|ctx, session, usage| ..)` runs on every
+  session a request uses (cookie, cookie cache, bearer token, a resolver's
+  `Resolved::User`) and on every sensitive session; `Err` refuses it. `SessionUse` says
+  which (`Request` or `Sensitive`) ([Plugins](docs/05-plugins.md#session-gates)).
+- `Ctx::sensitive_session()`: the request's session read again from the database, skipping
+  the cookie cache, refused for ephemeral sessions (401) and checked by the session gates
+  with `SessionUse::Sensitive`. For endpoints that create or change a credential.
+- `Internal::ephemeral_session(&user_id)`: the request-only session `Resolved::User` builds,
+  after the session gates.
+
+### Security
+
+Fixes from the 0.3.0 security review (FAST-31).
+
+- AUTHZ-1 (high): a banned user's API key no longer authenticates. The admin plugin's ban
+  check is a session gate, so it applies to every session (API key, bearer, cookie cache),
+  and banning disables the user's API keys.
+- AUTHZ-2: an API key's session is never fresh, so it can't register a passkey or pass
+  `FreshSession`.
+- AUTHZ-3: an API key's session can't create keys or update them (so it can't lift its own
+  expiry or limits).
+- AUTHZ-4: admins without `user:impersonate-admins` can't set another admin's password,
+  email, role or ban, remove them or revoke their sessions (`403 YOU_CANNOT_MANAGE_ADMINS`).
+- AUTHZ-5: `/api-key/create` and `/api-key/update` read the session from the database, so a
+  revoked session in the cookie cache can't mint a key.
+- AUTHZ-6: session refresh no longer extends an impersonation session past
+  `impersonation_session_duration`.
+- AUTHZ-7: impersonation sessions can't create or update API keys, register passkeys, link
+  social accounts or change two-factor (`403 NOT_ALLOWED_WHILE_IMPERSONATING`).
+- AUTHZ-8: two owners leaving (or removing or demoting each other) at once can no longer
+  leave an organization without an owner.
+- AUTHZ-9: accepting, rejecting or viewing an invitation needs a verified email by default.
+- AUTHZ-10: documented that API-key `permissions` don't limit a key's session, on
+  `ApiKeys::sessions` and in docs/14; key sessions can no longer mint credentials.
+- AUTHZ-11: `/organization/remove-member` answers `MEMBER_NOT_FOUND` for another
+  organization's member before any role check, so it no longer reveals who owns it.
+- AUTHZ-12: `/organization/cancel-invitation` only cancels pending invitations.
+- CORE-6: passkey registration, two-factor enable/disable, `/link-social` and API-key
+  create/update use `Ctx::sensitive_session()`, which skips the cookie cache.
+
+### Behaviour changes
+
+- **Organization:** `require_email_verification_on_invitation` now defaults to `true`. Users
+  must verify their email before they can view, accept or reject an invitation. Set it to
+  `false` to keep 0.3 behaviour (Better Auth's default for its random ids).
+- **Sessions:** a session is extended by the refresh only when it was created with the full
+  `expires_in`. After raising `expires_in`, existing sessions expire on their old date.
+- **API keys:** a key's session gets `403 SESSION_NOT_FRESH` from `Fresh` endpoints and
+  `FreshSession`, and `401` from key create/update, passkey registration, `/link-social` and
+  two-factor enable/disable.
+- **Admin:** a banned user's requests answer `403 BANNED_USER` whatever the session came
+  from; acting on another admin needs `user:impersonate-admins`.
 
 ## 0.3.0 (2026-11-26)
 

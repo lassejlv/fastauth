@@ -11,8 +11,8 @@ use http::Method;
 use crate::adapter::Adapter;
 use crate::endpoint::{
     After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
-    ErasedEventHandler, ErasedResolver, ErasedResponseHook, ErasedSessionHook, Gate, HookCtx,
-    OwnedGate, Response, SessionResolver, SignInAttempt,
+    ErasedEventHandler, ErasedResolver, ErasedResponseHook, ErasedSessionGate, ErasedSessionHook,
+    Gate, HookCtx, OwnedGate, Response, SessionResolver, SessionUse, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
@@ -65,6 +65,7 @@ pub struct Registry<D> {
     pub(crate) resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub(crate) response_hooks: Vec<ErasedResponseHook<D>>,
     pub(crate) session_hooks: Vec<ErasedSessionHook<D>>,
+    pub(crate) session_gates: Vec<ErasedSessionGate<D>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
@@ -85,6 +86,7 @@ impl<D: Adapter> Registry<D> {
             resolvers: Vec::new(),
             response_hooks: Vec::new(),
             session_hooks: Vec::new(),
+            session_gates: Vec::new(),
             events: HashMap::new(),
             rate_rules: Vec::new(),
             error_codes: Vec::new(),
@@ -192,6 +194,24 @@ impl<D: Adapter> PluginBuilder<'_, D> {
             owner,
             gate: Arc::new(move |ctx, attempt| Box::pin(gate(ctx, attempt))),
         });
+        self
+    }
+
+    /// Checks every session a request resolves to (cookie, cookie cache, bearer token,
+    /// API key) and every [`Ctx::sensitive_session`]. `Err` refuses the session: the
+    /// request fails with that error. Unlike [`sign_in_gate`](Self::sign_in_gate), which
+    /// judges a sign-in once, this runs on every request, so keep it cheap; the
+    /// [`SessionUse`] says which check it is.
+    pub fn session_gate<F, Fut>(&mut self, gate: F) -> &mut Self
+    where
+        F: Fn(HookCtx<D>, SessionView, SessionUse) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), AuthError>> + Send + 'static,
+    {
+        self.registry
+            .session_gates
+            .push(Arc::new(move |ctx, session, usage| {
+                Box::pin(gate(ctx, session, usage))
+            }));
         self
     }
 

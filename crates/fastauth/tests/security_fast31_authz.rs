@@ -234,3 +234,42 @@ async fn sec_impersonation_session_cannot_mint_api_key() {
         "an impersonation session minted an API key for the impersonated user: {status} {created}"
     );
 }
+
+/// AUTHZ-1: a ban also disables the user's keys, so the server-side check refuses them too.
+#[tokio::test]
+async fn banning_disables_the_users_api_keys() {
+    let auth = build();
+    let (_, bob) = signed_up(&auth, "bob@acme.dk").await;
+    let key = key_for(&auth, &bob).await;
+    assert!(auth.api_keys().verify(&key, None).await.unwrap().valid);
+    auth.admin()
+        .ban(BanUserInput::new(bob.clone()))
+        .await
+        .unwrap();
+    let verified = auth.api_keys().verify(&key, None).await.unwrap();
+    assert!(!verified.valid, "a banned user's key still verifies");
+    auth.admin().unban(&bob).await.unwrap();
+    assert!(
+        !auth.api_keys().verify(&key, None).await.unwrap().valid,
+        "keys stay disabled after the ban lifts"
+    );
+}
+
+/// AUTHZ-7: nor can an impersonation session register a passkey for the user.
+#[tokio::test]
+async fn impersonation_session_cannot_start_passkey_registration() {
+    let auth = build();
+    let (_, bob) = signed_up(&auth, "bob@acme.dk").await;
+    let (mut support, support_id) = signed_up(&auth, "support@acme.dk").await;
+    auth.admin().set_role(&support_id, "support").await.unwrap();
+    let body = format!(r#"{{"userId":"{bob}"}}"#);
+    let (status, json) = support
+        .send("POST", "/admin/impersonate-user", Some(&body), None)
+        .await;
+    assert_eq!(status, 200, "{json}");
+    let (status, body) = support
+        .send("GET", "/passkey/generate-register-options", None, None)
+        .await;
+    assert_eq!(status, 403, "{body}");
+    assert!(body.contains("NOT_ALLOWED_WHILE_IMPERSONATING"), "{body}");
+}

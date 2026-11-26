@@ -112,8 +112,10 @@ pub struct GenerateRegisterOptionsInput {
 }
 
 /// `GET /passkey/generate-register-options`: the `PublicKeyCredentialCreationOptions` to
-/// pass to `navigator.credentials.create()`. Needs a fresh session. The user's passkeys are
-/// excluded, so an authenticator can't register twice.
+/// pass to `navigator.credentials.create()`. Needs a fresh session, read again from the
+/// database (`Ctx::sensitive_session`), so API-key and impersonation sessions can't
+/// register passkeys. The user's passkeys are excluded, so an authenticator can't register
+/// twice.
 pub struct GenerateRegisterOptions(pub(crate) Arc<Passkey>);
 
 impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
@@ -128,7 +130,8 @@ impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
         ctx: Ctx<D, Fresh>,
         input: GenerateRegisterOptionsInput,
     ) -> Result<PublicKeyCredentialCreationOptions, AuthError> {
-        let user = &ctx.session().user;
+        let session = ctx.sensitive_session().await?;
+        let user = &session.user;
         let rp = self.0.relying_party(ctx.config())?;
         let existing = user_passkeys(&ctx, &user.id).await?;
         let exclude = existing
@@ -201,7 +204,7 @@ pub struct RegisterOutput {
 
 /// `POST /passkey/verify-registration`: verifies the authenticator's attestation against the
 /// challenge from `generate-register-options` and stores the passkey. Needs a fresh session,
-/// the same user's.
+/// the same user's, read again from the database like `generate-register-options`.
 pub struct VerifyRegistration(pub(crate) Arc<Passkey>);
 
 impl<D: Adapter> Endpoint<D> for VerifyRegistration {
@@ -216,12 +219,13 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
         ctx: Ctx<D, Fresh>,
         input: VerifyRegistrationInput,
     ) -> Result<RegisterOutput, AuthError> {
+        let session = ctx.sensitive_session().await?;
         let rp = self.0.relying_party(ctx.config())?;
         let Challenge::Registration { user_id, state } = take_challenge(&ctx).await? else {
             return Err(PasskeyError::ChallengeNotFound.into());
         };
         let user_id = Id::from(user_id);
-        if user_id != ctx.session().user.id {
+        if user_id != session.user.id {
             return Err(PasskeyError::NotAllowed.into());
         }
         let failed = PasskeyError::FailedToVerifyRegistration;

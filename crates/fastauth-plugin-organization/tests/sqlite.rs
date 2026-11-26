@@ -7,6 +7,7 @@ mod common;
 use common::{Client, secret};
 use fastauth_core::crypto::Argon2id;
 use fastauth_core::prelude::*;
+use fastauth_core::query::Db;
 use fastauth_plugin_organization::Organization;
 use fastauth_sqlx::sqlx::sqlite::SqlitePoolOptions;
 use fastauth_sqlx::{Sqlite, Sqlx};
@@ -56,6 +57,12 @@ async fn organization_flow_on_sqlite() {
     assert_eq!(invitation.status, StatusCode::OK, "{}", invitation.json);
     let mut ada: App = Client::new(auth.clone());
     ada.sign_up("ada@acme.dk", "correct horse").await;
+    Db::new(auth.adapter(), auth.schema())
+        .update::<User>(User::EMAIL.eq("ada@acme.dk"))
+        .set(User::EMAIL_VERIFIED, true)
+        .exec()
+        .await
+        .unwrap();
     let accepted = ada
         .post(
             "/organization/accept-invitation",

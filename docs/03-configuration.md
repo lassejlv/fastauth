@@ -114,7 +114,9 @@ pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![Social, TwoFactor]>;
 
 It serves Better Auth's routes: `POST /sign-in/social`, `GET /callback/{provider_id}`,
 `POST /link-social`, `GET /list-accounts` and `POST /unlink-account` (which refuses to remove
-a user's last account). The redirect URI to register with the provider is
+a user's last account). `/link-social` reads the caller's session from the database and
+refuses API-key sessions (401) and impersonation sessions (403), like the other endpoints
+that add a credential. The redirect URI to register with the provider is
 `{base_url}{base_path}/callback/{provider_id}`. A successful callback redirects to
 `callbackURL` (or `newUserCallbackURL` for a new user); a failed one redirects to
 `errorCallbackURL` with `?error=` set to Better Auth's error string (`state_mismatch`,
@@ -173,7 +175,12 @@ through it, including ones it links by verified email.
 ```
 
 The cookie cache trades revocation latency for speed: a revoked session keeps working on
-other devices until the cache cookie expires. [Internals](08-internals.md#the-session-hot-path)
+other devices until the cache cookie expires. Endpoints that create or change a credential
+(API keys, passkeys, linked accounts, two-factor) skip the cache and read the session from
+the database, so a revoked session can't mint one ([Security](09-security.md#sessions-that-arent-a-sign-in)).
+A session is extended only when it was created with the full `expires_in`: one created
+shorter (an impersonation session) keeps its expiry. Raising `expires_in` therefore stops
+existing sessions from sliding; they expire on their old date and the user signs in again. [Internals](08-internals.md#the-session-hot-path)
 shows the cost of each tier. Sessions live in the database; secondary storage such as Redis
 is [planned](01-overview.md#planned), not built.
 

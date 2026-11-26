@@ -6,7 +6,7 @@ use fastauth_core::plugin_prelude::*;
 
 use super::{
     RoleInput, active_organization, checked_roles, find_member, find_organization_by_slug,
-    is_last_owner, plugin, requested_organization, set_active, with_users,
+    has_owner, is_last_owner, plugin, requested_organization, set_active, with_users,
 };
 use crate::access::{OWNER, Roles};
 use crate::model::{Member, MemberWithUser};
@@ -67,6 +67,9 @@ impl<D: Adapter> Endpoint<D> for RemoveMember {
                 .await?
         }
         .ok_or(OrganizationError::MemberNotFound)?;
+        if target.organization_id != organization_id {
+            return Err(OrganizationError::MemberNotFound.into());
+        }
         if target.has_role(OWNER)
             && (!caller.has_role(OWNER) || is_last_owner(&ctx, &target).await?)
         {
@@ -78,9 +81,6 @@ impl<D: Adapter> Endpoint<D> for RemoveMember {
         {
             return Err(OrganizationError::YouAreNotAllowedToDeleteThisMember.into());
         }
-        if target.organization_id != organization_id {
-            return Err(OrganizationError::MemberNotFound.into());
-        }
         remove(&ctx, &target).await?;
         if target.user_id == session.user.id
             && active_organization(session)?.as_ref() == Some(&organization_id)
@@ -91,12 +91,17 @@ impl<D: Adapter> Endpoint<D> for RemoveMember {
     }
 }
 
-/// Deletes a membership and emits `MemberRemoved`.
+/// Deletes a membership and emits `MemberRemoved`. Puts an owner's membership back and
+/// refuses when no owner is left, which concurrent removals can cause.
 pub(crate) async fn remove<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     member: &Member,
 ) -> Result<(), AuthError> {
     ctx.db().delete::<Member>(Member::ID.eq(&member.id)).await?;
+    if member.has_role(OWNER) && !has_owner(ctx, &member.organization_id).await? {
+        ctx.db().insert(member).await?;
+        return Err(OrganizationError::YouCannotLeaveTheOrganizationAsTheOnlyOwner.into());
+    }
     ctx.emit(MemberRemoved {
         organization_id: member.organization_id.clone(),
         user_id: member.user_id.clone(),
@@ -177,6 +182,17 @@ impl<D: Adapter> Endpoint<D> for UpdateMemberRole {
             .set(Member::ROLE, role.clone())
             .exec()
             .await?;
+        if target.has_role(OWNER)
+            && !grants_owner
+            && !has_owner(&ctx, &target.organization_id).await?
+        {
+            ctx.db()
+                .update::<Member>(Member::ID.eq(&target.id))
+                .set(Member::ROLE, target.role.clone())
+                .exec()
+                .await?;
+            return Err(OrganizationError::YouCannotLeaveTheOrganizationWithoutAnOwner.into());
+        }
         Ok(Member { role, ..target })
     }
 }

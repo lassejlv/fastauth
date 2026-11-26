@@ -50,6 +50,39 @@ OAuth state and [API keys](14-api-keys.md) are stored as hashes.
 | `Path` | `/` |
 | `Max-Age` | session expiry; refreshed with the session |
 
+## Sessions that aren't a sign-in
+
+Some sessions don't come from someone typing a password: an API key's request-only session
+([API keys](14-api-keys.md#sessions-from-api-keys)), an admin's impersonation session, and a
+session answered from the cookie cache after it was revoked. fastauth limits what they can do:
+
+- **Bans and other session gates apply to every session.** Plugins register
+  [session gates](05-plugins.md#session-gates) that run on every session a request uses
+  (cookie, cookie cache, bearer token, API key). The admin plugin refuses banned users there,
+  so a ban stops a user's API keys and cached sessions too, and banning disables their keys.
+- **Ephemeral sessions are never fresh.** An API key's session fails `Fresh` endpoints and
+  `FreshSession` with `403 SESSION_NOT_FRESH`.
+- **Credentials need a stored, authoritative session.** Creating or updating an API key,
+  registering a passkey, `/link-social` and turning two-factor on or off use
+  `ctx.sensitive_session()`: the session is read again from the database, skipping the cookie
+  cache, so a revoked session gets `401`; an API key's session has nothing stored and gets
+  `401`; and the admin plugin refuses impersonation sessions with
+  `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a stolen cookie
+  can't turn into a lasting credential.
+- **Impersonation stays short.** Session refresh only extends sessions created with the full
+  `expires_in`, so an impersonation session ends after `impersonation_session_duration`.
+- **Admins can't take each other over.** Acting on another admin's account (password, email,
+  role, ban, removal, sessions) needs `user:impersonate-admins`
+  ([Admin](13-admin.md#endpoints)).
+
+Better Auth checks bans only when a session is created, lets a key's session create keys,
+and doesn't stop impersonation sessions from minting credentials, so fastauth is stricter
+here. Its passkey registration and API-key creation also read the session from the database.
+
+API-key `permissions` still don't limit the key's session: it can do what its owner can on
+every route that takes a session. Check permissions with `auth.api_keys().verify(..)`, or
+leave `.sessions` off.
+
 ## CSRF
 
 `SameSite=Lax` already blocks cross-site `POST`s from carrying the cookie in current
