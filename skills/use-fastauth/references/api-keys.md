@@ -54,8 +54,8 @@ Full page: `docs/plugins/tokens/03-api-keys.md`.
 - Defaults match Better Auth: 64 random letters, no prefix, `start` = first 6 characters,
   no expiry, `expiresIn` between 1 and 365 days, metadata off, 10 requests per day per key,
   sessions off.
-- A magic link, email code or social sign-in that claims an unverified user deletes that
-  user's keys (`UserClaimed`).
+- A magic link, email code, password reset, verification link or social sign-in that claims
+  an unverified user deletes that user's keys, inside the claim's transaction (`on_claim`).
 
 ## Routes (under `/api/auth`, session required)
 

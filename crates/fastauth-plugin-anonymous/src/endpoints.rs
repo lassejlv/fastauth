@@ -168,7 +168,7 @@ impl<D: Adapter> Endpoint<D> for DeleteAnonymousUser {
         if self.0.disable_delete_anonymous_user {
             return Err(AnonymousError::DeleteAnonymousUserDisabled.into());
         }
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         if !is_anonymous(user) {
             return Err(AnonymousError::UserIsNotAnonymous.into());
         }

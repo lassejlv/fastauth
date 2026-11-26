@@ -45,6 +45,10 @@ pub struct Catalog {
     /// `(table, column, storage)` for columns whose type an id column can have. Empty where
     /// every strategy stores ids the same way.
     pub id_storage: Vec<(String, String, IdStorage)>,
+    /// `(table, index name, column)` for every column of every unique index or constraint
+    /// but the primary key. `None` for an expression part, which makes the whole index one
+    /// fastauth didn't create.
+    pub uniques: Vec<(String, String, Option<String>)>,
 }
 
 /// The type `ty` is stored as in `table`: drivers read `ColumnType::Id` as a native UUID,
@@ -74,6 +78,10 @@ pub trait Driver: Database {
     const WILDCARD: char;
     /// Whether `ALTER TABLE .. ADD COLUMN` accepts an inline UNIQUE constraint.
     const UNIQUE_ON_ADD_COLUMN: bool;
+    /// The most bytes one index key may hold, when it's small enough that a unique
+    /// constraint over several text columns needs prefix lengths (MySQL's InnoDB: 3072,
+    /// with 4 bytes per utf8mb4 character).
+    const KEY_BYTES: Option<usize> = None;
 
     fn param(n: usize, out: &mut String);
     /// `text` as a `TEXT_MATCH` pattern that matches it literally.

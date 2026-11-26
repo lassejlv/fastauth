@@ -221,8 +221,10 @@ impl Keys {
     }
 
     /// A session token signed with [`SignPurpose::Cookie`] by any configured secret. Only
-    /// for raw session tokens: a token means nothing until its session row is found, so a
-    /// retired secret can't forge one, and tokens signed before a rotation keep working.
+    /// for raw session tokens, and for markers that only restrict the session they come
+    /// with (the `rememberMe: false` flag): a token means nothing until its session row is
+    /// found, and a forged marker only shortens a session, so a retired secret can't gain
+    /// anything, and values signed before a rotation keep working.
     pub fn verify_token<'a>(&self, signed: &'a str) -> Option<&'a str> {
         Self::verify_with(&self.cookie, signed)
     }

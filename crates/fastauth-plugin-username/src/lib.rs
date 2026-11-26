@@ -43,7 +43,7 @@ mod model;
 
 use fastauth_core::ApiResponse;
 use fastauth_core::plugin_prelude::*;
-use fastauth_core::routes::{CreateUser, SignInOutput, SignUpEmail, UpdateUser};
+use fastauth_core::routes::SignInOutput;
 
 pub use endpoints::{
     Availability, IsUsernameAvailable, IsUsernameAvailableInput, SignInUsername,
@@ -278,27 +278,21 @@ impl Plugin for Username {
             .endpoint(IsUsernameAvailable(self.clone()))
             .errors::<UsernameError>();
         let plugin = self.clone();
-        app.hook::<SignUpEmail>().before(move |ctx, mut input| {
+        app.prepare_user_input(move |ctx, mut body, input| {
             let plugin = plugin.clone();
             async move {
-                endpoints::prepare_new_user(&plugin, &ctx, &mut input.extra, true).await?;
-                Ok(Before::Continue(input))
-            }
-        });
-        let plugin = self.clone();
-        app.hook::<CreateUser>().before(move |ctx, mut input| {
-            let plugin = plugin.clone();
-            async move {
-                endpoints::prepare_new_user(&plugin, &ctx, &mut input.fields, false).await?;
-                Ok(Before::Continue(input))
-            }
-        });
-        let plugin = self.clone();
-        app.hook::<UpdateUser>().before(move |ctx, mut input| {
-            let plugin = plugin.clone();
-            async move {
-                endpoints::prepare_update(&plugin, &ctx, &mut input.extra).await?;
-                Ok(Before::Continue(input))
+                match input {
+                    UserInput::SignUp => {
+                        endpoints::prepare_new_user(&plugin, &ctx, &mut body, true).await?
+                    }
+                    UserInput::Create => {
+                        endpoints::prepare_new_user(&plugin, &ctx, &mut body, false).await?
+                    }
+                    UserInput::Update => {
+                        endpoints::prepare_update(&plugin, &ctx, &mut body).await?
+                    }
+                }
+                Ok(body)
             }
         });
     }

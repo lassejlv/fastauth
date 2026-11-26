@@ -19,9 +19,10 @@ So a bug that leaks one derived key doesn't expose the others, and plugins can't
 core's keys.
 
 **Rotation.** `.secrets([new, old])`: the first secret signs, verifies and encrypts.
-Every secret in the list still decrypts, and still verifies a signed session token
-(`Keys::verify_token`). A session token only points to a session row, so a retired secret
-can't forge one, and a rotation signs nobody out.
+Every secret in the list still decrypts, and still verifies a signed session token and the
+`rememberMe: false` marker (`Keys::verify_token`). A session token only points to a session
+row and the marker only shortens a session, so a retired secret gains nothing from them,
+and a rotation signs nobody out.
 
 A retired secret verifies nothing else. Values that carry their own meaning are accepted
 only when the current secret signed them: the cookie cache, two-factor trusted-device
@@ -106,13 +107,33 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   so a ban stops a user's API keys and cached sessions too, and banning disables their keys.
 - **Ephemeral sessions are never fresh.** An API key's session fails `Fresh` endpoints and
   `FreshSession` with `403 SESSION_NOT_FRESH`.
-- **Credentials need a stored, authoritative session.** Creating or updating an API key,
-  registering a passkey, `/link-social` and turning two-factor on or off use
-  `ctx.sensitive_session()`: the session is read again from the database, skipping the cookie
-  cache, so a revoked session gets `401`; an API key's session has nothing stored and gets
-  `401`; and the admin plugin refuses impersonation sessions with
-  `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a stolen cookie
-  can't turn into a lasting credential.
+- **Credentials need a stored, authoritative session.** Creating, updating or deleting an API
+  key, registering, renaming or deleting a passkey, `/link-social`, `/unlink-account`,
+  `/change-password`, `/delete-anonymous-user`, turning two-factor on or off, reading the TOTP
+  URI and generating backup codes use `ctx.sensitive_session()`: the session is read again
+  from the database, skipping the cookie cache, so a revoked session gets `401`; an API key's
+  session has nothing stored and gets `401`; and the admin plugin refuses impersonation
+  sessions with `403 NOT_ALLOWED_WHILE_IMPERSONATING`. So a leaked key, a support agent or a
+  stolen cookie can't turn into a lasting credential.
+- **Authorization reads the session from the database.** Admin permission checks
+  (`/admin/*`, impersonation, `/admin/has-permission`), organization role and permission
+  checks on every endpoint that changes something, and `/revoke-session`,
+  `/revoke-sessions` and `/revoke-other-sessions` use `ctx.authoritative_session()`. When
+  the cookie cache answered the request, the session and user are read again and the session
+  gates run on the stored rows, so a revoked session gets `401` and a demotion or a ban
+  counts at once instead of after the cache's max age. Without the cookie cache the session
+  was already read from the database and nothing is queried twice. Unlike
+  `sensitive_session()`, it lets API-key and impersonation sessions through, as any request
+  does. Read-only lists (organizations, members) still answer from the cache.
+- **Sessions end when they should.** A `rememberMe: false` sign-in gets a session that
+  lives one day at most (or `expires_in`, if that's shorter) and is never extended by the
+  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. A session
+  revoked while a request is refreshing it gets no refreshed cookie: the request answers
+  signed out and clears the cookies. When a session hook refuses a new session, the row is
+  deleted and the response sets none of its cookies.
+- **The cookie cache hides hidden columns.** Columns marked `returned = false` are left out
+  of the readable cache payload and stored encrypted (field-encryption key) inside it, so
+  they never reach the browser in clear.
 - **Impersonation stays short.** The admin plugin marks impersonation sessions with
   `PluginBuilder::fixed_session_expiry`, so the refresh never extends them and they end after
   `impersonation_session_duration`.
@@ -122,7 +143,12 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
 
 Better Auth checks bans only when a session is created, lets a key's session create keys,
 and doesn't stop impersonation sessions from minting credentials, so fastauth is stricter
-here. Its passkey registration and API-key creation also read the session from the database.
+here. Its passkey registration, API-key creation, admin checks, `/change-password`,
+`/revoke-*` and backup-code generation also read the session from the database. Better Auth
+lets a cached session read the TOTP URI, unlink an account and rename or delete a passkey, an
+API key's session generate backup codes, and impersonation or API-key sessions delete API
+keys, and it answers organization role checks from the cookie cache; fastauth refuses or
+re-reads in those cases, so it is stricter there too.
 
 API-key `permissions` still don't limit the key's session: it can do what its owner can on
 every route that takes a session. Check permissions with `auth.api_keys().verify(..)`, or
@@ -214,6 +240,11 @@ finish the sign-in a second time. The row expires with `two_factor_cookie_max_ag
 minutes by default). Better Auth also caps attempts per challenge; it doesn't cap TOTP
 guesses for a signed-in user, and neither does fastauth beyond the rate limit.
 
+A user has at most one `two_factor` row: `two_factor.user_id` is unique, and
+`/two-factor/enable` replaces the old secret in a transaction that locks the user's row
+first. Without that, two enables at once could leave two secrets, and the one the user's app
+was set up with might not be the one sign-in checks. Better Auth has no such constraint.
+
 ## Account enumeration
 
 Routes that take an email and must not reveal whether it has an account answer the same
@@ -238,6 +269,62 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
 
 `LogMailer` and `MemoryMailer` do no I/O, so they still send before the response.
 
+## Claiming an email
+
+Anyone can sign up with an address they don't own: nothing proves the mailbox until a link or
+code sent to it comes back. So whoever proves control of an email becomes the only owner of
+its user, on every path that proves one:
+
+- a magic link, and an email code that signs in or resets a password;
+- `/reset-password` with a link from `/request-password-reset` (the link was mailed to the
+  address, so it proves the mailbox like a magic link does);
+- a social sign-in or link where the provider verified the email;
+- `/verify-email` and `/email-otp/verify-email`, unless the request also proves it holds the
+  password (below).
+
+When one of these lands on a user whose email isn't verified, core claims the user in **one
+database transaction**. It changes the user's security stamp, marks the email verified, and
+deletes every account (the password and every OAuth link), every session, the user's
+verification and reset links, and whatever each plugin registered with
+[`on_claim`](../reference/01-plugin-authoring.md#claiming-a-user): passkeys, API keys, the
+two-factor enrollment (TOTP secret, backup codes, so trusted-device cookies stop matching)
+and a sign-in waiting at the two-factor step. If any of it fails, nothing is committed and the
+request fails, so the next proof claims the user again. The `UserClaimed` event is sent after
+the commit, for notifications only.
+
+**The security stamp.** `user.security_stamp` is a random number, never sent to clients,
+that every claim changes. A sign-in reads it with the user before checking the password, code
+or passkey, and the session is only kept if the stamp is still the same once it exists
+(a locking check that waits for a claim in progress). The same holds for a pending two-factor
+sign-in, an OAuth callback, and links to reset a password or verify an email, which carry the
+stamp and the address they were sent to. So a sign-in that started before a claim can't finish
+after it, and a reset or verification link dies when the user is claimed or changes email.
+
+**Verification links.** A verification link proves the mailbox, but not that the person who
+opens it set the password. When the request also carries the user's session, or the signed
+`pending_verification` cookie that sign-up (and a sign-in refused with `EMAIL_NOT_VERIFIED`)
+leaves in the browser that knew the password, the email is just marked verified. Otherwise
+the link claims the user: the password is deleted with everything else, and the owner signs
+in with a magic link or code, or sets a password with a reset. Without this, someone who signed
+up with your address first would sign in to your account with their password as soon as you
+verified it.
+
+**Stricter than Better Auth.** Better Auth 1.7.28 marks the email verified on these paths and
+keeps everything else: the first registrant's password (verify-email), their passkeys, API
+keys, two-factor and OAuth links (reset-password, verify-email), and a sign-in that is in
+flight. fastauth's claim covers all of them. What an app notices:
+
+- Opening a verification link in another browser than the one that signed up, while signed
+  out, deletes the password. The owner then uses a magic link, an email code, or a reset.
+- `/reset-password` on an unverified user verifies the email, deletes the user's other
+  accounts, passkeys, API keys and two-factor, and signs them out everywhere, even with
+  `revoke_sessions_on_password_reset(false)`.
+- A sign-in that was checking the password while the user was claimed answers 401
+  `UNAUTHORIZED` instead of a session.
+
+**Not covered.** JWTs issued before a claim stay valid until they expire (15 minutes by
+default), and organization memberships and invitations of the claimed user are kept.
+
 ## OAuth
 
 - `state` and PKCE (S256) on every provider, including ones that don't require PKCE.
@@ -261,13 +348,11 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
 - A token response's `expires_in` and `refresh_token_expires_in` are clamped to 10 years,
   and negative values are ignored, so a broken or hostile token endpoint can't crash the
   callback.
-- Linking to a user whose email was never verified closes the pre-registration attack (someone
-  signs up with your email and a password before you first sign in with Google). In one
-  transaction, the user's `credential` account is deleted, all of the user's sessions are
-  revoked, the email is marked verified, and the social account is linked. The person who
-  proved the email through the provider ends up as the only one who can sign in. A legitimate
-  owner who never verified their email loses their password and can set a new one with a
-  password reset.
+- Linking to a user whose email was never verified claims it ([Claiming an email](#claiming-an-email)):
+  the social account is linked in the same transaction that deletes the user's other accounts,
+  sessions and plugin credentials, so the person who proved the email through the provider is
+  the only one who can sign in. A legitimate owner who never verified their email loses their
+  password and can set a new one with a password reset.
 
 ## Bearer tokens and JWTs
 
@@ -337,6 +422,49 @@ client can't choose ([Configuration](../get-started/03-configuration.md#rate-lim
 `[redacted]` for the link and token, `PluginEmail` for the text, link and code, and
 `SessionView` for the session token. Logging request bodies or cookie headers yourself
 still puts passwords and tokens in your logs.
+
+## The database
+
+Uniqueness that matters for security is a database constraint, not only a check before an
+insert, so two requests at once can't both pass the check:
+
+- `user.email` (stored lowercased), `user.username` (normalized, username plugin),
+  `organization.slug`, `passkey.credential_id`, and every token, code and key hash.
+- `account (provider_id, account_id)`: one provider account belongs to one user. A second
+  link answers 409 `SOCIAL_ACCOUNT_ALREADY_LINKED`.
+- `member (organization_id, user_id)`: one membership per user and organization. Two
+  accepts or adds at once leave one row, and the other answers
+  `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`. Removing a member removes them.
+- `two_factor.user_id`: one TOTP secret per user.
+
+Better Auth enforces none of the last three in its schema. A database made by fastauth 0.5
+or earlier gets them on its next migration, which refuses to run while duplicates exist and
+names them; [Unique constraints on an existing database](02-database.md#unique-constraints-on-an-existing-database)
+has the queries that fix them.
+
+Limits counted before an insert are counted inside a transaction that first locks the
+user's row: the organization plugin's `organization_limit`, so parallel creates can't each
+see room for one more. On Postgres and MySQL the second request waits for the first; SQLite
+runs one write transaction at a time anyway.
+
+In production:
+
+- **Use TLS to the database, and check the certificate.** sqlx's default for MySQL is
+  `ssl-mode=preferred` and for Postgres `sslmode=prefer`: TLS when the server offers it, no
+  certificate check, and plain text when it doesn't. Put `ssl-mode=verify_identity` (MySQL)
+  or `sslmode=verify-full` (Postgres) in `DATABASE_URL` unless the database is on the
+  same host. [MySQL](02-database.md#mysql) has examples.
+- **MySQL 8 only.** MariaDB isn't supported (it lacks `utf8mb4_0900_bin`); the first
+  migration fails on it rather than running with different comparison rules.
+- **Keep MySQL's `sql_mode` strict** (the default), so a value too long for a key column is
+  an error and not cut short into another value's key.
+- **UUID ids compare as UUIDs on Postgres and MySQL.** Under a UUID id strategy, other
+  spellings of the same UUID (uppercase, no hyphens, braces) find the same row there, while
+  SQLite stores ids as text and compares them exactly. The admin plugin's "not yourself"
+  checks (banning or removing your own user) compare the requested id with the caller's as
+  strings, so on Postgres and MySQL an admin can get past them by spelling their own id
+  differently; that only reaches their own account. If your own code compares an id from a
+  client with an `Id`, compare the id the database returned instead.
 
 ## What fastauth doesn't do for you
 

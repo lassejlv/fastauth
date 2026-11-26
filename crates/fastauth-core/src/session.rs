@@ -50,6 +50,14 @@ impl UserView {
     pub fn to_json(&self) -> serde_json::Map<String, serde_json::Value> {
         self.row.to_client_json()
     }
+
+    /// The user's security stamp ([`User::SECURITY_STAMP`]) when this row was read. A row
+    /// without the column (an old cookie cache) reads as 0.
+    pub fn security_stamp(&self) -> i64 {
+        self.row
+            .get(User::SECURITY_STAMP.name())
+            .unwrap_or_default()
+    }
 }
 
 /// Serializes as the client JSON of the row, the `user` of `/get-session`.
@@ -69,6 +77,8 @@ pub struct SessionView {
     pub token: Option<String>,
     /// Created for this request only by a resolver (e.g. an API key); not in the database.
     pub ephemeral: bool,
+    /// Read from the cookie cache, so it may be stale; see `Ctx::authoritative_session`.
+    pub(crate) from_cache: bool,
 }
 
 impl std::fmt::Debug for SessionView {
@@ -250,10 +260,13 @@ pub(crate) fn clear_session_cookies(config: &CoreConfig, effects: &Mutex<Effects
     }
 }
 
+/// The cookie cache: the session and user rows with every column hidden from clients
+/// (`returned = false`) set to null, and those columns' values encrypted in `h`.
 #[derive(Serialize, Deserialize)]
 struct CachePayload {
     s: Vec<Value>,
     u: Vec<Value>,
+    h: String,
     t: Option<String>,
     e: i64,
     f: u64,
@@ -265,7 +278,8 @@ pub(crate) fn fingerprint(
 ) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for column in session.columns.iter().chain(&user.columns) {
-        for byte in column.name.bytes().chain(*b"|") {
+        let hidden = if column.returned { "" } else { "!" };
+        for byte in column.name.bytes().chain(hidden.bytes()).chain(*b"|") {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0100_0000_01b3);
         }
@@ -278,9 +292,15 @@ fn write_cache<D>(shared: &Shared<D>, effects: &Mutex<Effects>, view: &SessionVi
         return;
     };
     let expires = OffsetDateTime::now_utc() + max_age;
+    let (s, hidden_s) = split_hidden(&view.row);
+    let (u, hidden_u) = split_hidden(&view.user.row);
+    let Ok(hidden) = serde_json::to_vec(&(hidden_s, hidden_u)) else {
+        return;
+    };
     let payload = CachePayload {
-        s: view.row.values().to_vec(),
-        u: view.user.row.values().to_vec(),
+        s,
+        u,
+        h: base64url(&shared.keys.encrypt(&hidden)),
         t: view
             .token
             .as_ref()
@@ -305,6 +325,36 @@ fn write_cache<D>(shared: &Shared<D>, effects: &Mutex<Effects>, view: &SessionVi
         .push(SetCookie::new(name, value, Some(max_age)));
 }
 
+/// The row's values with the columns hidden from clients set to null, and those values.
+fn split_hidden(row: &Row) -> (Vec<Value>, Vec<Value>) {
+    let mut public = row.values().to_vec();
+    let mut hidden = Vec::new();
+    for (value, column) in public.iter_mut().zip(&row.table().columns) {
+        if !column.returned {
+            hidden.push(std::mem::replace(value, Value::Null));
+        }
+    }
+    (public, hidden)
+}
+
+/// Puts the hidden values `split_hidden` took back in place. `None` when they don't fit.
+fn join_hidden(
+    table: &crate::schema::TableDef,
+    mut public: Vec<Value>,
+    hidden: Vec<Value>,
+) -> Option<Vec<Value>> {
+    if public.len() != table.columns.len() {
+        return None;
+    }
+    let mut hidden = hidden.into_iter();
+    for (value, column) in public.iter_mut().zip(&table.columns) {
+        if !column.returned {
+            *value = hidden.next()?;
+        }
+    }
+    hidden.next().is_none().then_some(public)
+}
+
 fn read_cache<D>(shared: &Shared<D>, request: &RequestInfo, token: &str) -> Option<SessionView> {
     shared.config.session.cookie_cache?;
     let raw = cookies::read(&request.headers, &shared.config.cookie_name(SESSION_DATA))?;
@@ -319,12 +369,17 @@ fn read_cache<D>(shared: &Shared<D>, request: &RequestInfo, token: &str) -> Opti
     }
     let session_table = shared.schema.expect(Session::TABLE);
     let user_table = shared.schema.expect(User::TABLE);
-    if payload.s.len() != session_table.columns.len() || payload.u.len() != user_table.columns.len()
-    {
-        return None;
-    }
-    let row = Row::new(session_table.clone(), payload.s);
-    let user = UserView::from_row(Row::new(user_table.clone(), payload.u)).ok()?;
+    let hidden = shared.keys.decrypt(&base64url_decode(&payload.h)?)?;
+    let (hidden_s, hidden_u): (Vec<Value>, Vec<Value>) = serde_json::from_slice(&hidden).ok()?;
+    let row = Row::new(
+        session_table.clone(),
+        join_hidden(session_table, payload.s, hidden_s)?,
+    );
+    let user = UserView::from_row(Row::new(
+        user_table.clone(),
+        join_hidden(user_table, payload.u, hidden_u)?,
+    ))
+    .ok()?;
     let session = Session::decode(&row).ok()?;
     (session.expires_at > OffsetDateTime::now_utc()).then(|| SessionView {
         session,
@@ -332,6 +387,7 @@ fn read_cache<D>(shared: &Shared<D>, request: &RequestInfo, token: &str) -> Opti
         user,
         token: Some(token.to_owned()),
         ephemeral: false,
+        from_cache: true,
     })
 }
 
@@ -367,26 +423,40 @@ pub(crate) async fn by_token<D: Adapter>(
         user: UserView::from_row(user_row).map_err(AuthError::internal)?,
         token: Some(token.to_owned()),
         ephemeral: false,
+        from_cache: false,
     }))
+}
+
+/// Whether the request carries the signed cookie of a `rememberMe: false` sign-in.
+fn dont_remember<D>(shared: &Shared<D>, request: &RequestInfo) -> bool {
+    cookies::read(&request.headers, &shared.config.cookie_name(DONT_REMEMBER))
+        .and_then(|v| shared.keys.verify_token(v))
+        .is_some()
 }
 
 /// Extends the expiry at most once per `update_age`. The conditional update makes
 /// concurrent requests extend it once. Sessions a plugin marked with
-/// `PluginBuilder::fixed_session_expiry` (impersonation sessions) are never extended.
+/// `PluginBuilder::fixed_session_expiry` (impersonation sessions) and `rememberMe: false`
+/// sessions are never extended. `false` when the session is gone: it was revoked between
+/// the lookup and the update.
 async fn refresh<D: Adapter>(
     shared: &Shared<D>,
     db: &D,
     request: &RequestInfo,
     effects: &Mutex<Effects>,
     view: &mut SessionView,
-) -> Result<(), AuthError> {
+) -> Result<bool, AuthError> {
     let now = OffsetDateTime::now_utc();
     let config = &shared.config.session;
     if now - view.session.updated_at < config.update_age
         || shared.fixed_expiry.iter().any(|fixed| fixed(view))
+        || dont_remember(shared, request)
     {
-        return Ok(());
+        return Ok(true);
     }
+    let Some(token) = view.token.clone() else {
+        return Ok(true);
+    };
     let table = shared.schema.expect(Session::TABLE);
     let position = |c: &str| table.position(c).expect("core session column");
     let expires_at = now + config.expires_in;
@@ -406,18 +476,19 @@ async fn refresh<D: Adapter>(
         (position("expires_at"), Value::Timestamp(expires_at)),
         (position("updated_at"), Value::Timestamp(now)),
     ];
-    db.update(Update { table, filter, set }).await?;
+    if db.update(Update { table, filter, set }).await? == 0 {
+        let Some(current) = by_token(shared, db, &token).await? else {
+            return Ok(false);
+        };
+        *view = current;
+        return Ok(true);
+    }
     view.session.expires_at = expires_at;
     view.session.updated_at = now;
     view.row.set("expires_at", Value::Timestamp(expires_at));
     view.row.set("updated_at", Value::Timestamp(now));
-    if let Some(token) = &view.token {
-        let remember = cookies::read(&request.headers, &shared.config.cookie_name(DONT_REMEMBER))
-            .and_then(|v| shared.keys.verify(SignPurpose::Cookie, v))
-            .is_none();
-        set_session_cookies(&shared.config, &shared.keys, effects, token, remember);
-    }
-    Ok(())
+    set_session_cookies(&shared.config, &shared.keys, effects, &token, true);
+    Ok(true)
 }
 
 /// Finds the request's session: signed cookie (and cookie cache), then resolvers.
@@ -444,7 +515,10 @@ pub(crate) async fn resolve<D: Adapter>(
             return Ok(None);
         };
         run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
-        refresh(shared, db, request, effects, &mut view).await?;
+        if !refresh(shared, db, request, effects, &mut view).await? {
+            clear_session_cookies(&shared.config, effects);
+            return Ok(None);
+        }
         write_cache(shared, effects, &view);
         return Ok(Some(view));
     }
@@ -464,7 +538,9 @@ pub(crate) async fn resolve<D: Adapter>(
                     return Ok(None);
                 };
                 run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
-                refresh(shared, db, request, effects, &mut view).await?;
+                if !refresh(shared, db, request, effects, &mut view).await? {
+                    return Ok(None);
+                }
                 return Ok(Some(view));
             }
             Some(Resolved::User(user_id)) => {
@@ -505,10 +581,57 @@ pub(crate) async fn sensitive<D: Adapter>(
     effects: &Arc<Mutex<Effects>>,
     current: Option<&SessionView>,
 ) -> Result<SessionView, AuthError> {
-    let Some(token) = current
-        .filter(|s| !s.ephemeral)
-        .and_then(|s| s.token.as_deref())
-    else {
+    let Some(current) = current.filter(|s| !s.ephemeral) else {
+        return Err(AuthError::unauthorized());
+    };
+    stored(
+        shared,
+        within,
+        request,
+        effects,
+        current,
+        SessionUse::Sensitive,
+    )
+    .await
+}
+
+/// `Ctx::authoritative_session`: `current` when this request read it from the database
+/// (or a resolver made it); a session from the cookie cache read again, after the session
+/// gates with `SessionUse::Request`.
+pub(crate) async fn authoritative<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
+    request: &Arc<RequestInfo>,
+    effects: &Arc<Mutex<Effects>>,
+    current: Option<&SessionView>,
+) -> Result<SessionView, AuthError> {
+    let Some(current) = current else {
+        return Err(AuthError::unauthorized());
+    };
+    if !current.from_cache {
+        return Ok(current.clone());
+    }
+    stored(
+        shared,
+        within,
+        request,
+        effects,
+        current,
+        SessionUse::Request,
+    )
+    .await
+}
+
+/// The stored session behind `current`, read without the cookie cache, after the gates.
+async fn stored<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
+    request: &Arc<RequestInfo>,
+    effects: &Arc<Mutex<Effects>>,
+    current: &SessionView,
+    usage: SessionUse,
+) -> Result<SessionView, AuthError> {
+    let Some(token) = current.token.as_deref() else {
         return Err(AuthError::unauthorized());
     };
     let db = within.map_or(&shared.db, |db| &**db);
@@ -516,15 +639,7 @@ pub(crate) async fn sensitive<D: Adapter>(
         clear_session_cookies(&shared.config, effects);
         return Err(AuthError::unauthorized());
     };
-    run_gates(
-        shared,
-        within,
-        request,
-        effects,
-        &view,
-        SessionUse::Sensitive,
-    )
-    .await?;
+    run_gates(shared, within, request, effects, &view, usage).await?;
     Ok(view)
 }
 
@@ -570,5 +685,6 @@ fn ephemeral<D>(shared: &Shared<D>, user_row: Row) -> Result<SessionView, AuthEr
         user,
         token: None,
         ephemeral: true,
+        from_cache: false,
     })
 }

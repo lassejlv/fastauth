@@ -40,8 +40,8 @@
 //! the matching `verify-*` call consumes it, so each challenge works once. Signing in runs the
 //! other plugins' sign-in gates with method `"passkey"`, and checks and advances the
 //! credential's signature counter. A user claimed by proof of their email
-//! ([`UserClaimed`](fastauth_core::events::UserClaimed)) loses the passkeys registered before
-//! the proof.
+//! ([`Internal::claim_user`](fastauth_core::internal::Internal::claim_user)) loses the
+//! passkeys registered before the proof, inside the claim's transaction.
 
 mod ceremony;
 mod endpoints;
@@ -52,7 +52,6 @@ use std::future::Future;
 use std::pin::Pin;
 
 use fastauth_core::config::CoreConfig;
-use fastauth_core::events::UserClaimed;
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::{ApiResponse, routes::Status};
 
@@ -207,11 +206,14 @@ impl Plugin for Passkey {
             .endpoint(DeletePasskey)
             .endpoint(UpdatePasskey)
             .errors::<PasskeyError>()
-            .on::<UserClaimed, _, _>(|claimed, ctx| async move {
-                ctx.db()
-                    .delete::<PasskeyRow>(PasskeyRow::USER_ID.eq(&claimed.user_id))
-                    .await?;
-                Ok(())
+            .on_claim(|claim| {
+                Box::pin(async move {
+                    claim
+                        .db()
+                        .delete::<PasskeyRow>(PasskeyRow::USER_ID.eq(claim.user_id()))
+                        .await?;
+                    Ok(())
+                })
             });
     }
 }

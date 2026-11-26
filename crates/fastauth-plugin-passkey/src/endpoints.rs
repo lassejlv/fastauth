@@ -477,6 +477,13 @@ impl<D: Adapter> Endpoint<D> for VerifyAuthentication {
                 WebauthnError::AuthenticationFailure => PasskeyError::AuthenticationFailed,
                 _ => PasskeyError::InvalidAssertion,
             })?;
+        // The user is read before the counter moves: a claim that deletes this passkey after
+        // the read changes the user's security stamp, which the sign-in then refuses.
+        let user = ctx
+            .internal()
+            .find_user_by_id(&row.user_id)
+            .await?
+            .ok_or_else(|| AuthError::internal("a passkey's user is gone"))?;
         let counter = i64::from(result.counter().max(credential.counter));
         let advanced = ctx
             .db()
@@ -492,11 +499,6 @@ impl<D: Adapter> Endpoint<D> for VerifyAuthentication {
         if advanced == 0 {
             return Err(PasskeyError::InvalidAssertion.into());
         }
-        let user = ctx
-            .internal()
-            .find_user_by_id(&row.user_id)
-            .await?
-            .ok_or_else(|| AuthError::internal("a passkey's user is gone"))?;
         Ok(
             match ctx.internal().sign_in(user, Passkey::ID, true).await? {
                 SignInResult::SignedIn(session) => SignInOutput::SignedIn {
@@ -542,7 +544,7 @@ async fn own_passkey<D: Adapter>(
         .one()
         .await?
         .ok_or(PasskeyError::PasskeyNotFound)?;
-    if row.user_id != ctx.session().user.id {
+    if row.user_id != ctx.sensitive_session().await?.user.id {
         return Err(not_yours);
     }
     Ok(row)

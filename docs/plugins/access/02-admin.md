@@ -429,6 +429,11 @@ API key's session included. Banning also disables the user's API keys (`enabled:
 owner or the server turns them back on. Better Auth checks bans only when a session is
 created, so its API-key sessions keep working for banned users.
 
+Every `/admin/*` permission check, `impersonate-user` and `/admin/has-permission` read the
+caller's session and user from the database, as Better Auth does, even when the cookie cache
+answered the request. So an admin who was banned, demoted or signed out everywhere loses
+admin rights at once, not when their cache cookie expires.
+
 The message is `banned_user_message` followed by ` Reason: <reason>`:
 
 ```json
@@ -448,14 +453,19 @@ expired bans.
    valid.
 2. A new session for the user is created, marked with `impersonatedBy`, expiring after
    `impersonation_session_duration` (one hour by default), and set as the session cookie.
+   The mark and the expiry are written with the session in one insert. If a session hook
+   refuses it, nothing is stored, the admin's browser keeps the admin's session, and no
+   `admin_session` cookie is set.
 3. `stop-impersonating` revokes that session, restores the admin's session cookie, and
    deletes the `admin_session` and cookie-cache cookies.
 
 An impersonation session lasts `impersonation_session_duration` at most: the usual session
 refresh never extends it. It can't create or change the user's credentials either:
-creating or updating API keys, registering a passkey, linking a social account and turning
-two-factor on or off answer `403 NOT_ALLOWED_WHILE_IMPERSONATING`, so a support role can't
-leave itself a way back in after `stop-impersonating`.
+creating, updating or deleting API keys, registering, renaming or deleting a passkey, linking
+or unlinking a social account, changing the password, turning two-factor on or off, reading
+the TOTP URI and generating backup codes answer `403 NOT_ALLOWED_WHILE_IMPERSONATING`, so a
+support role can't leave itself a way back in after `stop-impersonating`. A JWT from
+`/token` ([JWT](../tokens/02-jwt.md#what-a-token-contains)) expires with the impersonation session at the latest.
 
 Impersonation sessions can't impersonate (`403 YOU_ARE_NOT_ALLOWED_TO_IMPERSONATE_USERS`),
 and they don't show up in the user's own `/list-sessions`. They do show up in

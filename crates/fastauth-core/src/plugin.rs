@@ -10,12 +10,14 @@ use http::Method;
 
 use crate::adapter::Adapter;
 use crate::endpoint::{
-    After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
-    ErasedEventHandler, ErasedResolver, ErasedResponseHook, ErasedSessionGate, ErasedSessionHook,
-    FixedExpiry, Gate, HookCtx, OwnedGate, Response, SessionResolver, SessionUse, SignInAttempt,
+    After, Before, BoxFuture, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore,
+    ErasedClaimHook, ErasedEndpoint, ErasedEventHandler, ErasedResolver, ErasedResponseHook,
+    ErasedSessionGate, ErasedSessionHook, ErasedUserInputHook, FixedExpiry, Gate, HookCtx,
+    OwnedGate, Response, SessionResolver, SessionUse, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
+use crate::internal::{Claim, UserInput};
 use crate::model::Fields;
 use crate::rate_limit::{Limit, Rule};
 use crate::schema::SchemaBuilder;
@@ -67,6 +69,8 @@ pub struct Registry<D> {
     pub(crate) session_hooks: Vec<ErasedSessionHook<D>>,
     pub(crate) session_gates: Vec<ErasedSessionGate<D>>,
     pub(crate) fixed_expiry: Vec<FixedExpiry>,
+    pub(crate) claim_hooks: Vec<ErasedClaimHook<D>>,
+    pub(crate) user_input_hooks: Vec<ErasedUserInputHook<D>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
@@ -89,6 +93,8 @@ impl<D: Adapter> Registry<D> {
             session_hooks: Vec::new(),
             session_gates: Vec::new(),
             fixed_expiry: Vec::new(),
+            claim_hooks: Vec::new(),
+            user_input_hooks: Vec::new(),
             events: HashMap::new(),
             rate_rules: Vec::new(),
             error_codes: Vec::new(),
@@ -266,6 +272,56 @@ impl<D: Adapter> PluginBuilder<'_, D> {
         self.registry
             .session_hooks
             .push(Arc::new(move |ctx, session| Box::pin(hook(ctx, session))));
+        self
+    }
+
+    /// Removes this plugin's credentials and pending state of a user that proof of the email
+    /// claims ([`Internal::claim_user`]): anything the previous holder of the address could
+    /// sign in or finish a sign-in with, such as passkeys, API keys or a two-factor enrollment.
+    /// Runs inside the claim's transaction, after core deleted the user's accounts and
+    /// sessions; query through [`Claim::db`]. An error rolls the claim back and fails the
+    /// request, so the claim never commits with a cleanup missing.
+    ///
+    /// ```ignore
+    /// app.on_claim(|claim| {
+    ///     Box::pin(async move {
+    ///         claim.db().delete::<ApiKey>(ApiKey::USER_ID.eq(claim.user_id())).await?;
+    ///         Ok(())
+    ///     })
+    /// });
+    /// ```
+    ///
+    /// [`Internal::claim_user`]: crate::internal::Internal::claim_user
+    pub fn on_claim<F>(&mut self, cleanup: F) -> &mut Self
+    where
+        F: for<'a> Fn(Claim<'a, D>) -> BoxFuture<'a, Result<(), AuthError>> + Send + Sync + 'static,
+    {
+        self.registry.claim_hooks.push(Arc::new(cleanup));
+        self
+    }
+
+    /// Checks and rewrites the app and plugin columns a client sends for a user (the extra
+    /// camelCase keys of a sign-up, update-user or email-code sign-up body) before they are
+    /// parsed, on every route that writes them: [`Internal::user_fields`]. In registration
+    /// order; an error refuses the request. For plugins whose columns have rules, such as a
+    /// username that must be valid, normalized and free.
+    ///
+    /// [`Internal::user_fields`]: crate::internal::Internal::user_fields
+    pub fn prepare_user_input<F, Fut>(&mut self, hook: F) -> &mut Self
+    where
+        F: Fn(HookCtx<D>, serde_json::Map<String, serde_json::Value>, UserInput) -> Fut
+            + Send
+            + Sync
+            + 'static,
+        Fut: Future<Output = Result<serde_json::Map<String, serde_json::Value>, AuthError>>
+            + Send
+            + 'static,
+    {
+        self.registry
+            .user_input_hooks
+            .push(Arc::new(move |ctx, input, kind| {
+                Box::pin(hook(ctx, input, kind))
+            }));
         self
     }
 

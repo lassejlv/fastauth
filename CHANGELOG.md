@@ -4,6 +4,88 @@
 
 ### Security
 
+- **SESS-1:** with the cookie cache on, `/admin/*` and `impersonate-user` authorized from the
+  cached session, so a revoked, demoted or banned admin kept admin rights for the cache's max
+  age. Admin checks now read the session and user from the database.
+- **SESS-2:** `/two-factor/get-totp-uri`, `/two-factor/generate-backup-codes` and
+  `/change-password` accepted a cached or API-key session, and `/revoke-session`,
+  `/revoke-sessions` and `/revoke-other-sessions` a cached one. The first three now need a
+  stored session (`sensitive_session`); the revoke routes read it from the database.
+- **SESS-3:** `/api-key/delete` accepted impersonation, API-key and revoked cached sessions. It
+  now needs a stored session, as create and update do; so do renaming and deleting a passkey,
+  `/unlink-account` and `/delete-anonymous-user`.
+- **SESS-4:** a `rememberMe: false` session lived the full `expires_in` (7 days) and slid on
+  refresh, and multi-session kept a persistent device cookie for it. It now lives one day at
+  most, is never extended, and its device cookie lasts the browser session.
+- **SESS-5:** `create_session` set the session cookie before the session hooks ran, so a
+  refused sign-in or impersonation left the browser signed in (for impersonation, with an
+  unmarked 7-day session for the target). Hooks now run first; on an error the row is deleted
+  and no cookie is set. Impersonation writes `impersonatedBy` and its expiry in the same insert.
+- **SESS-6:** the cookie cache carried `returned = false` columns to the browser in a signed,
+  readable cookie. Those values are now encrypted inside the cache payload.
+- **SESS-7:** a JWT from `/token` ran its full `expiration_time` even past the session it came
+  from (an impersonation session, for example). `exp` is now capped at the session's expiry.
+- **SESS-8:** the sliding refresh ignored the row count of its conditional update, so a
+  session revoked mid-request got a refreshed cookie and a fresh cookie-cache cookie. The
+  request now answers signed out and clears the cookies.
+- Organization role and permission checks on every route that changes something also read
+  the session from the database now (the SESS-1 class).
+
+Fixes from the FAST-45 security review. One claim model now covers every path that proves an
+email: whoever proves control of an address becomes the only owner of its user
+([Claiming an email](docs/concepts/03-security.md#claiming-an-email)).
+
+- **ATO-1 (high):** a sign-in the first registrant left waiting at the two-factor step can no
+  longer finish after the owner claims the address; the claim deletes it, and the security
+  stamp refuses one already in flight.
+- **ATO-2 (high):** `/reset-password` with an emailed link now claims an unverified user, so
+  the first registrant's API keys, passkeys, OAuth links and two-factor no longer survive it.
+- **ATO-3 (high):** a verification link (`/verify-email`, `/email-otp/verify-email`) opened
+  without proof of the password claims the user and deletes the password, instead of
+  verifying the first registrant's account and leaving their password working.
+- **ATO-4 (high):** a verified social sign-in that claims a user deletes every earlier OAuth
+  link, not only the password, so a provider link the first registrant made stops signing in.
+- **ATO-5 (medium):** a claim deletes the user's two-factor enrollment (secret, backup codes,
+  trusted devices) and clears `twoFactorEnabled`.
+- **ATO-6 (medium):** plugin cleanup runs inside the claim's transaction
+  (`PluginBuilder::on_claim`) instead of on the post-commit `UserClaimed` event, so a sign-in
+  refused after the claim no longer leaves API keys or passkeys behind; a failing cleanup
+  fails the whole claim.
+- **ATO-7 (medium):** password-reset and email-verification links are bound to the user's
+  address and security stamp, so they die when the email changes or the user is claimed.
+- **ATO-8 (medium):** a guest whose email gets verified (email OTP change-email) is no longer
+  anonymous, so the next sign-in in that browser doesn't delete the account.
+- **ATO-10 (low):** username rules run wherever a client writes user fields
+  (`PluginBuilder::prepare_user_input`), so email-OTP sign-up validates `username`, and
+  `"username": null` no longer clears an immutable username.
+- **RACE-1 (medium):** a password sign-in that was in flight while the user was claimed no
+  longer keeps a session: every sign-in and account link compares the user's new
+  `security_stamp` before it finishes, on Postgres, SQLite and MySQL.
+- **RACE-2:** `organization_limit` held only for requests one at a time: parallel
+  `/organization/create` calls each counted the same memberships and all got through. The
+  count now runs inside the create's transaction after locking the user's row.
+- **RACE-3:** two adds or accepts of the same user at once could leave two `member` rows, and
+  `remove-member` then removed one and left the user in the organization. `member` is now
+  unique on `(organization_id, user_id)` in the database; the loser answers
+  `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`.
+- **RACE-4:** two `/two-factor/enable` calls at once could leave two TOTP secrets for one
+  user. `two_factor.user_id` is now unique, and enable replaces the row in a transaction that
+  locks the user's row first.
+- **DB-1:** on MySQL, a migration stopped between `ADD COLUMN` and its `UNIQUE` left the
+  column without its constraint, and the migrator didn't see it, so it was never added. The
+  migrator now reads unique constraints back on Postgres, SQLite and MySQL and plans the
+  missing ones, and a new column's foreign key is added in the same `ALTER TABLE` as the
+  column on MySQL.
+- **DB-2:** on MySQL, an organization slug or invitation email longer than its key column
+  answered 500 (or, with a non-strict `sql_mode`, was cut short into another value's key).
+  Slugs are now capped at 255 characters and invitation emails at 254 bytes, with a 400.
+- **DB-3:** documented that sqlx's default database TLS mode (`preferred` / `prefer`) checks
+  no certificate, and what to set in production.
+- **DB-4:** documented that under a UUID id strategy, Postgres and MySQL match other
+  spellings of a UUID while SQLite and string comparisons in Rust don't. No code change.
+- **DB-5:** documented that MariaDB is unsupported and fails at the first migration.
+- **Account links:** `account` is now unique on `(provider_id, account_id)`, so one provider
+  account can't be linked to two users by requests at once.
 - **ATO-9:** admin `create-user` needs `user:set-email` to set `emailVerified`, and `create-user` and `update-user` refuse columns another plugin owns unless clients may set them (`twoFactorEnabled` among them), so a delegated `user:update` role can't turn off another user's two-factor.
 - **ATO-11:** email addresses must be one plain address (Better Auth's `z.email()` rules), so address lists, whitespace, control characters and a second `@` answer `400 INVALID_EMAIL` instead of reaching the mailer.
 - **CFG-2:** every response from the auth routes carries `Cache-Control: no-store` unless the endpoint set its own, `/get-session` included.
@@ -22,6 +104,46 @@
 
 ### Behaviour changes
 
+- With the cookie cache on, admin and organization routes that change something,
+  `/admin/has-permission`, `/organization/has-permission` and the `/revoke-*` routes cost one
+  extra database read, and answer `401` to a session revoked since the cache cookie was set.
+- An API key's session and an impersonation session can no longer read the TOTP URI,
+  generate backup codes, change the password, delete API keys, rename or delete passkeys,
+  unlink accounts or delete an anonymous user (`401` for a key's session,
+  `403 NOT_ALLOWED_WHILE_IMPERSONATING` while impersonating). Better Auth allows some of
+  these; see [Security](docs/concepts/03-security.md#sessions-that-arent-a-sign-in).
+- `rememberMe: false` sessions expire after one day (or `expires_in`, if shorter) and aren't
+  refreshed.
+- A session hook that returns an error now leaves no session behind: the row is deleted and
+  the response sets no session cookie.
+- JWTs expire with their session at the latest.
+- The cookie-cache format changed, so every existing cache cookie is ignored once (the next
+  request reads the database and writes a new one).
+- Opening a verification link signed out, in another browser than the one that signed up
+  (no session and no `pending_verification` cookie), deletes the user's password with
+  everything else from before the proof. The owner signs in with a magic link or code, or sets
+  a password with a reset. Better Auth only sets `emailVerified`.
+- `/reset-password` and email OTP's reset on an unverified user verify the email and delete
+  the user's other accounts, sessions, passkeys, API keys and two-factor, even with
+  `revoke_sessions_on_password_reset(false)`.
+- A sign-in or social link that was in progress while the user was claimed answers 401
+  `UNAUTHORIZED` instead of a session.
+- Password-reset and email-verification links sent before the upgrade no longer work; users
+  request a new one.
+- Sign-up and a sign-in refused with `EMAIL_NOT_VERIFIED` set a signed
+  `<prefix>.pending_verification` cookie that lives as long as a verification link.
+- A user with a verified email is never anonymous, whatever `is_anonymous` says.
+- A second link of a provider account that's already linked answers 409
+  `SOCIAL_ACCOUNT_ALREADY_LINKED` (Better Auth's code) instead of 500.
+- `/organization/create` and `/organization/update` answer 400 `INVALID_REQUEST_BODY` for a slug over
+  255 characters, and `/organization/invite-member` answers 400 `INVALID_EMAIL` for an address
+  over 254 bytes. Better Auth has no such caps.
+- Two parallel adds or accepts of one member answer `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION`
+  for the loser, and with `organization_limit` set, parallel creates for one user wait for each
+  other on Postgres and MySQL.
+- Setting a password for a user who has none (a password reset or the admin plugin's
+  `set-user-password`) twice at once leaves one credential account, with the later
+  password, instead of two.
 - `.build()` fails on a production `base_url` that is `http://`, on a weak secret, and always on a `base_url` with credentials, a query or a fragment. A localhost or loopback `base_url` only logs warnings, and `Builder::allow_insecure_config(true)` does the same for any host; it's meant for development, CI and private staging. See the new [Production checklist](docs/reference/04-production-checklist.md).
 - A request without a client IP is logged with `tracing::error!` instead of `warn!` when `base_url` isn't local.
 - Rate limits are stricter: IPv6 clients share one bucket per /64, and sign-in, sign-up, password reset and the plugins' mail and code routes also count 30 requests per 10 minutes per account.
@@ -31,9 +153,54 @@
 - Admin roles without `user:set-email` can no longer set `emailVerified` on `create-user`, and columns another plugin owns (such as `twoFactorEnabled`) answer `400 INVALID_FIELD` on `create-user` and `update-user`. `list-users` without `limit` returns at most 100 users.
 - An organization with 100 pending invitations can't invite anyone new until one is accepted, rejected, canceled or expires.
 
-### Core changes (additive)
+### Upgrading
 
-- `Builder::allow_insecure_config`, `Secret::entropy_bits` and `Secret::MIN_ENTROPY_BITS`, `Keys::verify_token`, `Ctx::signed_token_cookie`, and `RateLimit::ipv6_prefix`, `account_limit` and `max_keys`. No public trait changed.
+- **Database:** a new column, `user.security_stamp` (integer, not null, default 0). Run
+  `auth.migrator().run()` or `fastauth migrate` (or `fastauth generate` for a SQL file) on
+  Postgres, SQLite and MySQL; existing users get 0 and keep signing in.
+- **Plugins:** move credential cleanup from `on::<UserClaimed>` to `on_claim`.
+  `Internal::claim_unverified_user` is deprecated in favour of `claim_user(user, None)`.
+- **The next migration adds three unique constraints** to a database made by 0.5 or
+  earlier: `account (provider_id, account_id)`, `member (organization_id, user_id)` (with
+  the organization plugin) and `two_factor (user_id)` (with two-factor). If a table already
+  holds duplicates, `migrator().apply(..)` changes nothing and fails with a message naming
+  up to 10 of the rows. [Unique constraints on an existing
+  database](docs/concepts/02-database.md#unique-constraints-on-an-existing-database) has a
+  query to find and fix the duplicates in each table. SQL from `generate` or
+  `migrator().sql()` has no such check, so run the queries first. `fastauth status` exits 1
+  until the constraints are added.
+- **On MySQL**, multi-column unique constraints index a 384-character prefix of each text
+  column, and new tables store `account.provider_id` as `varchar(768)` instead of
+  `longtext`.
+
+### Core
+
+- `Ctx::authoritative_session()`: the request's session as the database holds it, re-read
+  only when the cookie cache answered. For authorization decisions; unlike
+  `sensitive_session()` it lets API-key and impersonation sessions through.
+- `Ctx::dont_remember()`: whether the session cookie this request sets, or carries, is from a
+  `rememberMe: false` sign-in.
+- `NewSession` and `Internal::create_session_with(user_id, remember_me, NewSession)`: a session
+  with its own expiry and plugin columns in one insert. `create_session` calls it.
+- `SessionView` has a new private field, so code outside core can't build one with a struct
+  literal any more.
+- Claim model: `Internal::claim_user(user, link)`, `prove_email`, `create_user_verification` /
+  `consume_user_verification`, `link_account_unless_claimed`, `remember_password_holder` and
+  `user_fields`; `PluginBuilder::on_claim` with `Claim` and `prepare_user_input` with
+  `UserInput` (all in `plugin_prelude`); `User::SECURITY_STAMP` and
+  `UserView::security_stamp()`. `UserClaimed` is for notifications only. No public trait
+  changed.
+- `SchemaBuilder::unique(table, &[columns])` declares a unique constraint over several
+  columns (`TableDef::uniques`, `UniqueDef`, `TableDef::unique_sets()`). Adapters report a
+  violation of one as `DbError::UniqueViolation { table, column: None }`.
+- `migrate::Step` has a new variant, `AddUnique { table, columns }`, and isn't
+  `#[non_exhaustive]`, so an exhaustive `match` on it needs an arm. Adapters must refuse it,
+  naming the rows (`migrate::duplicates_error`), when the table holds duplicates.
+- `LiveSchema` has a new public field, `uniques: Option<HashSet<(String, Vec<String>)>>`
+  (built with `migrate::unique_key`). Leave it `None` if your adapter can't read unique
+  constraints; existing tables then get none added. Code that builds `LiveSchema` without
+  `..Default::default()` needs it.
+- `Builder::allow_insecure_config`, `Secret::entropy_bits` and `Secret::MIN_ENTROPY_BITS`, `Keys::verify_token`, `Ctx::signed_token_cookie`, and `RateLimit::ipv6_prefix`, `account_limit` and `max_keys`: additive, from the config and DoS fixes. No public trait changed.
 
 ## 0.5.0 (2026-11-26)
 

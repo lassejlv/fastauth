@@ -227,7 +227,11 @@ async fn email_verification_gate() {
     ));
     let res = client.sign_up("v@acme.dk", "correct horse").await;
     assert_eq!(res.json["token"], serde_json::Value::Null);
-    assert!(client.jar.is_empty());
+    assert_eq!(
+        client.jar.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["fastauth.pending_verification"],
+        "no session, only the marker that this browser set the password"
+    );
 
     let blocked = client
         .post(

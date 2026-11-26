@@ -158,6 +158,22 @@ impl Driver for Postgres {
             "SELECT tablename::text, indexname::text FROM pg_indexes \
              WHERE schemaname::text = COALESCE($1::text, current_schema()::text)",
         )
+        .bind(schema.clone())
+        .fetch_all(&mut *conn)
+        .await?;
+        let uniques = sqlx::query_as(
+            "SELECT t.relname::text, c.relname::text, a.attname::text \
+             FROM pg_index AS i \
+             JOIN pg_class AS t ON t.oid = i.indrelid \
+             JOIN pg_class AS c ON c.oid = i.indexrelid \
+             JOIN pg_namespace AS n ON n.oid = t.relnamespace \
+             CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, position) \
+             LEFT JOIN pg_attribute AS a ON a.attrelid = t.oid AND a.attnum = k.attnum \
+                 AND k.attnum > 0 \
+             WHERE i.indisunique AND NOT i.indisprimary AND i.indpred IS NULL \
+                 AND k.position <= i.indnkeyatts \
+                 AND n.nspname::text = COALESCE($1::text, current_schema()::text)",
+        )
         .bind(schema)
         .fetch_all(conn)
         .await?;
@@ -165,6 +181,7 @@ impl Driver for Postgres {
             columns,
             indexes,
             id_storage,
+            uniques,
         })
     }
 

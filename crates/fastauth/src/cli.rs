@@ -349,15 +349,15 @@ mod tests {
     async fn status_fails_until_migrate_applies_the_plan() {
         let auth = auth();
         let (result, out) = execute(Command::Status, &auth).await;
-        assert_eq!(result.unwrap_err().to_string(), "8 migration steps pending");
+        assert_eq!(result.unwrap_err().to_string(), "9 migration steps pending");
         assert!(
-            out.starts_with("8 pending steps:\n  create table user (7 columns, owner core)\n"),
+            out.starts_with("9 pending steps:\n  create table user (8 columns, owner core)\n"),
             "{out}"
         );
 
         let (result, out) = execute(Command::Migrate, &auth).await;
         result.unwrap();
-        assert!(out.starts_with("applied 8 steps:\n"), "{out}");
+        assert!(out.starts_with("applied 9 steps:\n"), "{out}");
 
         let (result, out) = execute(Command::Status, &auth).await;
         result.unwrap();
