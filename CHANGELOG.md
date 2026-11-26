@@ -8,6 +8,14 @@
   MIT OR Apache-2.0 and keep that license; every crate's `license` field is now `MIT` and each
   package ships the MIT text as `LICENSE`.
 
+### Security
+
+- **Claiming an unverified user now revokes its API keys and passkeys.** A magic link, an
+  email code or a verified social account that claims a user whose email wasn't verified
+  deleted that user's accounts and sessions, but an API key or passkey the first registrant
+  had made kept working, so whoever registered someone else's address first kept access
+  after the owner proved it. Both are now deleted on claim (core's new `UserClaimed` event).
+
 ### Plugins
 
 - **Passkey-first sign-up.** `Passkey::sign_up(resolver)`, off by default, lets a signed-out
@@ -16,10 +24,6 @@
   user is created only after the attestation verifies, never gets a passkey added when the
   email is taken (`422`), and `createSession` signs in through the sign-in gates. Signed-in
   registration still needs a fresh session that may mint credentials.
-- **Passkeys are revoked when a user is claimed.** When a magic link, an email code or a
-  verified social account claims a user whose email wasn't verified, that user's passkeys are
-  deleted along with their accounts and sessions. Before, a passkey added to the unverified
-  user kept working for whoever registered the address first.
 - **Email OTP: change the email with a code.** `EmailOtp::change_email(true)` adds Better
   Auth's `/email-otp/request-email-change` and `/email-otp/change-email`
   (`emailOtp.requestEmailChange` and `emailOtp.changeEmail`): a code sent to the new address

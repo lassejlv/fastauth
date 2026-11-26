@@ -945,6 +945,7 @@ dependencies = [
  "fastauth-plugin-username",
  "fastauth-sqlx",
  "serde",
+ "serde_json",
  "tempfile",
  "time",
  "tokio",

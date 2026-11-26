@@ -353,6 +353,10 @@ The plugin adds no extractors of its own. What changes:
   lift its own expiry. Better Auth lets a key's session create and update keys.
 - **Bans apply.** The core session gates run on it, so a banned owner's key answers
   `403 BANNED_USER` ([Admin](../access/02-admin.md#bans)), and banning disables the owner's keys.
+- **Claims delete keys.** When a magic link, an email code or a verified social account
+  claims a user whose email wasn't verified, every key that user had is deleted (core's
+  `UserClaimed` event), whether `.sessions` is on or not. The keys were made before anyone
+  proved the address, so whoever registered it first keeps no key to it.
 - **Permissions aren't checked.** A key with `{ "files": ["read"] }` gets a full session for
   its owner, as in Better Auth: every route that takes a session, `/admin/*` included for an
   admin's key. The handler can't tell which key was used, so to enforce permissions, call
