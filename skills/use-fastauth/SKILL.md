@@ -13,7 +13,7 @@ Auth's routes and JSON. The whole configuration is one value,
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches fastauth 0.3 on crates.io and the code on `main`, and so does the repo's
+This skill matches fastauth 0.4 on crates.io and the code on `main`, and so does the repo's
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
 plugins, organization teams, `TestAuth`,
 `#[endpoint]`, secondary storage (Redis), actix-web and MySQL
@@ -28,7 +28,7 @@ builder). Never parse them or assume a format.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.3", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.4", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

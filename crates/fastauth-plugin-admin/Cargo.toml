@@ -19,8 +19,8 @@ axum = ["dep:axum", "dep:fastauth-axum"]
 
 [dependencies]
 axum = { version = "0.8.9", default-features = false, optional = true }
-fastauth-axum = { version = "0.3.0", path = "../fastauth-axum", optional = true }
-fastauth-core = { version = "0.3.0", path = "../fastauth-core", features = ["macros"] }
+fastauth-axum = { version = "0.4.0", path = "../fastauth-axum", optional = true }
+fastauth-core = { version = "0.4.0", path = "../fastauth-core", features = ["macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 time = { version = "0.3.45", features = ["formatting", "parsing"] }

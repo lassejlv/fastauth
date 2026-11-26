@@ -51,7 +51,7 @@ pub fn app(auth: AppAuth) -> Router {
 
 ## Setup
 
-- `fastauth = { version = "0.3", features = ["organization"] }`. Import from
+- `fastauth = { version = "0.4", features = ["organization"] }`. Import from
   `fastauth::plugins::organization`. The extractors need the `axum` feature (on by default).
 - Plugin `Organization` (in `plugins![..]`, registration order); row type `OrganizationRow`.
   Adds tables `organization`, `member`, `invitation` and `session.active_organization_id`:
@@ -59,7 +59,7 @@ pub fn app(auth: AppAuth) -> Router {
 - Options, with defaults: `.roles(Roles::new())`, `.allow_user_to_create_organization(true)`,
   `.organization_limit(n)` (none; counts memberships), `.invitation_ttl(Duration::hours(48))`,
   `.invitation_url("…{id}…")` (`{base_url}/accept-invitation/{id}`),
-  `.require_email_verification_on_invitation(false)`. It's `allow_user_to_create_organization`,
+  `.require_email_verification_on_invitation(true)`. It's `allow_user_to_create_organization`,
   not `allow_user_to_create`.
 
 ## Routes

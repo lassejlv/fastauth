@@ -12,7 +12,7 @@ Turn on the facade's `username` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.3", features = ["username"] }
+fastauth = { version = "0.4", features = ["username"] }
 ```
 
 The plugin lives at `fastauth::plugins::username` (crate `fastauth-plugin-username`).

@@ -264,7 +264,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fastauth-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "base64",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-macros"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "heck",
  "proc-macro-crate",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-admin"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-api-key"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "http",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-bearer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "http",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-email-otp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "hmac",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-jwt"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aws-lc-rs",
  "fastauth-core",
@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-magic-link"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-organization"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-two-factor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fastauth-core",
  "hmac",
