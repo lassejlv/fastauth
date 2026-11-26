@@ -199,3 +199,10 @@ mounted, `session.user.plugin::<TwoFactor, _>()` compiles, and sign-in returns
 Next: [Configuration](03-configuration.md) for everything the builder takes,
 [All plugins](../plugins/README.md) for what else you can turn on, or
 [Plugin authoring](../reference/01-plugin-authoring.md) to write your own.
+
+## Example app
+
+For everything wired together, see the
+[fullstack example](https://github.com/lassejlv/fastauth/tree/main/examples/fullstack): axum and
+Postgres with email verification, GitHub, two-factor, passkeys, organizations, admin and API keys,
+migrations through the CLI, a React client on Better Auth's client, and a Playwright suite.
