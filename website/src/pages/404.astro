@@ -1,0 +1,41 @@
+---
+import Base from "../layouts/Base.astro";
+import Logo from "../components/Logo.astro";
+---
+<Base title="Page not found · fastauth" description="This page doesn't exist.">
+  <main id="main" class="not-found">
+    <Logo />
+    <h1>This page doesn't exist.</h1>
+    <p>It may have moved when the docs were reorganised. <a href="/docs/overview/">Go to the docs</a> or press ⌘K to search.</p>
+  </main>
+</Base>
+
+<style>
+  .not-found {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: min(560px, 100% - 40px);
+    margin: 0 auto;
+    padding: 128px 0;
+  }
+
+  h1 {
+    margin: 32px 0 0;
+    font-size: 32px;
+    line-height: 40px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  p {
+    margin: 0;
+    color: var(--text-2);
+  }
+
+  a {
+    color: var(--text);
+    text-decoration: underline 1px;
+    text-underline-position: from-font;
+  }
+</style>

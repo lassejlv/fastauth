@@ -1,0 +1,748 @@
+---
+import Base from "../layouts/Base.astro";
+import Icon from "../components/Icon.astro";
+import Logo from "../components/Logo.astro";
+import NavSheet from "../components/NavSheet.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+import { codeFrame, copyButton, highlightInline, highlightLines, rustcLines } from "../lib/code";
+import { getNav } from "../lib/nav";
+import { CRATES_IO, DOCS_RS, GITHUB } from "../lib/site";
+
+const { groups } = await getNav();
+
+const install = "cargo add fastauth --features oauth,two-factor";
+
+const heroCode = `pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![Social, TwoFactor]>;
+
+#[derive(Fields, Clone, Debug, Serialize)]
+pub struct Profile {
+    #[field(default = "free")]
+    pub plan: String,
+}
+
+pub fn auth(pool: PgPool) -> Result<AppAuth, BuildError> {
+    FastAuth::builder()
+        .secret(Secret::from_env("FASTAUTH_SECRET")?)
+        .base_url("http://localhost:3000")
+        .database(Sqlx::new(pool))
+        .email_password(EmailPassword::default())
+        .user_fields::<Profile>()
+        .plugin(Social::new().provider(Github::from_env()?))
+        .plugin(TwoFactor::new().issuer("Acme"))
+        .build()
+}`;
+
+const missingCode = `pub type AppAuth = Auth<Sqlx<Postgres>, Profile, plugins![Social]>;
+
+async fn me(session: Session<AppAuth>) -> Json<Me> {
+    Json(Me {
+        email: session.user.email.clone(),
+        plan: session.user.fields.plan.clone(),
+        two_factor: session.user.plugin::<TwoFactor, _>().two_factor_enabled,
+    })
+}`;
+
+const rustcOutput = [
+  "error[E0277]: plugin `TwoFactor` is not registered on this auth instance",
+  "   --> src/main.rs:38:34",
+  "    |",
+  " 38 |         two_factor: session.user.plugin::<TwoFactor, _>().two_factor_enabled,",
+  "    |                                  ^^^^^^ `TwoFactor` is not in this plugin list",
+  "    |",
+  "    = help: the trait `Has<TwoFactor, _>` is not implemented for `fastauth::Nil`",
+  "    = note: register it with `.plugin(...)` on the builder, before any plugin that requires it, and list it in your `plugins![..]` alias",
+].join("\n");
+
+const clientCode = `import { createAuthClient } from "better-auth/client"; // or better-auth/react, /vue, /svelte
+import { twoFactorClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "http://localhost:3000", // fastauth's base_url; the client adds /api/auth
+  plugins: [twoFactorClient({ onTwoFactorRedirect: () => (location.href = "/2fa") })],
+});`;
+
+const checks = ["Reading a plugin's state", "Calling its server API", "Columns it adds to user", "Plugins it depends on"];
+
+const client = [
+  ["Tested against", "better-auth 1.7.28"],
+  ["Clients", "React, Vue, Svelte"],
+  ["Same as Better Auth", "Paths, JSON shapes, error codes"],
+  ["Endpoints", "Core and two-factor"],
+];
+
+const crates = [
+  ["fastauth", "The crate apps depend on: re-exports everything below behind features"],
+  ["fastauth-core", "Builder, compile-checked plugin list, sessions, crypto, routing, email and password, verification, reset"],
+  ["fastauth-axum", "auth.router(), Session / FreshSession extractors, the session layer"],
+  ["fastauth-sqlx", "Postgres and SQLite adapter, migrations, shared transactions (.in_tx)"],
+  ["fastauth-macros", "#[derive(Fields, Model, AuthError)]"],
+  ["fastauth-oauth", "The Social plugin: GitHub and Google"],
+  ["fastauth-plugin-two-factor", "TOTP, email codes, backup codes, trusted devices"],
+  ["fastauth-cli", "fastauth secret; schema and migration commands run from your app via fastauth::cli::run"],
+];
+
+const later = [
+  ["On main, not released yet", "Organization, admin and API key plugins"],
+  ["Not built yet", "Passkey, magic link and JWT plugins, actix-web, Redis and MySQL"],
+];
+
+const nav = [
+  ["Docs", "/docs/overview/"],
+  ["Plugins", "/docs/plugins/"],
+  ["Better Auth client", "/docs/better-auth-client/"],
+  ["Changelog", "/changelog/"],
+];
+
+const footer = {
+  Docs: [
+    ["Quickstart", "/docs/quickstart/"],
+    ["Configuration", "/docs/configuration/"],
+    ["Plugins", "/docs/plugins/"],
+    ["Better Auth's client", "/docs/better-auth-client/"],
+  ],
+  Project: [
+    ["GitHub", GITHUB],
+    ["crates.io", CRATES_IO],
+    ["docs.rs", DOCS_RS],
+    ["Changelog", "/changelog/"],
+  ],
+};
+
+const installHtml = await highlightInline(install, "bash");
+const heroHtml = codeFrame("src/main.rs", await highlightLines(heroCode, "rust"));
+const missingHtml = await highlightLines(missingCode, "rust");
+const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"));
+---
+<Base title="fastauth: auth for Rust, checked by the compiler" description="Sign-in, sessions and two-factor for axum and sqlx, in the shape of Better Auth.">
+  <header class="site-header">
+    <div class="container site-header-inner">
+      <Logo />
+      <nav class="site-nav" aria-label="Main">
+        {nav.map(([label, href]) => <a href={href}>{label}</a>)}
+      </nav>
+      <div class="site-actions">
+        <button type="button" class="search-trigger site-search" data-search-open aria-keyshortcuts="Meta+K Control+K">
+          <Icon name="search" size={14} />
+          <span class="label">Search docs</span>
+          <kbd class="kbd" data-mod-k>⌘K</kbd>
+        </button>
+        <a class="icon-button" href={GITHUB} aria-label="fastauth on GitHub"><Icon name="github" /></a>
+        <ThemeToggle />
+      </div>
+      <div class="site-mobile">
+        <button type="button" class="icon-button touch" data-search-open aria-label="Search docs"><Icon name="search" size={20} /></button>
+        <button type="button" class="icon-button touch" data-nav-open aria-label="Open navigation" aria-controls="nav-sheet"><Icon name="menu" size={20} /></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="container">
+        <div class="hero-copy">
+          <h1 id="hero-title">Auth for Rust, checked by the compiler.</h1>
+          <p>Sign-in, sessions and two-factor for axum and sqlx, in the shape of Better Auth.</p>
+        </div>
+        <div class="hero-actions">
+          <div class="install">
+            <code><Fragment set:html={installHtml} /></code>
+            <button type="button" class="copy-action install-copy" data-copy={install}>Copy</button>
+          </div>
+          <div class="hero-buttons">
+            <button type="button" class="primary-button" data-copy={install}>Copy command</button>
+            <a class="text-link" href="/docs/quickstart/">Read the docs</a>
+          </div>
+        </div>
+        <div class="hero-band" aria-hidden="true"></div>
+        <div class="hero-code" set:html={heroHtml} />
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="compile-title">
+      <div class="container">
+        <h2 id="compile-title">A missing plugin is a compile error.</h2>
+        <div class="compile-grid">
+          <figure class="code compile-card">
+            <figcaption class="code-head"><span>src/main.rs, without TwoFactor</span><Fragment set:html={copyButton} /></figcaption>
+            <pre class="code-body"><code set:html={missingHtml} /></pre>
+            <div class="rustc rustc-pane">
+              <div class="code-head"><span>cargo build</span></div>
+              <pre class="code-body"><code set:html={rustcLines(rustcOutput)} /></pre>
+            </div>
+          </figure>
+          <div class="checks">
+            <p class="list-label" id="checks-label">Checked by rustc</p>
+            <ul aria-labelledby="checks-label">
+              {checks.map((c) => <li>{c}</li>)}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="client-title">
+      <div class="container">
+        <h2 id="client-title">Better Auth's TypeScript client works unchanged.</h2>
+        <div class="client-grid">
+          <dl class="specs">
+            {
+              client.map(([label, value]) => (
+                <div>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))
+            }
+          </dl>
+          <div set:html={clientHtml} />
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="crates-title">
+      <div class="container">
+        <h2 id="crates-title">What's in 0.1</h2>
+        <dl class="crates">
+          {
+            crates.map(([name, what]) => (
+              <div>
+                <dt>{name}</dt>
+                <dd>{what}</dd>
+              </div>
+            ))
+          }
+          {
+            later.map(([name, what]) => (
+              <div class="muted">
+                <dt>{name}</dt>
+                <dd>{what}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <div class="footer-brand">
+        <Logo />
+        <p>MIT or Apache-2.0</p>
+      </div>
+      {
+        Object.entries(footer).map(([title, links]) => (
+          <nav class="footer-col" aria-label={title}>
+            <p>{title}</p>
+            <ul>
+              {links.map(([label, href]) => (
+                <li>
+                  <a href={href}>{label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+  </footer>
+  <NavSheet groups={groups} />
+</Base>
+
+<style>
+  .container {
+    width: min(1120px, 100% - 40px);
+    margin: 0 auto;
+  }
+
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .site-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    height: 64px;
+  }
+
+  .site-nav {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .site-nav a {
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 20px;
+    transition: color 120ms ease;
+  }
+
+  @media (hover: hover) {
+    .site-nav a:hover {
+      color: var(--text);
+    }
+  }
+
+  .site-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .site-search {
+    width: 200px;
+  }
+
+  .site-mobile {
+    display: none;
+    margin-left: auto;
+  }
+
+  .hero {
+    background: var(--hero-dither) right top / 1440px 896px no-repeat;
+    padding: 96px 0;
+  }
+
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 760px;
+  }
+
+  .hero h1 {
+    margin: 0;
+    font-size: 40px;
+    line-height: 44px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-copy p {
+    margin: 0;
+    color: var(--text-2);
+    font-size: 18px;
+    line-height: 28px;
+  }
+
+  .hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding-top: 32px;
+  }
+
+  .install {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 44px;
+    min-width: 0;
+    padding: 0 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+
+  .install code {
+    overflow: hidden;
+    color: var(--syntax-plain);
+    font-size: 14px;
+    line-height: 20px;
+    white-space: pre;
+    text-overflow: ellipsis;
+  }
+
+  .install-copy {
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .hero-buttons {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .primary-button {
+    display: none;
+  }
+
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    height: 44px;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 20px;
+    font-weight: 500;
+    text-decoration: underline 1px transparent;
+    text-underline-position: from-font;
+    transition: text-decoration-color 120ms ease;
+  }
+
+  @media (hover: hover) {
+    .text-link:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+
+  .hero-band {
+    display: none;
+  }
+
+  .hero-code {
+    width: 728px;
+    max-width: 100%;
+    padding-top: 64px;
+  }
+
+  .band {
+    border-top: 1px solid var(--border);
+    padding: 128px 0;
+  }
+
+  .band h2 {
+    margin: 0 0 48px;
+    font-size: 32px;
+    line-height: 40px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  .compile-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 800px) minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+
+  .rustc-pane .code-head {
+    border-top: 1px solid var(--border);
+  }
+
+  :global(:root[data-theme="dark"]) .rustc-pane {
+    background: var(--bg);
+  }
+
+  :global(:root[data-theme="dark"]) .rustc-pane .code-head {
+    border-top-color: var(--syntax-error);
+  }
+
+  :global(:root[data-theme="dark"]) .rustc-pane .code-head span {
+    color: var(--syntax-error);
+    font-weight: 500;
+  }
+
+  :global(:root[data-theme="dark"]) .rustc-pane .code-body {
+    padding: 20px 16px 22px;
+  }
+
+  .list-label {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    margin: 0;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .checks ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .checks li {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .client-grid {
+    display: grid;
+    grid-template-columns: 256px minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+
+  .specs,
+  .crates {
+    margin: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .specs div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .specs dt {
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .specs dd,
+  .crates dd {
+    margin: 0;
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .crates div {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    min-height: 56px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .crates dt {
+    flex: 0 0 288px;
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 500;
+  }
+
+  .crates dd {
+    color: var(--text-2);
+  }
+
+  .crates .muted dt,
+  .crates .muted dd {
+    color: var(--text-3);
+  }
+
+  .site-footer {
+    border-top: 1px solid var(--border);
+    padding: 64px 0 96px;
+  }
+
+  .site-footer-inner {
+    display: flex;
+    gap: 64px;
+  }
+
+  .footer-brand {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .footer-brand p {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .footer-col {
+    display: flex;
+    flex: 0 0 160px;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .footer-col p {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .footer-col ul {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .footer-col a {
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 20px;
+    transition: color 120ms ease;
+  }
+
+  @media (hover: hover) {
+    .footer-col a:hover {
+      color: var(--text);
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .compile-grid,
+    .client-grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 32px;
+    }
+
+    .list-label {
+      height: 32px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .site-nav,
+    .site-actions {
+      display: none;
+    }
+
+    .site-mobile {
+      display: flex;
+      margin-right: -12px;
+    }
+
+    .site-header-inner {
+      height: 56px;
+    }
+
+    .crates dt {
+      flex-basis: 220px;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .hero {
+      padding: 40px 0 0;
+      background: none;
+    }
+
+    .hero h1 {
+      font-size: 30px;
+      line-height: 36px;
+    }
+
+    .hero-copy {
+      gap: 12px;
+    }
+
+    .hero-copy p {
+      font-size: 16px;
+      line-height: 24px;
+    }
+
+    .hero-actions {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding-top: 28px;
+    }
+
+    .install {
+      padding: 0 12px;
+    }
+
+    .install code {
+      font-size: 11.5px;
+    }
+
+    .install-copy {
+      display: none;
+    }
+
+    .primary-button {
+      display: inline-flex;
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      border-radius: 8px;
+      background: var(--text);
+      color: var(--on-primary);
+      font-size: 15px;
+      line-height: 20px;
+      font-weight: 500;
+    }
+
+    .text-link {
+      padding: 0 8px;
+    }
+
+    .hero-band {
+      display: block;
+      height: 120px;
+      margin: 8px -20px 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--hero-dither-mobile) center -378px / 390px 640px repeat-x;
+    }
+
+    .hero-code {
+      padding: 40px 0 64px;
+    }
+
+    .hero-code :global(.code-body),
+    .band :global(.code-body) {
+      font-size: 12px;
+      line-height: 19px;
+    }
+
+    .hero-code :global(.line),
+    .band :global(.line) {
+      min-height: 19px;
+    }
+
+    .band {
+      padding: 64px 0;
+    }
+
+    .band h2 {
+      margin-bottom: 24px;
+      font-size: 24px;
+      line-height: 30px;
+    }
+
+    .crates div {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      padding: 12px 0;
+    }
+
+    .crates dt {
+      flex-basis: auto;
+    }
+
+    .crates dd {
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .site-footer {
+      padding: 40px 0 48px;
+    }
+
+    .site-footer-inner {
+      flex-wrap: wrap;
+      gap: 32px;
+    }
+
+    .footer-brand {
+      flex-basis: 100%;
+    }
+
+    .footer-col {
+      flex: 1 1 140px;
+    }
+  }
+</style>

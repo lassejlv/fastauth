@@ -1,0 +1,31 @@
+---
+import { getCollection, render } from "astro:content";
+import Docs from "../../layouts/Docs.astro";
+import { getNav } from "../../lib/nav";
+import { GITHUB } from "../../lib/site";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("docs");
+  const { groups, ordered } = await getNav();
+  return ordered.map((page, i) => ({
+    params: { slug: page.slug },
+    props: { page, groups, entry: entries.find((e) => e.id === page.id)!, prev: ordered[i - 1], next: ordered[i + 1] },
+  }));
+}
+
+const { page, groups, entry, prev, next } = Astro.props;
+const { Content, headings } = await render(entry);
+---
+<Docs
+  title={page.title}
+  description={page.description}
+  eyebrow={page.group}
+  headings={headings}
+  groups={groups}
+  current={page.href}
+  editUrl={`${GITHUB}/edit/main/docs/${page.file}`}
+  prev={prev && { href: prev.href, title: prev.title }}
+  next={next && { href: next.href, title: next.title }}
+>
+  <Content />
+</Docs>

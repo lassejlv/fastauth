@@ -1,0 +1,404 @@
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+:root {
+  --bg: #ffffff;
+  --surface: #fafafa;
+  --fill: #f4f4f4;
+  --fill-strong: #ededed;
+  --border: #eaeaea;
+  --border-strong: #d4d4d4;
+  --text: #171717;
+  --text-2: #525252;
+  --text-3: #737373;
+  --on-primary: #ffffff;
+  --warning: #8a5300;
+  --warning-surface: #fff8ec;
+  --scrim: #0a0a0a3d;
+  --overlay-border: var(--border);
+  --overlay-bg: var(--bg);
+  --overlay-shadow: 0 16px 48px #0000001f, 0 2px 6px #0000000f;
+
+  --syntax-plain: #171717;
+  --syntax-punct: #525252;
+  --syntax-keyword: #b4441f;
+  --syntax-type: #11766f;
+  --syntax-fn: #2f5faa;
+  --syntax-string: #4b7a1e;
+  --syntax-macro: #8f6200;
+  --syntax-comment: #8a8a8a;
+  --syntax-error: #c4321f;
+  --syntax-dim: #5e5e5e;
+
+  --hero-dither: url("/dither/hero-light.png");
+  --hero-dither-mobile: url("/dither/hero-mobile.png");
+  --topbar-dither: none;
+  --sidebar-dither: none;
+
+  --font-sans: "Schibsted Grotesk Variable", "Schibsted Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --fill: #111111;
+  --fill-strong: #1a1a1a;
+  --border: #1f1f1f;
+  --border-strong: #333333;
+  --text: #f5f5f5;
+  --text-2: #b4b4b4;
+  --text-3: #7d7d7d;
+  --on-primary: #000000;
+  --warning: #ffc24b;
+  --warning-surface: #120d04;
+  --scrim: #000000b8;
+  --overlay-border: #333333;
+  --overlay-bg: #0a0a0a;
+  --overlay-shadow: 0 24px 64px #000000cc;
+
+  --syntax-plain: #f5f5f5;
+  --syntax-punct: #9c9c9c;
+  --syntax-keyword: #ff7a45;
+  --syntax-type: #2bd4bd;
+  --syntax-fn: #78aeff;
+  --syntax-string: #b5e57c;
+  --syntax-macro: #ffc24b;
+  --syntax-comment: #6b6b6b;
+  --syntax-error: #ff4d40;
+  --syntax-dim: #5e5e5e;
+
+  --hero-dither: url("/dither/ink-hero.png");
+  --hero-dither-mobile: url("/dither/ink-mhero.png");
+  --topbar-dither: url("/dither/ink-topbar.png");
+  --sidebar-dither: url("/dither/ink-sidebar.png");
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 26px;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+img,
+svg {
+  display: block;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+  font-feature-settings: "calt" 0, "liga" 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -48px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--on-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.skip-link:focus {
+  top: 12px;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.logo-mark {
+  display: grid;
+  grid-template-columns: 6px 6px;
+  gap: 2px;
+}
+
+.logo-mark span {
+  width: 6px;
+  height: 6px;
+  background: var(--text);
+}
+
+.logo-mark span:nth-child(2),
+.logo-mark span:nth-child(3) {
+  opacity: 0.35;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--text-2);
+  flex-shrink: 0;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+@media (hover: hover) {
+  .icon-button:hover {
+    background: var(--fill);
+    color: var(--text);
+  }
+}
+
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  transition: border-color 120ms ease;
+}
+
+.search-trigger .label {
+  flex: 1;
+}
+
+@media (hover: hover) {
+  .search-trigger:hover {
+    border-color: var(--text-3);
+  }
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill-strong);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.copy-action {
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 18px;
+  font-family: var(--font-sans);
+  transition: color 120ms ease;
+}
+
+@media (hover: hover) {
+  .copy-action:hover {
+    color: var(--text);
+  }
+}
+
+/* Code blocks */
+
+.code {
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.code-head > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-body {
+  margin: 0;
+  padding: 16px 16px 18px;
+  color: var(--syntax-plain);
+  font-size: 13px;
+  line-height: 21px;
+}
+
+.code-body code {
+  display: block;
+  font: inherit;
+  container-type: inline-size;
+}
+
+.line {
+  --hang: min(calc(var(--h, 4) * 1ch), 40cqi);
+  display: block;
+  min-height: 21px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-left: var(--hang);
+  text-indent: calc(var(--hang) * -1);
+}
+
+.line .ind {
+  white-space: pre;
+}
+
+.rustc .r-err {
+  color: var(--syntax-error);
+  font-weight: 700;
+}
+
+.rustc .r-gut {
+  color: var(--syntax-fn);
+  font-weight: 700;
+}
+
+.rustc .r-sec {
+  color: var(--syntax-fn);
+}
+
+.rustc .r-b {
+  font-weight: 700;
+}
+
+:root[data-theme="dark"] .rustc .r-msg {
+  color: var(--syntax-error);
+}
+
+:root[data-theme="dark"] .rustc .r-gut,
+:root[data-theme="dark"] .rustc .r-sec,
+:root[data-theme="dark"] .rustc .r-dim {
+  color: var(--syntax-dim);
+}
+
+:root[data-theme="dark"] .code.rustc {
+  background: var(--bg);
+  border-top-color: var(--syntax-error);
+}
+
+:root[data-theme="dark"] .rustc .code-body {
+  padding: 20px 16px 22px;
+}
+
+:root[data-theme="dark"] .rustc .code-head > span {
+  color: var(--syntax-error);
+  font-weight: 500;
+}
+
+/* Mermaid diagrams: the SVG defines --bg, --fg and friends itself, so it reads these aliases. */
+
+:root {
+  --diagram-bg: var(--bg);
+  --diagram-fg: var(--text);
+  --diagram-line: var(--text-3);
+  --diagram-muted: var(--text-2);
+  --diagram-surface: var(--surface);
+  --diagram-border: var(--border-strong);
+}
+
+.diagram {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
