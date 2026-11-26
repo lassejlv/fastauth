@@ -182,5 +182,38 @@ await step("bad input is refused", async () => {
   check("no code sent: 400 INVALID_OTP", missing.error?.status === 400 && missing.error.code === "INVALID_OTP", missing.error);
 });
 
+await step("emailOtp.requestEmailChange and changeEmail", async () => {
+  const carolEmail = `otp-carol-${run}@example.com`;
+  const newEmail = `otp-carol-new-${run}@example.com`;
+  const carol = newBrowser();
+  const signUp = await carol.client.signUp.email({ email: carolEmail, password: "correct horse battery", name: "Carol" });
+  check("signed up", !signUp.error, signUp.error);
+  const before = emailsTo(newEmail).length;
+  const requested = await carol.client.emailOtp.requestEmailChange({ newEmail });
+  check("requestEmailChange: { success: true }", requested.data?.success === true, requested.error ?? requested.data);
+  const sent = await nextEmail(newEmail, before);
+  check("an email-otp-change-email email went to the new address", sent?.kind === "email-otp-change-email", sent);
+  const code = sent?.code ?? "";
+  const wrongCode = await carol.client.emailOtp.changeEmail({ newEmail, otp: wrong(code) });
+  check("a wrong code: 400 INVALID_OTP", wrongCode.error?.status === 400 && wrongCode.error.code === "INVALID_OTP", wrongCode.error);
+  const changed = await carol.client.emailOtp.changeEmail({ newEmail, otp: code });
+  check("changeEmail: { success: true }", changed.data?.success === true, changed.error ?? changed.data);
+  const session = await carol.client.getSession();
+  check("getSession: the new email", session.data?.user.email === newEmail, session.data?.user);
+  check("getSession: verified", session.data?.user.emailVerified === true, session.data?.user);
+  const signIn = await newBrowser().client.signIn.email({ email: newEmail, password: "correct horse battery" });
+  check("signs in with the new email", !signIn.error && signIn.data?.user.email === newEmail, signIn.error);
+
+  const bobBefore = emailsTo(bobEmail).length;
+  const taken = await carol.client.emailOtp.requestEmailChange({ newEmail: bobEmail });
+  check("a taken address: { success: true }", taken.data?.success === true, taken.error ?? taken.data);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  check("but nothing is sent to it", emailsTo(bobEmail).length === bobBefore);
+  const same = await carol.client.emailOtp.requestEmailChange({ newEmail });
+  check("the same email: 400 EMAIL_IS_THE_SAME", same.error?.status === 400 && same.error.code === "EMAIL_IS_THE_SAME", same.error);
+  const signedOut = await newBrowser().client.emailOtp.requestEmailChange({ newEmail: `x-${run}@example.com` });
+  check("signed out: 401", signedOut.error?.status === 401, signedOut.error);
+});
+
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures === 0 ? 0 : 1);

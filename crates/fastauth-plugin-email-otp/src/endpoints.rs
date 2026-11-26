@@ -1,6 +1,7 @@
 //! The email OTP routes.
 
-use fastauth_core::events::{EmailVerified, PasswordChanged};
+use fastauth_core::adapter::DbError;
+use fastauth_core::events::{EmailVerified, PasswordChanged, UserUpdated};
 use fastauth_core::mail::{AuthEmail, PluginEmail};
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::routes::{normalize_email, user_input_fields};
@@ -41,6 +42,18 @@ async fn send_code<D: Adapter, A>(
     if user.is_none() && !signs_up {
         return otp::discard(ctx, &identifier).await;
     }
+    let to = user.map_or_else(|| email.to_owned(), |u| u.email.clone());
+    email_code(ctx, plugin, kind, to, code).await
+}
+
+/// Emails `code` to `to` in the background.
+async fn email_code<D: Adapter, A>(
+    ctx: &Ctx<D, A>,
+    plugin: &EmailOtp,
+    kind: OtpType,
+    to: String,
+    code: String,
+) -> Result<(), AuthError> {
     let app_name = &ctx.config().app_name;
     let subject = match kind {
         OtpType::SignIn => format!("Your {app_name} sign-in code"),
@@ -49,10 +62,10 @@ async fn send_code<D: Adapter, A>(
         OtpType::ChangeEmail => format!("Confirm your new {app_name} email"),
     };
     let minutes = plugin.expires_in.whole_minutes().max(1);
-    internal
+    ctx.internal()
         .send_email_in_background(AuthEmail::Plugin(PluginEmail {
             kind: kind.email_kind(),
-            to: user.map_or_else(|| email.to_owned(), |u| u.email.clone()),
+            to,
             subject,
             text: format!(
                 "Your code is {code}. It expires in {minutes} minutes. Ignore this email if \
@@ -363,6 +376,141 @@ impl<D: Adapter> Endpoint<D> for ResetPasswordOtp {
         }
         ctx.emit(PasswordChanged {
             user_id: user.id.clone(),
+        });
+        Ok(SUCCESS)
+    }
+}
+
+// ---------------------------------------------------------------------------- change email
+
+/// The `change-email` code for moving `user_id` to `new_email`: Better Auth's identifier,
+/// `change-email-otp-{userId}:{newEmail}`, so a code only works for the user and address it
+/// was sent for.
+fn change_email_identifier(user_id: &Id, new_email: &str) -> String {
+    otp::identifier(OtpType::ChangeEmail, &format!("{user_id}:{new_email}"))
+}
+
+/// The signed-in user changing their email, and the new address, checked. The session is
+/// read again from the database (`Ctx::sensitive_session`), so API-key and impersonation
+/// sessions can't change the email that resets the password.
+async fn email_change<D: Adapter>(
+    ctx: &Ctx<D, Authenticated>,
+    plugin: &EmailOtp,
+    new_email: &str,
+) -> Result<(SessionView, String), AuthError> {
+    if !plugin.change_email {
+        return Err(EmailOtpError::ChangeEmailDisabled.into());
+    }
+    let session = ctx.sensitive_session().await?;
+    let new_email = normalize_email(new_email)?;
+    if new_email == session.user.email.to_lowercase() {
+        return Err(EmailOtpError::EmailIsTheSame.into());
+    }
+    Ok((session, new_email))
+}
+
+/// `POST /email-otp/request-email-change`: emails a `change-email` code to `newEmail`
+/// for the signed-in user. When another user has that address, the code is discarded and
+/// nothing is sent, with the same answer, so the route doesn't reveal who has an account.
+/// With `verify_current_email`, `otp` must be an `email-verification` code for the
+/// current address, and it's used up.
+pub struct RequestEmailChangeOtp(pub(crate) Arc<EmailOtp>);
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEmailChangeOtpInput {
+    pub new_email: String,
+    /// A code sent to the current email; required with `verify_current_email`.
+    #[serde(default)]
+    pub otp: Option<String>,
+}
+
+impl<D: Adapter> Endpoint<D> for RequestEmailChangeOtp {
+    const METHOD: Method = Method::POST;
+    const PATH: &'static str = "/email-otp/request-email-change";
+    type Access = Authenticated;
+    type Input = RequestEmailChangeOtpInput;
+    type Output = Success;
+
+    async fn call(
+        &self,
+        ctx: Ctx<D, Authenticated>,
+        input: RequestEmailChangeOtpInput,
+    ) -> Result<Success, AuthError> {
+        let (session, new_email) = email_change(&ctx, &self.0, &input.new_email).await?;
+        if self.0.verify_current_email {
+            let code = input.otp.ok_or(EmailOtpError::CurrentEmailOtpRequired)?;
+            let current = otp::identifier(OtpType::EmailVerification, &session.user.email);
+            otp::verify(&ctx, &self.0, &current, &code, OnMatch::Consume).await?;
+        }
+        let identifier = change_email_identifier(&session.user.id, &new_email);
+        let code = otp::issue(&ctx, &self.0, &identifier).await?;
+        if ctx
+            .internal()
+            .find_user_by_email(&new_email)
+            .await?
+            .is_some()
+        {
+            otp::discard(&ctx, &identifier).await?;
+            return Ok(SUCCESS);
+        }
+        email_code(&ctx, &self.0, OtpType::ChangeEmail, new_email, code).await?;
+        Ok(SUCCESS)
+    }
+}
+
+/// `POST /email-otp/change-email`: with the `change-email` code sent to `newEmail`, makes
+/// it the signed-in user's email, verified. Emits `UserUpdated` and `EmailVerified`, and drops
+/// the session's cookie cache so the next read sees the new email.
+pub struct ChangeEmailOtp(pub(crate) Arc<EmailOtp>);
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeEmailOtpInput {
+    pub new_email: String,
+    pub otp: String,
+}
+
+impl<D: Adapter> Endpoint<D> for ChangeEmailOtp {
+    const METHOD: Method = Method::POST;
+    const PATH: &'static str = "/email-otp/change-email";
+    type Access = Authenticated;
+    type Input = ChangeEmailOtpInput;
+    type Output = Success;
+
+    async fn call(
+        &self,
+        ctx: Ctx<D, Authenticated>,
+        input: ChangeEmailOtpInput,
+    ) -> Result<Success, AuthError> {
+        let (session, new_email) = email_change(&ctx, &self.0, &input.new_email).await?;
+        let user_id = &session.user.id;
+        let identifier = change_email_identifier(user_id, &new_email);
+        otp::verify(&ctx, &self.0, &identifier, &input.otp, OnMatch::Consume).await?;
+        if ctx
+            .internal()
+            .find_user_by_email(&new_email)
+            .await?
+            .is_some()
+        {
+            return Err(EmailOtpError::EmailAlreadyInUse.into());
+        }
+        ctx.db()
+            .update::<User>(User::ID.eq(user_id))
+            .set(User::EMAIL, new_email)
+            .set(User::EMAIL_VERIFIED, true)
+            .exec()
+            .await
+            .map_err(|err| match err {
+                DbError::UniqueViolation { .. } => EmailOtpError::EmailAlreadyInUse.into(),
+                other => AuthError::from(other),
+            })?;
+        ctx.delete_cookie("session_data");
+        ctx.emit(UserUpdated {
+            user_id: user_id.clone(),
+        });
+        ctx.emit(EmailVerified {
+            user_id: user_id.clone(),
         });
         Ok(SUCCESS)
     }

@@ -20,6 +20,11 @@
   verified social account claims a user whose email wasn't verified, that user's passkeys are
   deleted along with their accounts and sessions. Before, a passkey added to the unverified
   user kept working for whoever registered the address first.
+- **Email OTP: change the email with a code.** `EmailOtp::change_email(true)` adds Better
+  Auth's `/email-otp/request-email-change` and `/email-otp/change-email`
+  (`emailOtp.requestEmailChange` and `emailOtp.changeEmail`): a code sent to the new address
+  makes it the user's, verified. `verify_current_email(true)` also asks for a code sent to the
+  current address. Both routes need a session that may change credentials.
 
 ### Core
 

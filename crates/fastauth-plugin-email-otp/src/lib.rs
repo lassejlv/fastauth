@@ -6,7 +6,9 @@
 //! `forget-password` emails a code through the configured
 //! [`Mailer`](fastauth_core::mail::Mailer) as `AuthEmail::Plugin` with `code: Some(..)` and
 //! `kind` `"email-otp-sign-in"`, `"email-otp-email-verification"` or
-//! `"email-otp-forget-password"`. Codes are stored as an HMAC in the `verification` table,
+//! `"email-otp-forget-password"`. With [`change_email`](EmailOtp::change_email) on, a signed-in
+//! user changes their email with a code sent to the new address
+//! (`/email-otp/request-email-change`, then `/email-otp/change-email`). Codes are stored as an HMAC in the `verification` table,
 //! compared in constant time, burnt after [`allowed_attempts`](EmailOtp::allowed_attempts)
 //! wrong guesses, and never logged or returned.
 //!
@@ -48,7 +50,8 @@ use fastauth_core::ApiResponse;
 use fastauth_core::plugin_prelude::*;
 
 pub use endpoints::{
-    CheckOtpInput, CheckVerificationOtp, EmailInput, ForgetPasswordOtp, RequestPasswordResetOtp,
+    ChangeEmailOtp, ChangeEmailOtpInput, CheckOtpInput, CheckVerificationOtp, EmailInput,
+    ForgetPasswordOtp, RequestEmailChangeOtp, RequestEmailChangeOtpInput, RequestPasswordResetOtp,
     ResetPasswordOtp, ResetPasswordOtpInput, SendOtpInput, SendVerificationOtp, SignInEmailOtp,
     SignInEmailOtpInput, SignInEmailOtpOutput, Success, VerifyEmailOtp, VerifyEmailOtpInput,
     VerifyEmailOtpOutput,
@@ -62,8 +65,8 @@ pub enum OtpType {
     SignIn,
     EmailVerification,
     ForgetPassword,
-    /// Better Auth's change-email flow. Not built: `send-verification-otp` answers
-    /// `INVALID_OTP_TYPE`, as Better Auth does for this type.
+    /// A code sent to a new address by `/email-otp/request-email-change`.
+    /// `send-verification-otp` answers `INVALID_OTP_TYPE` for it, as Better Auth does.
     ChangeEmail,
 }
 
@@ -95,6 +98,8 @@ pub struct EmailOtp {
     expires_in: Duration,
     allowed_attempts: u32,
     disable_sign_up: bool,
+    change_email: bool,
+    verify_current_email: bool,
     rate_limit: Limit,
 }
 
@@ -105,6 +110,8 @@ impl Default for EmailOtp {
             expires_in: Duration::seconds(300),
             allowed_attempts: 3,
             disable_sign_up: false,
+            change_email: false,
+            verify_current_email: false,
             rate_limit: Limit::per(Duration::minutes(1), 3),
         }
     }
@@ -143,6 +150,23 @@ impl EmailOtp {
         self
     }
 
+    /// The change-email flow (off by default, Better Auth's `changeEmail.enabled`): a
+    /// signed-in user asks `/email-otp/request-email-change` for a code sent to the new
+    /// address, then `/email-otp/change-email` with it makes that address theirs, verified.
+    /// Off, both routes answer `400 CHANGE_EMAIL_WITH_OTP_IS_DISABLED`.
+    pub fn change_email(mut self, enabled: bool) -> Self {
+        self.change_email = enabled;
+        self
+    }
+
+    /// Also require a code sent to the current address to request a change (Better Auth's
+    /// `changeEmail.verifyCurrentEmail`, default off): an `email-verification` code from
+    /// `send-verification-otp`, passed as `otp` to `request-email-change`.
+    pub fn verify_current_email(mut self, verify: bool) -> Self {
+        self.verify_current_email = verify;
+        self
+    }
+
     /// Requests per client to each route (default 3 a minute, as in Better Auth). App rules
     /// win.
     pub fn rate_limit(mut self, limit: Limit) -> Self {
@@ -165,6 +189,8 @@ impl Plugin for EmailOtp {
             .endpoint(RequestPasswordResetOtp(self.clone()))
             .endpoint(ForgetPasswordOtp(self.clone()))
             .endpoint(ResetPasswordOtp(self.clone()))
+            .endpoint(RequestEmailChangeOtp(self.clone()))
+            .endpoint(ChangeEmailOtp(self.clone()))
             .errors::<EmailOtpError>();
         for path in [
             "/email-otp/send-verification-otp",
@@ -174,6 +200,8 @@ impl Plugin for EmailOtp {
             "/email-otp/request-password-reset",
             "/forget-password/email-otp",
             "/email-otp/reset-password",
+            "/email-otp/request-email-change",
+            "/email-otp/change-email",
         ] {
             app.rate_limit(path, self.rate_limit);
         }
@@ -270,6 +298,33 @@ impl<A: AuthInstance> EmailOtpApi<'_, A> {
         self.auth
             .api()
             .call(&ResetPasswordOtp(self.plugin.clone()), input)
+            .await
+    }
+
+    /// `POST /email-otp/request-email-change`: emails a `change-email` code to the new
+    /// address of the user `headers` sign in.
+    pub async fn request_email_change(
+        &self,
+        headers: &HeaderMap,
+        input: RequestEmailChangeOtpInput,
+    ) -> Result<ApiResponse<Success>, AuthError> {
+        self.auth
+            .api()
+            .headers(headers)
+            .call(&RequestEmailChangeOtp(self.plugin.clone()), input)
+            .await
+    }
+
+    /// `POST /email-otp/change-email`: makes the new address the user's, verified.
+    pub async fn change_email(
+        &self,
+        headers: &HeaderMap,
+        input: ChangeEmailOtpInput,
+    ) -> Result<ApiResponse<Success>, AuthError> {
+        self.auth
+            .api()
+            .headers(headers)
+            .call(&ChangeEmailOtp(self.plugin.clone()), input)
             .await
     }
 }
