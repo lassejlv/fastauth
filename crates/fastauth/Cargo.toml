@@ -32,6 +32,8 @@ two-factor = ["dep:fastauth-plugin-two-factor"]
 organization = ["dep:fastauth-plugin-organization"]
 admin = ["dep:fastauth-plugin-admin"]
 api-key = ["dep:fastauth-plugin-api-key"]
+bearer = ["dep:fastauth-plugin-bearer"]
+jwt = ["dep:fastauth-plugin-jwt"]
 cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 
 [dependencies]
@@ -43,6 +45,8 @@ fastauth-core = { version = "0.2.0", path = "../fastauth-core" }
 fastauth-oauth = { version = "0.2.0", path = "../fastauth-oauth", default-features = false, optional = true }
 fastauth-plugin-admin = { version = "0.2.0", path = "../fastauth-plugin-admin", optional = true }
 fastauth-plugin-api-key = { version = "0.2.0", path = "../fastauth-plugin-api-key", optional = true }
+fastauth-plugin-bearer = { version = "0.2.0", path = "../fastauth-plugin-bearer", optional = true }
+fastauth-plugin-jwt = { version = "0.2.0", path = "../fastauth-plugin-jwt", optional = true }
 fastauth-plugin-organization = { version = "0.2.0", path = "../fastauth-plugin-organization", optional = true }
 fastauth-plugin-two-factor = { version = "0.2.0", path = "../fastauth-plugin-two-factor", optional = true }
 fastauth-sqlx = { version = "0.2.0", path = "../fastauth-sqlx", default-features = false, optional = true }

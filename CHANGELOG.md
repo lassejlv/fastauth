@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### New plugins
+
+- **fastauth-plugin-bearer** (feature `bearer`, `fastauth::plugins::bearer`): sessions from
+  `Authorization: Bearer <token>` on every auth route, in server API calls and in the axum
+  extractors, signed or raw tokens (`require_signature` to refuse raw ones), and the
+  `set-auth-token` header on every response that sets the session cookie. Wire-compatible
+  with Better Auth's `bearer` plugin (`compat/better-auth/run-bearer.sh`).
+  ([docs/17](docs/17-bearer.md))
+- **fastauth-plugin-jwt** (feature `jwt`, `fastauth::plugins::jwt`): `GET /token`, `GET /jwks`,
+  the `set-auth-jwt` header on `/get-session`, a `jwks` table with private keys encrypted
+  with the app secret, EdDSA (default), ES256 and RS256 keys, issuer, audience, expiration
+  time, `define_payload`, scheduled and on-demand key rotation with a grace period,
+  `JwtExt` (`token`, `sign`, `verify`, `jwks`, `rotate`), and `JwksVerifier` for resource
+  servers. Built on `jsonwebtoken` and aws-lc-rs. Wire-compatible with Better Auth's
+  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md))
+
+### Added
+
+- `PluginBuilder::on_response`: a hook over the HTTP response of every routed endpoint.
+- Sessions found by a resolver's `Resolved::Token` are refreshed like cookie sessions.
+
 ## 0.2.0 (2026-11-26)
 
 ### New plugins

@@ -11,7 +11,8 @@ use http::Method;
 use crate::adapter::Adapter;
 use crate::endpoint::{
     After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
-    ErasedEventHandler, ErasedResolver, Gate, HookCtx, OwnedGate, SessionResolver, SignInAttempt,
+    ErasedEventHandler, ErasedResolver, ErasedResponseHook, Gate, HookCtx, OwnedGate, Response,
+    SessionResolver, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
@@ -61,6 +62,7 @@ pub struct Registry<D> {
     pub(crate) server_endpoints: Vec<TypeId>,
     pub(crate) gates: Vec<OwnedGate<D>>,
     pub(crate) resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
+    pub(crate) response_hooks: Vec<ErasedResponseHook<D>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
@@ -79,6 +81,7 @@ impl<D: Adapter> Registry<D> {
             server_endpoints: Vec::new(),
             gates: Vec::new(),
             resolvers: Vec::new(),
+            response_hooks: Vec::new(),
             events: HashMap::new(),
             rate_rules: Vec::new(),
             error_codes: Vec::new(),
@@ -192,6 +195,18 @@ impl<D: Adapter> PluginBuilder<'_, D> {
     /// Turns non-cookie credentials (bearer tokens, API keys) into a session.
     pub fn session_resolver(&mut self, resolver: impl SessionResolver<D>) -> &mut Self {
         self.registry.resolvers.push(Arc::new(resolver));
+        self
+    }
+
+    /// Runs on the HTTP response of every routed endpoint, after its cookies and headers are
+    /// set, in registration order. For headers derived from the response itself, like a
+    /// bearer plugin copying the session cookie into `set-auth-token`. Server API calls
+    /// don't run it.
+    pub fn on_response(
+        &mut self,
+        hook: impl Fn(&Ctx<D>, &mut Response) + Send + Sync + 'static,
+    ) -> &mut Self {
+        self.registry.response_hooks.push(Arc::new(hook));
         self
     }
 

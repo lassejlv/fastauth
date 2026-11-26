@@ -13,6 +13,8 @@
 //! | `organization` | [`fastauth::plugins::organization`](mod@crate::plugins): organizations, members, invitations, roles |
 //! | `admin` | [`fastauth::plugins::admin`](mod@crate::plugins): roles, bans, impersonation, user management |
 //! | `api-key` | [`fastauth::plugins::api_key`](mod@crate::plugins): per-user API keys |
+//! | `bearer` | [`fastauth::plugins::bearer`](mod@crate::plugins): `Authorization: Bearer` sessions and `set-auth-token` |
+//! | `jwt` | [`fastauth::plugins::jwt`](mod@crate::plugins): `/token`, `/jwks` and a verifier for resource servers |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
@@ -65,6 +67,14 @@ pub mod plugins {
     /// Per-user API keys: `.plugin(ApiKeys::new())`.
     #[cfg(feature = "api-key")]
     pub use fastauth_plugin_api_key as api_key;
+
+    /// Bearer tokens instead of cookies: `.plugin(Bearer::new())`.
+    #[cfg(feature = "bearer")]
+    pub use fastauth_plugin_bearer as bearer;
+
+    /// JWTs and a JWKS for other services: `.plugin(Jwt::new())`.
+    #[cfg(feature = "jwt")]
+    pub use fastauth_plugin_jwt as jwt;
 }
 
 /// Paths the derive macros expand to. Not public API.

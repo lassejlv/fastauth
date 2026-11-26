@@ -446,7 +446,13 @@ pub(crate) async fn resolve<D: Adapter>(
         );
         match resolver.resolve(&ctx, &request.headers).await? {
             None => continue,
-            Some(Resolved::Token(token)) => return by_token(shared, db, &token).await,
+            Some(Resolved::Token(token)) => {
+                let Some(mut view) = by_token(shared, db, &token).await? else {
+                    return Ok(None);
+                };
+                refresh(shared, db, request, effects, &mut view).await?;
+                return Ok(Some(view));
+            }
             Some(Resolved::User(user_id)) => {
                 let Some(user_row) = Db::new(db, &shared.schema)
                     .find::<User>(User::ID.eq(&user_id))
