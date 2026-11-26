@@ -1,9 +1,11 @@
 use std::fmt;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use time::{Duration, OffsetDateTime};
 use url::Url;
 
+use crate::auth::ClientAddr;
 use crate::crypto::{Argon2id, PasswordHasher};
 use crate::error::AuthError;
 use crate::models::Session;
@@ -47,7 +49,7 @@ impl Default for EmailPassword {
             max_password_length: 128,
             require_email_verification: false,
             auto_sign_in: true,
-            revoke_sessions_on_password_reset: false,
+            revoke_sessions_on_password_reset: true,
             reset_password_ttl: Duration::hours(1),
             password_policy: None,
             hasher: Arc::new(Argon2id::owasp()),
@@ -93,6 +95,8 @@ impl EmailPassword {
         self
     }
 
+    /// Whether a password reset signs the user out everywhere (default true), so a reset after
+    /// a compromise also ends the attacker's sessions. Better Auth defaults to false.
     pub fn revoke_sessions_on_password_reset(mut self, on: bool) -> Self {
         self.revoke_sessions_on_password_reset = on;
         self
@@ -265,13 +269,50 @@ impl CookieConfig {
     }
 }
 
-/// Where the client IP comes from.
+/// Where the client IP comes from. Rate limits are kept per client IP, and sessions record it.
+///
+/// The first request whose IP can't be read is logged. Such requests are rate-limited per
+/// account their JSON body names (`email` or `username`), and otherwise share one bucket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientIp {
-    /// The socket address the integration puts in request extensions (default).
+    /// The socket address the integration puts in request extensions (default). In axum,
+    /// serve with `into_make_service_with_connect_info::<SocketAddr>()`.
     Socket,
-    /// A header set by a proxy you trust, e.g. `fly-client-ip`. Take the first value.
+    /// A header holding exactly one IP address, set by a proxy you trust that overwrites
+    /// whatever the client sent, e.g. `fly-client-ip` or `cf-connecting-ip`. Any other value
+    /// counts as no IP. Never `x-forwarded-for`: proxies append to it, so the client writes
+    /// its start. Use `TrustedProxies` for that.
     Header(String),
+    /// A header that each proxy appends to, like `x-forwarded-for`. `proxies` is how many
+    /// proxies you run in front of the app; the client is the `proxies`-th address from the
+    /// right, because everything left of it was sent by the client.
+    TrustedProxies { header: String, proxies: usize },
+}
+
+impl ClientIp {
+    /// The client IP for a request, or `None` if the source doesn't hold a valid one.
+    pub(crate) fn resolve(&self, parts: &http::request::Parts) -> Option<IpAddr> {
+        let ip = match self {
+            ClientIp::Socket => parts.extensions.get::<ClientAddr>().map(|a| a.0),
+            ClientIp::Header(name) => parts
+                .headers
+                .get(name.as_str())?
+                .to_str()
+                .ok()?
+                .trim()
+                .parse()
+                .ok(),
+            ClientIp::TrustedProxies { header, proxies } => {
+                let mut hops = Vec::new();
+                for value in parts.headers.get_all(header.as_str()) {
+                    hops.extend(value.to_str().ok()?.split(',').map(str::trim));
+                }
+                let index = hops.len().checked_sub(*proxies)?;
+                hops.get(index)?.parse().ok()
+            }
+        };
+        ip.map(|ip: IpAddr| ip.to_canonical())
+    }
 }
 
 type IdGenerator = Arc<dyn Fn() -> String + Send + Sync>;
@@ -535,5 +576,63 @@ mod tests {
             assert_eq!(err.code(), crate::error::codes::INTERNAL);
         }
         assert_eq!(format!("{ok:?}"), "Custom(..)");
+    }
+
+    fn request(headers: &[(&str, &str)]) -> http::request::Parts {
+        let mut builder = http::Request::builder();
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        builder.body(()).unwrap().into_parts().0
+    }
+
+    fn ip(source: &ClientIp, headers: &[(&str, &str)]) -> Option<String> {
+        source.resolve(&request(headers)).map(|ip| ip.to_string())
+    }
+
+    #[test]
+    fn client_ip_header_takes_exactly_one_address() {
+        let source = ClientIp::Header("fly-client-ip".into());
+        assert_eq!(
+            ip(&source, &[("fly-client-ip", " 203.0.113.9 ")]).as_deref(),
+            Some("203.0.113.9")
+        );
+        assert_eq!(
+            ip(&source, &[("fly-client-ip", "2001:db8::1")]).as_deref(),
+            Some("2001:db8::1")
+        );
+        assert_eq!(
+            ip(&source, &[("fly-client-ip", "::ffff:203.0.113.9")]).as_deref(),
+            Some("203.0.113.9")
+        );
+        assert_eq!(
+            ip(&source, &[("fly-client-ip", "1.2.3.4, 203.0.113.9")]),
+            None
+        );
+        assert_eq!(ip(&source, &[("fly-client-ip", "anything")]), None);
+        assert_eq!(ip(&source, &[]), None);
+    }
+
+    #[test]
+    fn client_ip_trusted_proxies_counts_from_the_right() {
+        let one = ClientIp::TrustedProxies {
+            header: "x-forwarded-for".into(),
+            proxies: 1,
+        };
+        let two = ClientIp::TrustedProxies {
+            header: "x-forwarded-for".into(),
+            proxies: 2,
+        };
+        let spoofed = [("x-forwarded-for", "6.6.6.6, 203.0.113.9")];
+        assert_eq!(ip(&one, &spoofed).as_deref(), Some("203.0.113.9"));
+        assert_eq!(ip(&two, &spoofed).as_deref(), Some("6.6.6.6"));
+        let chain = [
+            ("x-forwarded-for", "6.6.6.6, 203.0.113.9"),
+            ("x-forwarded-for", "10.0.0.2"),
+        ];
+        assert_eq!(ip(&two, &chain).as_deref(), Some("203.0.113.9"));
+        assert_eq!(ip(&two, &[("x-forwarded-for", "203.0.113.9")]), None);
+        assert_eq!(ip(&one, &[("x-forwarded-for", "1.2.3.4, junk")]), None);
+        assert_eq!(ip(&one, &[]), None);
     }
 }

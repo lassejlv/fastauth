@@ -23,7 +23,8 @@ axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).a
 `AuthRouter` is also in `fastauth::prelude`. `auth.router()` returns `Router<S>` for any
 state `S` with `AppAuth: FromRef<S>`. `into_make_service_with_connect_info` passes the
 socket address along, which rate limiting and the session's `ip_address` use; without it
-every client shares one rate-limit bucket. You can also nest the routes yourself if you
+fastauth can't tell clients apart, logs a warning, and limits per account or for everyone
+at once. You can also nest the routes yourself if you
 want auth somewhere else:
 
 ```rust
@@ -98,8 +99,9 @@ lookup per request shared by every extractor, and the layer that adds refreshed 
 
 Endpoints see the client IP and user agent through `ctx.ip()` and `ctx.user_agent()`. The
 IP comes from the socket address by default (`ClientIp::Socket`). Behind a proxy, configure
-the header to trust with `.client_ip(ClientIp::Header(..))`
-([Configuration](03-configuration.md#rate-limits)).
+the header to trust with `.client_ip(ClientIp::Header(..))` for a single-address header, or
+`ClientIp::TrustedProxies { .. }` for `x-forwarded-for`; never `ClientIp::Header` with
+`x-forwarded-for` ([Configuration](03-configuration.md#rate-limits)).
 
 ## The outgoing HTTP client
 

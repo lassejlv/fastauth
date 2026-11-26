@@ -54,7 +54,7 @@ drop and is never printed.
         .max_password_length(256)                  // default 128; bounds the hashing work
         .require_email_verification(true)          // sign-in fails until verified; needs a mailer
         .auto_sign_in(true)                        // sign-up returns a session (default)
-        .revoke_sessions_on_password_reset(true)   // default false
+        .revoke_sessions_on_password_reset(false)  // default true: a reset signs out everywhere
         .reset_password_ttl(Duration::minutes(30)) // default 1 hour
         .password_policy(|pw: &str| pw.chars().any(|c| !c.is_alphanumeric()))
         .hasher(Argon2id::owasp())                 // default; see Security
@@ -73,7 +73,12 @@ Mail templates come from the mailer. Each auth email is an `AuthEmail` value
 (`VerifyEmail { to, name, url, token }`, `ResetPassword { .. }`, and `Plugin(..)` for plugin
 emails such as two-factor codes and invitations), and a mailer turns it into a message.
 `LogMailer` logs emails (development), `MemoryMailer` keeps them (tests), and anything else
-implements `Mailer`:
+implements `Mailer`. Emails whose sending depends on whether an account exists (password
+reset, email verification, email OTP codes) are sent in the background, so the response
+doesn't wait for your mailer and takes as long for unknown emails as for known ones (see
+[Security](09-security.md#account-enumeration)). A background send that fails is logged with
+`tracing::error!`; the client already got its answer. `LogMailer` and `MemoryMailer` do no
+I/O, so they send before the response, and tests can read `MemoryMailer` right away.
 
 ```rust
 pub struct AcmeMailer;
@@ -211,15 +216,31 @@ is [planned](01-overview.md#planned), not built.
 
 A rule's pattern is an exact path or a prefix ending in `*`, relative to the base path.
 Rules are checked in order and the first match wins: yours, then the plugins' (two-factor
-allows 5 a minute on `/two-factor/verify-*`), then core's 3 per 10 seconds on `/sign-in/*`,
-`/sign-up/*`, `/request-password-reset`, `/forget-password` and `/send-verification-email`.
+allows 5 a minute on `/two-factor/verify-*` and 3 per 10 seconds on the routes that check the
+password: `/two-factor/enable`, `/disable`, `/get-totp-uri` and `/generate-backup-codes`),
+then core's 3 per 10 seconds on `/sign-in/*`, `/sign-up/*`, `/request-password-reset`,
+`/forget-password`, `/send-verification-email` and `/change-password`.
 `RateLimit::disabled()` turns limiting off, which is useful in tests. The counters live in
 memory, per process.
 
-`ClientIp::Socket` reads the socket address the integration passes along (in axum, serve
-with `into_make_service_with_connect_info::<SocketAddr>()`; without it every client shares
-one bucket). Set `ClientIp::Header` only behind a proxy that overwrites that header, or
-clients can pick their own IP.
+Limits are kept per client IP, which `.client_ip(..)` says where to find:
+
+| Source | Use it when |
+|---|---|
+| `ClientIp::Socket` (default) | Clients connect to the app directly. The integration passes the socket address along; in axum, serve with `into_make_service_with_connect_info::<SocketAddr>()`. |
+| `ClientIp::Header(name)` | A proxy you trust sets a header holding exactly one address and overwrites whatever the client sent: `fly-client-ip`, `cf-connecting-ip`, `x-real-ip` from your own nginx. |
+| `ClientIp::TrustedProxies { header, proxies }` | Proxies append to the header, like `x-forwarded-for`. `proxies` is how many you run in front of the app; the client is the `proxies`-th address from the right. |
+
+Never use `ClientIp::Header("x-forwarded-for")`: each proxy appends to that header, so its
+first values are whatever the client sent, and a client could pick its own IP and dodge
+every limit. With `TrustedProxies`, count only proxies that append: with one nginx in front,
+`proxies: 1`; with a CDN in front of that nginx, `proxies: 2`. A value that isn't a valid IP
+counts as no IP.
+
+A request without a client IP (no socket address, a missing header, or too few hops) is
+logged once with `tracing::warn!`. Such requests are limited per account when the JSON body
+names one (`email` or `username`), so guessing one account's password stays limited without
+letting one client lock everybody out of sign-in, and otherwise share one bucket.
 
 ## Ids
 

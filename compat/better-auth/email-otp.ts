@@ -11,16 +11,31 @@ const OUTBOX = process.env.FASTAUTH_OUTBOX ?? "outbox.jsonl";
 
 type Email = { to: string; kind: string; url: string | null; code: string | null };
 
-/** The newest email the server's outbox mailer wrote for `to`. */
-function lastEmail(to: string): Email | undefined {
+/** Every email the server's outbox mailer wrote for `to`, oldest first. */
+function emailsTo(to: string): Email[] {
   let text = "";
   try {
     text = readFileSync(OUTBOX, "utf8");
   } catch {
-    return undefined;
+    return [];
   }
-  const emails = text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as Email);
-  return emails.filter((email) => email.to === to).at(-1);
+  const lines = text.split("\n");
+  lines.pop(); // empty, or a line the server is still writing
+  const emails = lines.filter(Boolean).map((line) => JSON.parse(line) as Email);
+  return emails.filter((email) => email.to === to);
+}
+
+/**
+ * The first email for `to` after the `before` already there. fastauth sends these emails in
+ * the background, after the response, so wait up to two seconds for it.
+ */
+async function nextEmail(to: string, before: number): Promise<Email | undefined> {
+  for (let i = 0; i < 40; i++) {
+    const emails = emailsTo(to);
+    if (emails.length > before) return emails[before];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return undefined;
 }
 
 /** A browser tab: keeps cookies and sends Origin (see compat.ts). */
@@ -84,10 +99,11 @@ console.log(`better-auth emailOTPClient against ${BASE_URL}\n`);
 
 /** Asks for a code for `email` and returns it from the outbox. */
 async function sendCode(browser: ReturnType<typeof newBrowser>, email: string, type: "sign-in" | "email-verification" | "forget-password") {
+  const before = emailsTo(email).length;
   const { data, error } = await browser.client.emailOtp.sendVerificationOtp({ email, type });
   check(`sendVerificationOtp(${type}): { success: true }`, !error && data?.success === true, error ?? data);
   check("the response carries no code", data && Object.keys(data).join() === "success", data);
-  const sent = lastEmail(email);
+  const sent = await nextEmail(email, before);
   check(`an email-otp-${type} email was sent`, sent?.kind === `email-otp-${type}` && /^\d{6}$/.test(sent.code ?? ""), sent);
   return sent?.code ?? "";
 }
@@ -134,9 +150,10 @@ await step("emailOtp.verifyEmail verifies a signed-up user", async () => {
 
 await step("checkVerificationOtp and resetPassword", async () => {
   const bob = newBrowser();
+  const before = emailsTo(bobEmail).length;
   const { data, error } = await bob.client.emailOtp.requestPasswordReset({ email: bobEmail });
   check("requestPasswordReset: { success: true }", !error && data?.success === true, error ?? data);
-  const sent = lastEmail(bobEmail);
+  const sent = await nextEmail(bobEmail, before);
   check("an email-otp-forget-password email was sent", sent?.kind === "email-otp-forget-password", sent);
   const code = sent?.code ?? "";
   const checked = await bob.client.emailOtp.checkVerificationOtp({ email: bobEmail, type: "forget-password", otp: code });
@@ -150,9 +167,11 @@ await step("checkVerificationOtp and resetPassword", async () => {
 });
 
 await step("forgetPassword.emailOtp (deprecated) sends a code", async () => {
+  const before = emailsTo(bobEmail).length;
   const { data, error } = await newBrowser().client.forgetPassword.emailOtp({ email: bobEmail });
   check("{ success: true }", !error && data?.success === true, error ?? data);
-  check("an email-otp-forget-password email was sent", lastEmail(bobEmail)?.kind === "email-otp-forget-password");
+  const sent = await nextEmail(bobEmail, before);
+  check("an email-otp-forget-password email was sent", sent?.kind === "email-otp-forget-password", sent);
 });
 
 await step("bad input is refused", async () => {

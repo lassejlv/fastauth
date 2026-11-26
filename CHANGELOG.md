@@ -2,6 +2,80 @@
 
 ## Unreleased
 
+### Security
+
+- **CORE-2**: without a client IP, the strict sign-in/sign-up/reset limits no longer put every
+  client in one bucket, where three wrong passwords from anyone locked everyone out. Requests
+  without an IP are limited per account named in the JSON body (`email` or `username`), the
+  first one logs a warning, and the README, quickstart and `admin_server` example now serve
+  with `into_make_service_with_connect_info::<SocketAddr>()`.
+- **CORE-3**: password reset, verification, sign-up (with `require_email_verification`) and
+  email OTP send their emails in the background and do the same database work for unknown
+  emails, so response time no longer reveals which emails have accounts.
+- **CORE-4**: a password reset (core and email OTP) revokes every session of the user by
+  default.
+- **CORE-5**: `/change-password` and two-factor's `/enable`, `/disable`, `/get-totp-uri` and
+  `/generate-backup-codes` are under the strict limit (3 per 10 seconds).
+- **CORE-7**: `ClientIp::Header` accepts only a value that is a single valid IP, and the new
+  `ClientIp::TrustedProxies { header, proxies }` reads `x-forwarded-for` from the right. The
+  docs say never to use `ClientIp::Header` with `x-forwarded-for`.
+- **CORE-1** (high, also TOKENS-1): a callback URL such as `/<TAB>/evil.example` passed the
+  redirect check, and a browser opened it as `//evil.example`: an open redirect on every
+  `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` and `redirectTo`, and theft of
+  password-reset tokens through a genuine reset email. Redirect targets are now refused with
+  control characters, backslashes or encoded `/` and `\`, resolved against `base_url`, and
+  required to stay on a trusted origin; `Location` carries the resolved URL.
+  ([Security](docs/09-security.md#redirects))
+- **2FA-1**: concurrent wrong guesses on `/two-factor/verify-otp` all counted as one attempt.
+  Each guess now claims its attempt with a compare-and-swap before the code is compared.
+- **CORE-8**: TOTP and backup codes had no per-challenge attempt cap, and the pending
+  two-factor cookie could be replayed for its whole max age. The pending sign-in is now a
+  server-side `verification` row that allows 5 guesses across all methods and is deleted
+  when a code finishes it. ([Security](docs/09-security.md#two-factor-sign-in))
+- **TOKENS-2**: `/link-social` linked any provider identity. It now requires a live starting
+  session, a provider-verified email equal to the user's (unless
+  `Social::allow_different_emails(true)`), and linking not `AccountLinking::Off`.
+- **TOKENS-3**: `JwksVerifier` and `auth.jwt().verify()` never checked `nbf`; they do now.
+- **TOKENS-4**: `auth.jwt().verify()` trusted retired keys forever. It now uses only the keys
+  `/jwks` publishes, and `rotate()` deletes keys past their grace period.
+- **TOKENS-5**: a huge `expires_in` from an OAuth token endpoint panicked the callback; token
+  lifetimes are now clamped to 10 years and negative ones ignored.
+- **TOKENS-6**: the JWT docs told resource servers to refetch the JWKS on every
+  `UnknownKey`, which any client can trigger. They now say to refetch at most once per
+  cool-down, and a token without a `kid` is `VerifyError::Invalid` instead of
+  `UnknownKey(None)`.
+- **TOKENS-7**: documented that the bearer plugin's `set-auth-token` header lets page scripts
+  read the session token ([Bearer tokens](docs/17-bearer.md#security)).
+
+### Behaviour changes
+
+- `EmailPassword::revoke_sessions_on_password_reset` defaults to `true` (was `false`), for
+  `/reset-password` and `/email-otp/reset-password`. Better Auth defaults to `false`; set
+  `.revoke_sessions_on_password_reset(false)` to keep sessions.
+- Emails from those routes are sent after the response. A mailer error is logged with
+  `tracing::error!` instead of answering 500. `LogMailer` and `MemoryMailer` still send
+  before the response.
+- `ClientIp::Header` no longer takes the first of several comma-separated values; such a
+  value counts as no IP.
+- `ClientIp` has a new variant, so an exhaustive `match` on it needs an arm for
+  `TrustedProxies`.
+- Redirects answer with an absolute `Location`: `callbackURL: "/dashboard"` redirects to
+  `{base_url}/dashboard`, the same place a browser resolved the relative one to. Better
+  Auth sends relative targets back as they came. The JSON `url` of `/sign-in/*` is
+  unchanged.
+- `Ctx::redirect` answers 403 `INVALID_CALLBACK_URL` for a URL that fails
+  `is_safe_redirect`, so plugins can only redirect to the app or a trusted origin.
+- Callback URLs with control characters, backslashes or `%2f`/`%5c` in the path are refused
+  with 403 `INVALID_CALLBACK_URL`, as Better Auth refuses them.
+- `AccountLinking::Off` now also refuses `/link-social` (`?error=unable_to_link_account`),
+  and `/link-social` refuses another email (`?error=email_doesn't_match`) unless
+  `Social::allow_different_emails(true)`.
+- A pending two-factor sign-in allows 5 guesses in all; after that the user signs in with
+  their password again. Sign-ins pending when you upgrade must start over, because the
+  `two_factor` cookie now names a `verification` row.
+- JWTs with a future `nbf` no longer verify, and server-side `verify()` stops accepting a
+  retired key once its grace period ends.
+
 ### New plugins
 
 - **fastauth-plugin-username** (feature `username`, `fastauth::plugins::username`): `username`
@@ -42,59 +116,12 @@ All additive; no public trait changed.
   it) and `Internal::set_session_cookies` (make a token the request's session).
 - Read-only getters for plugins: `EmailPassword::requires_email_verification()`,
   `EmailPassword::max_password_len()` and `SessionConfig::lifetime()`.
+- `Internal::send_email_in_background` (send without waiting for the mailer, logging a
+  failure) and `Internal::simulate_verification` (the database work of a verification
+  lookup, for the branch that sends nothing). `Internal::send_verification_email` now sends
+  in the background.
 - `CoreConfig::resolve_redirect(target)`: the URL a redirect to `target` lands on, or `None`
   when it isn't safe; `is_safe_redirect` is built on it.
-
-### Security
-
-Fixes from the FAST-31 security review of 0.3.0.
-
-- **CORE-1** (high, also TOKENS-1): a callback URL such as `/<TAB>/evil.example` passed the
-  redirect check, and a browser opened it as `//evil.example`: an open redirect on every
-  `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` and `redirectTo`, and theft of
-  password-reset tokens through a genuine reset email. Redirect targets are now refused with
-  control characters, backslashes or encoded `/` and `\`, resolved against `base_url`, and
-  required to stay on a trusted origin; `Location` carries the resolved URL.
-  ([Security](docs/09-security.md#redirects))
-- **2FA-1**: concurrent wrong guesses on `/two-factor/verify-otp` all counted as one attempt.
-  Each guess now claims its attempt with a compare-and-swap before the code is compared.
-- **CORE-8**: TOTP and backup codes had no per-challenge attempt cap, and the pending
-  two-factor cookie could be replayed for its whole max age. The pending sign-in is now a
-  server-side `verification` row that allows 5 guesses across all methods and is deleted
-  when a code finishes it. ([Security](docs/09-security.md#two-factor-sign-in))
-- **TOKENS-2**: `/link-social` linked any provider identity. It now requires a live starting
-  session, a provider-verified email equal to the user's (unless
-  `Social::allow_different_emails(true)`), and linking not `AccountLinking::Off`.
-- **TOKENS-3**: `JwksVerifier` and `auth.jwt().verify()` never checked `nbf`; they do now.
-- **TOKENS-4**: `auth.jwt().verify()` trusted retired keys forever. It now uses only the keys
-  `/jwks` publishes, and `rotate()` deletes keys past their grace period.
-- **TOKENS-5**: a huge `expires_in` from an OAuth token endpoint panicked the callback; token
-  lifetimes are now clamped to 10 years and negative ones ignored.
-- **TOKENS-6**: the JWT docs told resource servers to refetch the JWKS on every
-  `UnknownKey`, which any client can trigger. They now say to refetch at most once per
-  cool-down, and a token without a `kid` is `VerifyError::Invalid` instead of
-  `UnknownKey(None)`.
-- **TOKENS-7**: documented that the bearer plugin's `set-auth-token` header lets page scripts
-  read the session token ([Bearer tokens](docs/17-bearer.md#security)).
-
-### Behaviour changes
-
-- Redirects answer with an absolute `Location`: `callbackURL: "/dashboard"` redirects to
-  `{base_url}/dashboard`, the same place a browser resolved the relative one to. Better
-  Auth sends relative targets back as they came. The JSON `url` of `/sign-in/*` is
-  unchanged.
-- `Ctx::redirect` answers 403 `INVALID_CALLBACK_URL` for a URL that fails
-  `is_safe_redirect`, so plugins can only redirect to the app or a trusted origin.
-- Callback URLs with control characters, backslashes or `%2f`/`%5c` in the path are refused
-  with 403 `INVALID_CALLBACK_URL`, as Better Auth refuses them.
-- `AccountLinking::Off` now also refuses `/link-social` (`?error=unable_to_link_account`),
-  and `/link-social` refuses another email (`?error=email_doesn't_match`) unless
-  `Social::allow_different_emails(true)`.
-- A pending two-factor sign-in allows 5 guesses in all; after that the user signs in with
-  their password again. Sign-ins pending when you upgrade must start over, because the
-  `two_factor` cookie now names a `verification` row.
-- JWTs with a future `nbf` no longer verify, and server-side `verify()` stops accepting a
-  retired key once its grace period ends.
 
 ## 0.3.0 (2026-11-26)
 

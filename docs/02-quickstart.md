@@ -88,6 +88,8 @@ and columns. [Databases](06-database.md#migrations) has the details.
 
 ```rust
 // src/main.rs
+use std::net::SocketAddr;
+
 use acme::auth::{self, AppAuth};
 use axum::{Json, Router, routing::get};
 use fastauth::axum::{AuthRouter, Session};
@@ -115,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(auth);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 ```
@@ -124,6 +126,20 @@ async fn main() -> anyhow::Result<()> {
 no valid session. Use `Option<Session<AppAuth>>` for routes that work signed in or out.
 Ids are opaque strings, [ULIDs](06-database.md#ids) unless you pick another strategy, so
 `to_string()` is all `Me.id` needs.
+
+`into_make_service_with_connect_info` passes each client's socket address along: rate
+limits are kept per client IP, and without an address fastauth can only limit per account
+or for everyone at once (it logs a warning). Behind a reverse proxy or load balancer the
+socket address is the proxy's, so tell fastauth which header holds the client's address
+([Configuration](03-configuration.md#rate-limits)):
+
+```rust
+.client_ip(ClientIp::Header("fly-client-ip".into()))         // one address, set by the proxy
+.client_ip(ClientIp::TrustedProxies {                         // x-forwarded-for behind one proxy
+    header: "x-forwarded-for".into(),
+    proxies: 1,
+})
+```
 
 ## 6. Try it
 

@@ -751,6 +751,8 @@ impl<D: Adapter> Endpoint<D> for SendVerificationEmail {
             internal
                 .send_verification_email(&user, input.callback_url.as_deref())
                 .await?;
+        } else {
+            internal.simulate_verification().await?;
         }
         Ok(OK)
     }
@@ -870,13 +872,15 @@ async fn request_reset<D: Adapter>(
             url = with_query(&url, "callbackURL", redirect);
         }
         internal
-            .send_email(AuthEmail::ResetPassword(ResetPasswordEmail {
+            .send_email_in_background(AuthEmail::ResetPassword(ResetPasswordEmail {
                 to: user.email.clone(),
                 name: user.name.clone(),
                 url,
                 token,
             }))
             .await?;
+    } else {
+        internal.simulate_verification().await?;
     }
     Ok(RequestPasswordResetOutput {
         status: true,

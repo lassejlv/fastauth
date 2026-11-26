@@ -38,7 +38,11 @@ pub fn build(pool: PgPool, mailer: impl Mailer) -> Result<AppAuth, BuildError> {
 The plugin adds no tables or columns; codes live in core's `verification` table. Without a
 mailer, sending a code answers `500 INTERNAL_SERVER_ERROR` and logs that no mailer is
 configured. `email_password` isn't required, but `/email-otp/reset-password` uses its
-password length limits and `revoke_sessions_on_password_reset` when it's on.
+password length limits and `revoke_sessions_on_password_reset` (on by default).
+
+Codes are emailed in the background, so `send-verification-otp` and `request-password-reset`
+answer in the same time whether or not the email has an account (and so sent anything).
+A failed send is logged with `tracing::error!` instead of failing the request.
 
 ### The email
 
@@ -112,8 +116,8 @@ same for sign-in. Password reset then creates a fresh password.
 
 **Resetting a password.** `check-verification-otp` lets a form check the code before asking
 for the new password; it keeps the code. `reset-password` uses it up, sets the password,
-revokes every session when `revoke_sessions_on_password_reset` is on, and emits
-`PasswordChanged`.
+revokes every session of the user unless `revoke_sessions_on_password_reset(false)` is set,
+and emits `PasswordChanged`.
 
 ## Server API
 
