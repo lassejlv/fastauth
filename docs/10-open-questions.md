@@ -153,12 +153,21 @@ using the compile-checked extension traits.
 6. `fastauth-macros` and `fastauth-cli`.
 7. Better Auth client compatibility, tested with `compat/better-auth/run.sh`.
 
-## Unreleased: 0.2
+## Released: 0.2.0 (2026-11-26)
 
 1. The [organization](12-organization.md), [admin](13-admin.md) and
    [API key](14-api-keys.md) plugins, each tested against Better Auth's client.
 2. Configurable ids with ULID as the default (8).
 3. Gates after challenges (10), case-sensitive `Contains` and `EndsWith` filters (11), and
    `AuthInstance::try_plugin` (13).
+
+## Released: 0.3.0 (2026-11-26)
+
+1. The [magic link](15-magic-link.md), [email OTP](16-email-otp.md), [bearer](17-bearer.md),
+   [JWT](18-jwt.md) and [passkey](19-passkey.md) plugins, each tested against Better Auth's
+   client.
+2. Additive core APIs for them: `PluginBuilder::on_response`, `Internal::claim_unverified_user`,
+   and public `routes::normalize_email` and `routes::user_input_fields`. Nothing breaks for 0.2
+   apps.
 
 The [CHANGELOG](../CHANGELOG.md) lists every change, including the breaking ones.

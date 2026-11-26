@@ -49,6 +49,11 @@ that adds tables or columns ([Databases](06-database.md#migrations)).
 | `plugins::organization::Organization` | `organization` | Organizations, members, invitations, roles and permissions ([Organization](12-organization.md)) |
 | `plugins::admin::Admin` | `admin` | Roles and permissions, ban and unban, impersonation, user management ([Admin](13-admin.md)) |
 | `plugins::api_key::ApiKeys` | `api-key` | Hashed API keys with expiry, usage limits and rate limits; optional sessions from keys ([API keys](14-api-keys.md)) |
+| `plugins::magic_link::MagicLink` | `magic-link` | Sign-in links by email, with sign-up on first use ([Magic links](15-magic-link.md)) |
+| `plugins::email_otp::EmailOtp` | `email-otp` | One-time codes by email for sign-in, email verification and password reset ([Email OTP](16-email-otp.md)) |
+| `plugins::bearer::Bearer` | `bearer` | Sessions from `Authorization: Bearer`; the `set-auth-token` header; a session resolver ([Bearer tokens](17-bearer.md)) |
+| `plugins::jwt::Jwt` | `jwt` | `/token`, `/jwks`, the `set-auth-jwt` header, rotating signing keys in a `jwks` table ([JWT](18-jwt.md)) |
+| `plugins::passkey::Passkey` | `passkey` | WebAuthn registration and sign-in, a `passkey` table; sign-in runs the gates ([Passkeys](19-passkey.md)) |
 
 More plugins are [planned](01-overview.md#planned).
 

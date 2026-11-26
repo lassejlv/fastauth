@@ -1,7 +1,7 @@
 # Better Auth's client
 
-fastauth's core endpoints and its two-factor, organization, admin and API key plugins use
-Better Auth's paths, JSON shapes and error codes, so Better Auth's own TypeScript client works against a fastauth server with no
+fastauth's core endpoints and its first-party plugins (two-factor, organization, admin, API
+keys, magic links, email OTP, bearer, JWT and passkeys) use Better Auth's paths, JSON shapes and error codes, so Better Auth's own TypeScript client works against a fastauth server with no
 TypeScript of your own. This page shows how to point the client at fastauth, which version
 is tested, and what doesn't match yet.
 
@@ -11,6 +11,7 @@ is tested, and what doesn't match yet.
 |---|---|
 | `better-auth` (`better-auth/client`, `better-auth/client/plugins`) | 1.7.28 |
 | `@better-auth/api-key` (`apiKeyClient`) | 1.7.28 |
+| `@better-auth/passkey` (`passkeyClient`) | 1.7.28 |
 | `@better-auth/core` | 1.7.28 |
 | `@better-fetch/fetch` | 1.3.3 |
 
@@ -89,23 +90,28 @@ const authClient = createAuthClient({
 
 ## The compatibility tests
 
-Three scripts in `compat/better-auth/` each build a server, start it with a fresh database,
+Eight scripts in `compat/better-auth/` each build a server, start it with a fresh database,
 run a TypeScript file with Better Auth's client, and stop the server. They need cargo and
-bun, and exit non-zero when any check fails:
+bun (`run-passkey.sh` also needs Chrome or Chromium), listen on `PORT` (3000 unless set), and
+exit non-zero when any check fails:
 
 | Script | Server | Client file | Checks |
 |---|---|---|---|
 | `run.sh` | `crates/fastauth/examples/axum_sqlite.rs` (features `sqlite,two-factor,organization,admin,api-key`) | `compat.ts`: core, two-factor, API keys | 92 |
 | `run-organization.sh` | the organization plugin's `compat_server` example, in memory | `organization.ts` | 30 |
-| `run-admin.sh` | `crates/fastauth-plugin-admin/examples/admin_server.rs`, in memory; `PORT` picks the port | `admin.ts` | 40 |
+| `run-admin.sh` | `crates/fastauth-plugin-admin/examples/admin_server.rs`, in memory | `admin.ts` | 40 |
+| `run-magic-link.sh` | the magic link plugin's `magic_link_server` example, in memory | `magic-link.ts` | 28 |
+| `run-email-otp.sh` | the email OTP plugin's `email_otp_server` example, in memory | `email-otp.ts` | 33 |
+| `run-bearer.sh` | the bearer plugin's `compat_server` example, in memory | `bearer.ts` | 25 |
+| `run-jwt.sh` | the JWT plugin's `compat_server` example, in memory | `jwt.ts` | 26 |
+| `run-passkey.sh` | the passkey plugin's `compat_server` example, in memory, driven in headless Chrome | `passkey.ts` | 52 |
 
 ```bash
 compat/better-auth/run.sh
-compat/better-auth/run-organization.sh
-PORT=3107 compat/better-auth/run-admin.sh
+PORT=3107 compat/better-auth/run-organization.sh
 ```
 
-All three passed on 2026-11-25.
+All eight passed on 2026-11-26.
 
 `compat.ts` checks, through the client: `signUp.email` (with an app field), `getSession`, `signOut`,
 `signIn.email`, `listSessions`, `revokeSession` by token and by id, `updateUser`,
@@ -126,9 +132,14 @@ the `totpURI`.
 
 `organization.ts` covers organizations, members, invitations and the active organization
 through `organizationClient`; `admin.ts` covers user management, roles, bans and
-impersonation through `adminClient`. The plugin pages list their gaps:
+impersonation through `adminClient`. The plugin pages describe what the other scripts check
+and list their gaps:
 [Organization](12-organization.md#better-auths-client),
-[Admin](13-admin.md#better-auths-client) and [API keys](14-api-keys.md#better-auths-client).
+[Admin](13-admin.md#better-auths-client), [API keys](14-api-keys.md#better-auths-client),
+[Magic links](15-magic-link.md#better-auths-client),
+[Email OTP](16-email-otp.md#better-auths-client),
+[Bearer tokens](17-bearer.md#better-auths-client), [JWT](18-jwt.md#better-auths-client) and
+[Passkeys](19-passkey.md#better-auths-client).
 
 There's no CI job; run the scripts before changing an endpoint's path, input or output.
 

@@ -1,7 +1,9 @@
 # First-party plugins
 
 This file covers `Social` and `TwoFactor`. The others have their own references:
-[organization.md](organization.md), [admin.md](admin.md) and [api-keys.md](api-keys.md).
+[organization.md](organization.md), [admin.md](admin.md), [api-keys.md](api-keys.md),
+[magic-link.md](magic-link.md), [email-otp.md](email-otp.md), [bearer.md](bearer.md),
+[jwt.md](jwt.md) and [passkey.md](passkey.md).
 
 ```rust
 use axum::http::HeaderMap;

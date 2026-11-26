@@ -19,4 +19,4 @@ workspace = true
 
 [dependencies]
 clap = { version = "4.6.10", features = ["derive"] }
-fastauth-core = { version = "0.2.0", path = "../fastauth-core" }
+fastauth-core = { version = "0.3.0", path = "../fastauth-core" }

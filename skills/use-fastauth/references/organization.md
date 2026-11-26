@@ -51,7 +51,7 @@ pub fn app(auth: AppAuth) -> Router {
 
 ## Setup
 
-- `fastauth = { version = "0.2", features = ["organization"] }`. Import from
+- `fastauth = { version = "0.3", features = ["organization"] }`. Import from
   `fastauth::plugins::organization`. The extractors need the `axum` feature (on by default).
 - Plugin `Organization` (in `plugins![..]`, registration order); row type `OrganizationRow`.
   Adds tables `organization`, `member`, `invitation` and `session.active_organization_id`:
