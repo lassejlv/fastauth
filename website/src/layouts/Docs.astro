@@ -5,6 +5,7 @@ import DocsHeader from "../components/DocsHeader.astro";
 import Icon from "../components/Icon.astro";
 import NavSheet from "../components/NavSheet.astro";
 import Sidebar from "../components/Sidebar.astro";
+import { markdownHref } from "../lib/markdown";
 import type { NavGroup } from "../lib/site";
 
 type Link = { href: string; title: string };
@@ -22,8 +23,9 @@ type Props = {
 
 const { title, description, eyebrow, headings, groups, current, editUrl, prev, next } = Astro.props;
 const outline = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const markdown = markdownHref(current);
 ---
-<Base title={`${title} · fastauth`} description={description}>
+<Base title={`${title} · fastauth`} description={description} markdown={markdown}>
   <DocsHeader />
   <div class="docs">
     <div class="sidebar-col">
@@ -79,7 +81,10 @@ const outline = headings.filter((h) => h.depth === 2 || h.depth === 3);
                 )
               }
             </nav>
-            <a class="edit-link" href={editUrl}>Edit this page on GitHub</a>
+            <div class="doc-links">
+              <a class="edit-link" href={editUrl}>Edit this page on GitHub</a>
+              <a class="edit-link" href={markdown} type="text/markdown">View as Markdown</a>
+            </div>
           </footer>
         </article>
         {

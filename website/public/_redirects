@@ -1,0 +1,4 @@
+/.md /index.md 301
+/*/.md /:splat.md 301
+/docs.md /docs/overview.md 301
+/docs/open-questions.md /docs/decisions.md 301
