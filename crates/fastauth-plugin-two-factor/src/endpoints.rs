@@ -14,6 +14,11 @@ const TRUST_COOKIE: &str = "trust_device";
 const SESSION_CACHE_COOKIE: &str = "session_data";
 const OTP_TTL: Duration = Duration::minutes(15);
 const OTP_ATTEMPTS: u32 = 5;
+/// Codes a pending sign-in may try, across TOTP, email and backup codes.
+const PENDING_ATTEMPTS: u32 = 5;
+const PENDING_PREFIX: &str = "two-factor-pending:";
+/// `verification.data`: the guesses so far, and for a pending sign-in what finishes it.
+const DATA: Col<Verification, Option<String>> = Col::new("data");
 const BACKUP_CODE_ALPHABET: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -205,6 +210,7 @@ impl<D: Adapter> Endpoint<D> for VerifyTotp {
     ) -> Result<VerifyOutput, AuthError> {
         let plugin = &self.0;
         let mut subject = subject(&ctx).await?;
+        claim_attempt(&ctx, &subject).await?;
         let user_id = subject.user().id.clone();
         let row = find_row(&ctx, &user_id)
             .await?
@@ -255,7 +261,7 @@ impl<D: Adapter> Endpoint<D> for SendOtp {
         let code = random_string(6, b"0123456789");
         let internal = ctx.internal();
         internal
-            .store_verification_value(&otp_identifier(&user.id), &code, OTP_TTL, None)
+            .store_verification_value(&otp_identifier(&user.id), &code, OTP_TTL, Some("0".into()))
             .await?;
         let app_name = &ctx.config().app_name;
         internal
@@ -276,6 +282,9 @@ impl<D: Adapter> Endpoint<D> for SendOtp {
 }
 
 /// `POST /two-factor/verify-otp`: checks an emailed code. Five wrong codes burn it.
+///
+/// Every guess claims an attempt with a compare-and-swap on the counter before the code is
+/// compared, so concurrent guesses can't try more than five codes.
 pub struct VerifyOtp(pub(crate) Arc<TwoFactor>);
 
 impl<D: Adapter> Endpoint<D> for VerifyOtp {
@@ -292,43 +301,27 @@ impl<D: Adapter> Endpoint<D> for VerifyOtp {
     ) -> Result<VerifyOutput, AuthError> {
         let subject = subject(&ctx).await?;
         let identifier = otp_identifier(&subject.user().id);
-        let Some(stored) = ctx
-            .db()
-            .find::<Verification>(Verification::IDENTIFIER.eq(&identifier))
-            .one()
-            .await?
-        else {
-            return Err(TwoFactorError::InvalidCode.into());
+        let mine = || Verification::IDENTIFIER.eq(&identifier);
+        let (stored, guess) = match claim_guess(&ctx, mine, OTP_ATTEMPTS).await? {
+            Claim::Claimed { row, guess } => (row, guess),
+            Claim::Gone => return Err(TwoFactorError::InvalidCode.into()),
+            Claim::Expired => return Err(TwoFactorError::OtpHasExpired.into()),
+            Claim::Spent => return Err(TwoFactorError::TooManyAttempts.into()),
         };
-        let burn = Verification::ID.eq(&stored.id);
-        if stored.expires_at <= ctx.now() {
-            ctx.db().delete::<Verification>(burn).await?;
-            return Err(TwoFactorError::OtpHasExpired.into());
+        claim_attempt(&ctx, &subject).await?;
+        let this = || Verification::ID.eq(&stored.id);
+        let expected = Hash::sha256(format!("{identifier}:{}", input.code.trim()));
+        if !ct_eq(stored.value_hash.as_bytes(), expected.as_bytes()) {
+            if guess >= OTP_ATTEMPTS {
+                ctx.db().delete::<Verification>(this()).await?;
+                return Err(TwoFactorError::TooManyAttempts.into());
+            }
+            return Err(TwoFactorError::InvalidCode.into());
         }
-        if ctx
-            .internal()
-            .consume_verification_value(&identifier, input.code.trim())
-            .await?
-            .is_some()
-        {
-            return finish(&self.0, &ctx, subject, input.trust_device).await;
+        if ctx.db().delete::<Verification>(this()).await? == 0 {
+            return Err(TwoFactorError::InvalidCode.into());
         }
-        let attempts = stored
-            .data
-            .as_deref()
-            .and_then(|d| d.parse::<u32>().ok())
-            .unwrap_or(0)
-            + 1;
-        if attempts >= OTP_ATTEMPTS {
-            ctx.db().delete::<Verification>(burn).await?;
-            return Err(TwoFactorError::TooManyAttempts.into());
-        }
-        ctx.db()
-            .update::<Verification>(burn)
-            .set_raw("data", Value::Text(attempts.to_string()))
-            .exec()
-            .await?;
-        Err(TwoFactorError::InvalidCode.into())
+        finish(&self.0, &ctx, subject, input.trust_device).await
     }
 }
 
@@ -386,6 +379,7 @@ impl<D: Adapter> Endpoint<D> for VerifyBackupCode {
         input: VerifyInput,
     ) -> Result<VerifyOutput, AuthError> {
         let subject = subject(&ctx).await?;
+        claim_attempt(&ctx, &subject).await?;
         let row = find_row(&ctx, &subject.user().id)
             .await?
             .ok_or(TwoFactorError::TwoFactorNotEnabled)?;
@@ -426,13 +420,16 @@ pub(crate) async fn gate<D: Adapter>(
         return Ok(Gate::Allow);
     }
     let remember_me = if attempt.remember_me { "1" } else { "0" };
-    write_payload(
-        &ctx,
-        PENDING_COOKIE,
-        "pending",
-        [attempt.user.id.as_str(), remember_me, &attempt.method],
-        plugin.two_factor_cookie_max_age,
-    );
+    let max_age = plugin.two_factor_cookie_max_age;
+    let token = ctx
+        .internal()
+        .create_verification(
+            &format!("{PENDING_PREFIX}{}", attempt.user.id),
+            max_age,
+            Some(format!("0|{remember_me}|{}", attempt.method)),
+        )
+        .await?;
+    ctx.set_signed_cookie(PENDING_COOKIE, &token, Some(max_age));
     let methods: &[&str] = if ctx.internal().can_send_email() {
         &["totp", "otp"]
     } else {
@@ -446,12 +443,13 @@ pub(crate) async fn gate<D: Adapter>(
 
 /// Who a verify endpoint acts for.
 enum Subject {
-    /// Signing in: the pending cookie names the user and the sign-in method, and verifying
-    /// finishes the sign-in.
+    /// Signing in: the pending cookie names a `verification` row (`challenge`) that holds the
+    /// user, the sign-in method and the guesses so far, and verifying finishes the sign-in.
     Pending {
         user: UserView,
         remember_me: bool,
         method: String,
+        challenge: Box<Verification>,
     },
     /// Already signed in, e.g. confirming the authenticator after `/two-factor/enable`.
     Session(Box<SessionView>),
@@ -466,15 +464,19 @@ impl Subject {
     }
 }
 
-/// The pending sign-in when its cookie is valid, else the session.
+/// The pending sign-in when its cookie names a live one, else the session.
 async fn subject<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>) -> Result<Subject, AuthError> {
-    if let Some([user_id, remember_me, method]) = read_payload(ctx, PENDING_COOKIE, "pending")
+    if let Some(token) = ctx.signed_cookie(PENDING_COOKIE)
+        && let Some(challenge) = ctx.internal().find_verification(&token).await?
+        && let Some(user_id) = challenge.identifier.strip_prefix(PENDING_PREFIX)
+        && let Some((_, remember_me, method)) = pending_data(&challenge)
         && let Some(user) = ctx.internal().find_user_by_id(&Id::from(user_id)).await?
     {
         return Ok(Subject::Pending {
             user,
             remember_me: remember_me == "1",
-            method,
+            method: method.to_owned(),
+            challenge: Box::new(challenge),
         });
     }
     ctx.session()
@@ -482,8 +484,99 @@ async fn subject<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>) -> Result<Subject
         .ok_or_else(|| TwoFactorError::InvalidTwoFactorCookie.into())
 }
 
+/// `attempts|remember_me|method` of a pending sign-in's `verification.data`.
+fn pending_data(challenge: &Verification) -> Option<(u32, &str, &str)> {
+    let mut fields = challenge.data.as_deref()?.splitn(3, '|');
+    let attempts = fields.next()?.parse().ok()?;
+    Some((attempts, fields.next()?, fields.next()?))
+}
+
+/// Spends one of a pending sign-in's guesses before a code is compared. Once
+/// `PENDING_ATTEMPTS` are spent the pending sign-in is deleted and the user signs in again.
+/// A signed-in subject has no limit beyond the rate limit.
+async fn claim_attempt<D: Adapter>(
+    ctx: &Ctx<D, MaybeAuthenticated>,
+    subject: &Subject,
+) -> Result<(), AuthError> {
+    let Subject::Pending { challenge, .. } = subject else {
+        return Ok(());
+    };
+    let this = || Verification::ID.eq(&challenge.id);
+    match claim_guess(ctx, this, PENDING_ATTEMPTS).await? {
+        Claim::Claimed { .. } => Ok(()),
+        Claim::Gone | Claim::Expired => {
+            ctx.delete_cookie(PENDING_COOKIE);
+            Err(TwoFactorError::InvalidTwoFactorCookie.into())
+        }
+        Claim::Spent => {
+            ctx.delete_cookie(PENDING_COOKIE);
+            Err(TwoFactorError::TooManyAttempts.into())
+        }
+    }
+}
+
+/// What [`claim_guess`] found.
+enum Claim {
+    /// The guess is counted; it is guess number `guess` (from 1).
+    Claimed {
+        row: Verification,
+        guess: u32,
+    },
+    Gone,
+    /// Expired, now deleted.
+    Expired,
+    /// Every guess was spent, now deleted.
+    Spent,
+}
+
+/// Counts one guess on the `verification` row `find` selects, whose `data` starts with the
+/// guesses so far (`2`, or `2|..` for a pending sign-in). The count goes up with a
+/// compare-and-swap that is retried when a concurrent guess wins it, so every guess is
+/// counted and no more than `limit` are ever compared.
+async fn claim_guess<D: Adapter, A>(
+    ctx: &Ctx<D, A>,
+    find: impl Fn() -> Where<Verification>,
+    limit: u32,
+) -> Result<Claim, AuthError> {
+    loop {
+        let Some(row) = ctx.db().find::<Verification>(find()).one().await? else {
+            return Ok(Claim::Gone);
+        };
+        let this = || Verification::ID.eq(&row.id);
+        if row.expires_at <= ctx.now() {
+            ctx.db().delete::<Verification>(this()).await?;
+            return Ok(Claim::Expired);
+        }
+        let data = row.data.as_deref().unwrap_or_default();
+        let (count, rest) = data
+            .split_once('|')
+            .map_or((data, None), |(c, r)| (c, Some(r)));
+        let count = count.parse::<u32>().unwrap_or(limit);
+        if count >= limit {
+            ctx.db().delete::<Verification>(this()).await?;
+            return Ok(Claim::Spent);
+        }
+        let next = match rest {
+            Some(rest) => format!("{}|{rest}", count + 1),
+            None => (count + 1).to_string(),
+        };
+        let claimed = ctx
+            .db()
+            .update::<Verification>(this().and(DATA.eq(row.data.clone())))
+            .set(DATA, Some(next))
+            .exec()
+            .await?;
+        if claimed == 1 {
+            return Ok(Claim::Claimed {
+                row,
+                guess: count + 1,
+            });
+        }
+    }
+}
+
 /// Finishes a pending sign-in through the other plugins' gates, and trusts the device when
-/// asked.
+/// asked. The pending sign-in is deleted first, so it finishes once.
 async fn finish<D: Adapter>(
     plugin: &TwoFactor,
     ctx: &Ctx<D, MaybeAuthenticated>,
@@ -495,8 +588,16 @@ async fn finish<D: Adapter>(
             user,
             remember_me,
             method,
+            challenge,
         } => {
             ctx.delete_cookie(PENDING_COOKIE);
+            let consumed = ctx
+                .db()
+                .delete::<Verification>(Verification::ID.eq(&challenge.id))
+                .await?;
+            if consumed == 0 {
+                return Err(TwoFactorError::InvalidTwoFactorCookie.into());
+            }
             match ctx
                 .internal()
                 .complete_sign_in(TwoFactor::ID, user, method, remember_me)

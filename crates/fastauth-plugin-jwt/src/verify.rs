@@ -2,8 +2,11 @@
 //!
 //! Fetch `{base_url}{base_path}/jwks` (`http://localhost:3000/api/auth/jwks`), build a
 //! [`JwksVerifier`] from it, and check each request's token with it. When
-//! [`VerifyError::UnknownKey`] comes back, the auth server has rotated to a key you haven't
-//! seen: fetch the JWKS again and retry once.
+//! [`VerifyError::UnknownKey`] comes back, the auth server may have rotated to a key you
+//! haven't seen: fetch the JWKS again and retry once, but at most once per cool-down (30 s or
+//! more, like jose's `createRemoteJWKSet`). `UnknownKey` is decided from the token's header
+//! before any signature check, so anyone can produce it with a made-up `kid`; refetching on
+//! every one lets any client make your server fetch the JWKS once per request.
 
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk, JwkSet, KeyAlgorithm};
@@ -32,8 +35,10 @@ pub struct JwksVerifier {
 /// Why a token didn't verify.
 #[derive(Debug)]
 pub enum VerifyError {
-    /// The token's `kid` isn't in the JWKS (or it has none). If the kid is new, the server
-    /// rotated keys: fetch the JWKS again.
+    /// The token's `kid` isn't in the JWKS. If the kid is new, the server may have rotated
+    /// keys: fetch the JWKS again, at most once per cool-down (see the module docs). The
+    /// header is unauthenticated, so this is attacker-controlled. A token without a `kid` is
+    /// `Invalid`, so this is always `Some`.
     UnknownKey(Option<String>),
     /// A bad signature, an expired token, the wrong issuer or audience, or not a JWT.
     Invalid(jsonwebtoken::errors::Error),
@@ -93,16 +98,19 @@ impl JwksVerifier {
     /// `serde_json::Map<String, serde_json::Value>` or your own claims struct.
     pub fn verify<T: DeserializeOwned>(&self, token: &str) -> Result<T, VerifyError> {
         let header = jsonwebtoken::decode_header(token).map_err(VerifyError::Invalid)?;
-        let jwk = header
+        let kid = header
             .kid
-            .as_deref()
-            .and_then(|kid| self.jwks.find(kid))
-            .ok_or_else(|| VerifyError::UnknownKey(header.kid.clone()))?;
+            .ok_or_else(|| VerifyError::Invalid(ErrorKind::InvalidToken.into()))?;
+        let jwk = self
+            .jwks
+            .find(&kid)
+            .ok_or_else(|| VerifyError::UnknownKey(Some(kid.clone())))?;
         let alg = algorithm(jwk)
             .ok_or_else(|| VerifyError::Invalid(ErrorKind::InvalidAlgorithm.into()))?;
         let key = DecodingKey::from_jwk(jwk).map_err(VerifyError::Invalid)?;
         let mut validation = Validation::new(alg);
         validation.leeway = self.leeway;
+        validation.validate_nbf = true;
         validation.set_issuer(&[&self.issuer]);
         validation.set_audience(&[&self.audience]);
         validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);

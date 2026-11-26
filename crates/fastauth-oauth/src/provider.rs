@@ -214,10 +214,18 @@ pub async fn exchange_code(
         access_token,
         refresh_token: token.refresh_token,
         id_token: token.id_token,
-        access_token_expires_at: token.expires_in.map(|s| now + Duration::seconds(s)),
-        refresh_token_expires_at: token
-            .refresh_token_expires_in
-            .map(|s| now + Duration::seconds(s)),
+        access_token_expires_at: expires_at(now, token.expires_in),
+        refresh_token_expires_at: expires_at(now, token.refresh_token_expires_in),
         scope: token.scope,
     })
+}
+
+/// The longest token lifetime taken from a provider's `expires_in`; larger values are clamped
+/// to it, so a hostile or broken token endpoint can't overflow the date.
+const MAX_EXPIRES_IN: Duration = Duration::days(3650);
+
+/// `now + seconds`, clamped to [`MAX_EXPIRES_IN`]. A negative lifetime counts as unknown.
+fn expires_at(now: OffsetDateTime, seconds: Option<i64>) -> Option<OffsetDateTime> {
+    let seconds = seconds.filter(|s| *s >= 0)?;
+    Some(now + Duration::seconds(seconds).min(MAX_EXPIRES_IN))
 }

@@ -1223,6 +1223,7 @@ version = "0.3.0"
 dependencies = [
  "bytes",
  "fastauth-core",
+ "fastauth-sqlx",
  "hmac",
  "http",
  "percent-encoding",

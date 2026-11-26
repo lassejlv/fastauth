@@ -162,18 +162,26 @@ pub(crate) async fn signing_key<D: Adapter, A>(
 }
 
 /// Marks every live key as expiring now and mints a new one. Tokens the old keys signed keep
-/// verifying for the grace period.
+/// verifying for the grace period. Keys whose grace period has ended are deleted.
 pub(crate) async fn rotate<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     jwt: &Jwt,
 ) -> Result<JsonWebKey, AuthError> {
     let now = ctx.now();
-    for key in all(ctx).await?.into_iter().filter(|k| is_live(k, now)) {
-        ctx.db()
-            .update::<JsonWebKey>(JsonWebKey::ID.eq(&key.id))
-            .set(JsonWebKey::EXPIRES_AT, Some(now))
-            .exec()
-            .await?;
+    for key in all(ctx).await? {
+        let this = JsonWebKey::ID.eq(&key.id);
+        if is_live(&key, now) {
+            ctx.db()
+                .update::<JsonWebKey>(this)
+                .set(JsonWebKey::EXPIRES_AT, Some(now))
+                .exec()
+                .await?;
+        } else if key
+            .expires_at
+            .is_some_and(|at| at + jwt.grace_period <= now)
+        {
+            ctx.db().delete::<JsonWebKey>(this).await?;
+        }
     }
     create(ctx, jwt).await
 }

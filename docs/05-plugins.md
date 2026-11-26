@@ -517,13 +517,16 @@ is two-factor's gate:
 
 ```rust
     let remember_me = if attempt.remember_me { "1" } else { "0" };
-    write_payload(
-        &ctx,
-        PENDING_COOKIE,
-        "pending",
-        [attempt.user.id.as_str(), remember_me, &attempt.method],
-        plugin.two_factor_cookie_max_age,
-    );
+    let max_age = plugin.two_factor_cookie_max_age;
+    let token = ctx
+        .internal()
+        .create_verification(
+            &format!("{PENDING_PREFIX}{}", attempt.user.id),
+            max_age,
+            Some(format!("0|{remember_me}|{}", attempt.method)),
+        )
+        .await?;
+    ctx.set_signed_cookie(PENDING_COOKIE, &token, Some(max_age));
     let methods: &[&str] = if ctx.internal().can_send_email() {
         &["totp", "otp"]
     } else {
@@ -535,8 +538,10 @@ is two-factor's gate:
     })))
 ```
 
-The endpoint that answers the challenge (`/two-factor/verify-totp`) reads the cookie back
-and finishes with `complete_sign_in`, passing its own plugin id:
+The pending sign-in lives in a `verification` row that counts the guesses made on it, and the
+cookie only names that row. The endpoint that answers the challenge
+(`/two-factor/verify-totp`) reads the row back through the cookie, deletes it, and finishes
+with `complete_sign_in`, passing its own plugin id:
 
 ```rust
             match ctx

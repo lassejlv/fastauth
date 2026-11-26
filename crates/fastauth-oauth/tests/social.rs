@@ -315,7 +315,7 @@ async fn new_user_signs_up_with_pkce_and_encrypted_tokens() {
     assert_eq!(res.status, 302);
     assert_eq!(
         res.location(),
-        "/welcome",
+        "http://localhost:3000/welcome",
         "new users go to newUserCallbackURL"
     );
     assert!(browser.has_session());
@@ -393,7 +393,7 @@ async fn returning_user_signs_in_and_tokens_are_refreshed() {
     let res = second.callback("google", &url).await;
     assert_eq!(
         res.location(),
-        "/dashboard",
+        "http://localhost:3000/dashboard",
         "returning users go to callbackURL"
     );
     assert!(second.has_session());
@@ -432,7 +432,7 @@ async fn links_an_existing_user_by_verified_email() {
         .start("/sign-in/social", sign_in_body("google"))
         .await;
     let res = browser.callback("google", &url).await;
-    assert_eq!(res.location(), "/dashboard");
+    assert_eq!(res.location(), "http://localhost:3000/dashboard");
     assert!(browser.has_session());
 
     let providers: Vec<Json> = browser
@@ -458,7 +458,7 @@ async fn a_verified_sign_in_takes_over_a_pre_registered_unverified_account() {
     let mut ada = Client::new(&auth);
     let url = ada.start("/sign-in/social", sign_in_body("google")).await;
     let res = ada.callback("google", &url).await;
-    assert_eq!(res.location(), "/dashboard");
+    assert_eq!(res.location(), "http://localhost:3000/dashboard");
     assert!(ada.has_session());
 
     let session = ada.get("/get-session").await.json;
@@ -506,7 +506,10 @@ async fn refuses_to_link_by_an_unverified_email() {
         .start("/sign-in/social", sign_in_body("google"))
         .await;
     let res = browser.callback("google", &url).await;
-    assert_eq!(res.location(), "/error?error=account_not_linked");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=account_not_linked"
+    );
     assert!(!browser.has_session());
     assert!(accounts(&auth, "google").await.is_empty());
 }
@@ -523,7 +526,10 @@ async fn linking_off_refuses_even_a_verified_email() {
         .start("/sign-in/social", sign_in_body("google"))
         .await;
     let res = browser.callback("google", &url).await;
-    assert_eq!(res.location(), "/error?error=account_not_linked");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=account_not_linked"
+    );
 }
 
 #[tokio::test]
@@ -537,7 +543,10 @@ async fn a_state_from_another_browser_is_rejected() {
 
     let mut attacker = Client::new(&auth);
     let res = attacker.callback("google", &url).await;
-    assert_eq!(res.location(), "/error?error=state_mismatch");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=state_mismatch"
+    );
     assert!(!attacker.has_session());
 
     let res = victim.callback("google", &url).await;
@@ -633,7 +642,7 @@ async fn a_gate_challenge_redirects_with_the_challenge_and_no_session() {
     let res = browser.callback("github", &url).await;
     assert_eq!(
         res.location(),
-        "/dashboard?twoFactorMethods=totp%2Cotp&twoFactorRedirect=true"
+        "http://localhost:3000/dashboard?twoFactorMethods=totp%2Cotp&twoFactorRedirect=true"
     );
     assert!(!browser.has_session());
     assert!(
@@ -655,7 +664,7 @@ async fn github_takes_the_primary_verified_email_from_user_emails() {
         Some("read:user user:email")
     );
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/welcome");
+    assert_eq!(res.location(), "http://localhost:3000/welcome");
 
     let session = browser.get("/get-session").await.json;
     assert_eq!(session["user"]["email"], "ada@acme.dk");
@@ -683,7 +692,10 @@ async fn provider_errors_redirect_to_the_error_url() {
         .start("/sign-in/social", sign_in_body("github"))
         .await;
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/error?error=invalid_code");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=invalid_code"
+    );
 
     let url = browser
         .start("/sign-in/social", sign_in_body("github"))
@@ -694,12 +706,20 @@ async fn provider_errors_redirect_to_the_error_url() {
             "/callback/github?error=access_denied&state={state}"
         ))
         .await;
-    assert_eq!(res.location(), "/error?error=access_denied");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=access_denied"
+    );
 }
 
 #[tokio::test]
 async fn link_social_adds_a_provider_to_the_signed_in_user() {
-    let (auth, mock) = app(AccountLinking::Off);
+    let mock = MockHttp::default();
+    let auth: AppAuth = build(
+        Social::with_http_client(mock.clone())
+            .provider(Github::new("gh-id", "gh-secret"))
+            .allow_different_emails(true),
+    );
     mock.github_user(42, "someone-else@users.noreply.github.com");
     let mut ada = Client::new(&auth);
     ada.sign_up("ada@acme.dk").await;
@@ -714,7 +734,7 @@ async fn link_social_adds_a_provider_to_the_signed_in_user() {
         Some("read:user user:email repo")
     );
     let res = ada.callback("github", &url).await;
-    assert_eq!(res.location(), "/settings");
+    assert_eq!(res.location(), "http://localhost:3000/settings");
     let providers: Vec<Json> = ada
         .get("/list-accounts")
         .await
@@ -734,7 +754,7 @@ async fn link_social_adds_a_provider_to_the_signed_in_user() {
     let res = bob.callback("github", &url).await;
     assert_eq!(
         res.location(),
-        "/oops?error=account_already_linked_to_different_user"
+        "http://localhost:3000/oops?error=account_already_linked_to_different_user"
     );
 
     let res = Client::new(&auth)
@@ -924,7 +944,7 @@ async fn map_profile_sets_a_required_field_for_new_users_only() {
         .start("/sign-in/social", sign_in_body("github"))
         .await;
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/welcome");
+    assert_eq!(res.location(), "http://localhost:3000/welcome");
     assert!(browser.has_session());
     let session = browser.get("/get-session").await.json;
     assert_eq!(session["user"]["plan"], "github-7");
@@ -933,7 +953,7 @@ async fn map_profile_sets_a_required_field_for_new_users_only() {
     let url = again.start("/sign-in/social", sign_in_body("github")).await;
     assert_eq!(
         again.callback("github", &url).await.location(),
-        "/dashboard"
+        "http://localhost:3000/dashboard"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1, "only new users are mapped");
     assert_eq!(user_plans(&auth).await, ["github-7"]);
@@ -960,7 +980,7 @@ async fn a_provider_mapping_wins_over_the_social_one() {
             .await;
         assert_eq!(
             browser.callback(provider, &url).await.location(),
-            "/welcome"
+            "http://localhost:3000/welcome"
         );
     }
     let mut plans = user_plans(&auth).await;
@@ -1061,7 +1081,10 @@ async fn a_mapping_error_redirects_with_its_code() {
         .start("/sign-in/social", sign_in_body("github"))
         .await;
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/error?error=FORBIDDEN");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=FORBIDDEN"
+    );
     assert!(user_plans(&auth).await.is_empty());
 }
 
@@ -1080,7 +1103,10 @@ async fn disable_sign_up_refuses_new_users_but_signs_in_existing_ones() {
         .start("/sign-in/social", sign_in_body("github"))
         .await;
     let res = browser.callback("github", &url).await;
-    assert_eq!(res.location(), "/error?error=signup_disabled");
+    assert_eq!(
+        res.location(),
+        "http://localhost:3000/error?error=signup_disabled"
+    );
     assert!(!browser.has_session());
     let users = db(&auth).find::<User>(Where::all()).all().await.unwrap();
     assert!(users.is_empty());
@@ -1092,7 +1118,7 @@ async fn disable_sign_up_refuses_new_users_but_signs_in_existing_ones() {
         .await;
     assert_eq!(
         browser.callback("google", &url).await.location(),
-        "/welcome"
+        "http://localhost:3000/welcome"
     );
 
     for _ in 0..2 {
@@ -1102,7 +1128,7 @@ async fn disable_sign_up_refuses_new_users_but_signs_in_existing_ones() {
             .await;
         assert_eq!(
             browser.callback("github", &url).await.location(),
-            "/dashboard",
+            "http://localhost:3000/dashboard",
             "an existing user links by verified email, then signs in with the account"
         );
         assert!(browser.has_session());

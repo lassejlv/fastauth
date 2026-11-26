@@ -102,7 +102,8 @@ pub struct VerifyJwtOutput {
     pub payload: Option<Map<String, Value>>,
 }
 
-/// Server-only, like Better Auth's `verifyJWT`: checks a token against every stored key.
+/// Server-only, like Better Auth's `verifyJWT`: checks a token against the keys `/jwks`
+/// publishes, so a retired key stops verifying once its grace period ends.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct VerifyJwt;
 
@@ -115,9 +116,9 @@ impl<D: Adapter> Endpoint<D> for VerifyJwt {
 
     async fn call(&self, ctx: Ctx<D>, input: VerifyJwtInput) -> Result<VerifyJwtOutput, AuthError> {
         let jwt = ctx.plugin::<Jwt>();
-        let keys = keys::all(&ctx)
-            .await?
-            .iter()
+        let all = keys::all(&ctx).await?;
+        let keys = keys::published(&all, jwt, ctx.now())
+            .into_iter()
             .map(|key| keys::public_jwk(key, jwt))
             .collect::<Result<Vec<_>, _>>()?;
         let jwks: JwkSet = serde_json::from_value(serde_json::json!({ "keys": keys }))

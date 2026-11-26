@@ -252,7 +252,7 @@ async fn email_verification_gate() {
         ))
         .await;
     assert_eq!(verified.status, StatusCode::FOUND);
-    assert_eq!(verified.location(), Some("/welcome"));
+    assert_eq!(verified.location(), Some("http://localhost:3000/welcome"));
     let reused = client
         .get(&format!("/verify-email?token={}", email.token))
         .await;
@@ -335,7 +335,7 @@ async fn password_reset_flow() {
         .await;
     assert_eq!(
         link.location().unwrap(),
-        format!("/reset?token={}", email.token)
+        format!("http://localhost:3000/reset?token={}", email.token)
     );
 
     let reset = client

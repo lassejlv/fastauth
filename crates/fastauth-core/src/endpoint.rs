@@ -20,7 +20,7 @@ use crate::adapter::{Adapter, Queries};
 use crate::config::CoreConfig;
 use crate::cookies::{self, SetCookie};
 use crate::crypto::{Keys, Passwords, SignPurpose};
-use crate::error::AuthError;
+use crate::error::{AuthError, codes};
 use crate::events::Event;
 use crate::internal::Internal;
 use crate::mail::DynMailer;
@@ -487,7 +487,9 @@ impl<D: Adapter, A> Ctx<D, A> {
         self.set_cookie(SetCookie::delete(self.shared.config.cookie_name(name)));
     }
 
-    /// Answer with a 302 to `url` instead of JSON.
+    /// Answer with a 302 to `url` instead of JSON. `url` must pass
+    /// [`CoreConfig::is_safe_redirect`]; `Location` is the URL it resolves to, and an unsafe
+    /// `url` answers 403 `INVALID_CALLBACK_URL` instead.
     pub fn redirect(&self, url: impl Into<String>) {
         self.effects.lock().unwrap().redirect = Some(url.into());
     }
@@ -713,13 +715,23 @@ pub(crate) fn into_response(
     let mut response = match result {
         Ok(Outcome::Response(response)) => response,
         Ok(Outcome::Output(_)) if effects.redirect.is_some() => {
-            let mut response = Response::new(Bytes::new());
-            *response.status_mut() = StatusCode::FOUND;
-            if let Ok(location) = HeaderValue::from_str(effects.redirect.as_deref().unwrap_or("/"))
-            {
-                response.headers_mut().insert(LOCATION, location);
+            let target = effects.redirect.as_deref().unwrap_or("/");
+            match config.resolve_redirect(target) {
+                Some(location) => {
+                    let mut response = Response::new(Bytes::new());
+                    *response.status_mut() = StatusCode::FOUND;
+                    if let Ok(location) = HeaderValue::from_str(location.as_str()) {
+                        response.headers_mut().insert(LOCATION, location);
+                    }
+                    response
+                }
+                None => AuthError::new(
+                    StatusCode::FORBIDDEN,
+                    codes::INVALID_CALLBACK_URL,
+                    "callback URL is not on a trusted origin",
+                )
+                .into_response(),
             }
-            response
         }
         Ok(Outcome::Output(body)) => {
             let mut response = Response::new(body);

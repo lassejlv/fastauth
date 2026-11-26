@@ -297,7 +297,7 @@ async fn sign_in_runs_gates_and_honours_remember_me_and_callback() {
         )
         .await;
     assert_eq!(res.status, StatusCode::FOUND);
-    assert_eq!(res.location(), Some("/dashboard"));
+    assert_eq!(res.location(), Some("http://localhost:3000/dashboard"));
     assert_eq!(
         redirected.get("/get-session").await.json["user"]["username"],
         "ada"
