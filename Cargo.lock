@@ -570,6 +570,8 @@ dependencies = [
  "fastauth-oauth",
  "fastauth-plugin-admin",
  "fastauth-plugin-api-key",
+ "fastauth-plugin-email-otp",
+ "fastauth-plugin-magic-link",
  "fastauth-plugin-organization",
  "fastauth-plugin-two-factor",
  "fastauth-sqlx",
@@ -705,6 +707,39 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+]
+
+[[package]]
+name = "fastauth-plugin-email-otp"
+version = "0.2.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "hmac",
+ "http",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
+name = "fastauth-plugin-magic-link"
+version = "0.2.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "http",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

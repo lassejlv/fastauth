@@ -56,6 +56,11 @@ impl Default for EmailPassword {
 }
 
 impl EmailPassword {
+    /// Whether a password reset signs the user out everywhere, for plugins that reset passwords.
+    pub fn revokes_sessions_on_password_reset(&self) -> bool {
+        self.revoke_sessions_on_password_reset
+    }
+
     pub fn min_password_length(mut self, n: usize) -> Self {
         self.min_password_length = n;
         self
@@ -121,6 +126,11 @@ impl Default for EmailVerification {
 }
 
 impl EmailVerification {
+    /// Whether verifying an email signs the user in, for plugins that verify emails.
+    pub fn auto_signs_in_after_verification(&self) -> bool {
+        self.auto_sign_in_after_verification
+    }
+
     pub fn send_on_sign_up(mut self, on: bool) -> Self {
         self.send_on_sign_up = on;
         self
