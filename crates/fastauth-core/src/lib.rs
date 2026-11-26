@@ -71,7 +71,7 @@ pub mod plugin_prelude {
     pub use crate::crypto::{Hash, random_string, random_token};
     pub use crate::endpoint::{
         After, Authenticated, Before, Ctx, Empty, Endpoint, Fresh, Gate, HookCtx,
-        MaybeAuthenticated, Public, Resolved, SessionResolver, SignInAttempt,
+        MaybeAuthenticated, Public, Resolved, SessionResolver, SessionUse, SignInAttempt,
     };
     pub use crate::error::{AuthError, ErrorCodes, codes};
     pub use crate::events::Event;

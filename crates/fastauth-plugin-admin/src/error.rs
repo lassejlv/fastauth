@@ -57,6 +57,17 @@ pub enum AdminError {
     PasswordCannotBeUpdatedViaUpdateUser,
     #[auth_error(status = 400, message = "User id cannot be updated")]
     UserIdCannotBeUpdated,
+    /// An admin without `user:impersonate-admins` acted on another admin's account (set its
+    /// password, email, role or ban, removed it or revoked its sessions). fastauth only.
+    #[auth_error(status = 403, message = "You cannot change another admin's account")]
+    YouCannotManageAdmins,
+    /// An impersonation session tried to create or change a credential (an API key, a
+    /// passkey, a linked account, two-factor). fastauth only.
+    #[auth_error(
+        status = 403,
+        message = "This action is not allowed while impersonating a user"
+    )]
+    NotAllowedWhileImpersonating,
     /// `/admin/stop-impersonating` from a session that isn't impersonating.
     #[auth_error(status = 400, message = "You are not impersonating anyone")]
     NotImpersonating,

@@ -23,7 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .database(MemoryAdapter::new())
         .email_password(EmailPassword::default())
         .rate_limit(RateLimit::disabled())
-        .plugin(Organization::default())
+        // Better Auth skips the verified-email check for its own random invitation ids, and
+        // organization.ts accepts with an unverified account; fastauth requires it by default.
+        .plugin(Organization::default().require_email_verification_on_invitation(false))
         .build()?;
     let app = Router::new()
         .merge(auth.router())

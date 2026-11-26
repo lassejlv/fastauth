@@ -61,12 +61,19 @@
 //! `permissions`) are server-only: over HTTP they answer `SERVER_ONLY_PROPERTY`, through
 //! `auth.api_keys()` they are accepted. `/api-key/verify` and
 //! `/api-key/delete-all-expired-api-keys` have no HTTP route, as in Better Auth.
+//!
+//! Creating and updating keys needs a signed-in session read from the database: a key's own
+//! session, an impersonation session or a revoked session still in the cookie cache gets
+//! 401 (or the admin plugin's 403), so a key can't mint another key or lift its own limits.
+//! When a user update leaves a user refused by the session gates (an admin ban), their keys
+//! are disabled; they stay disabled after the ban lifts, until the owner re-enables them.
 
 mod endpoints;
 mod error;
 mod model;
 mod verify;
 
+use fastauth_core::events::UserUpdated;
 use fastauth_core::plugin_prelude::*;
 use http::HeaderName;
 
@@ -243,6 +250,14 @@ impl ApiKeys {
     /// `enableSessionForAPIKeys` (default off). Off, keys are only checked through
     /// `auth.api_keys().verify(..)`. On, every such request is a verification and counts
     /// against the key's rate limit and `remaining`.
+    ///
+    /// The key's `permissions` don't limit that session: it can do whatever its owner can
+    /// on every route that takes a session, `/admin/*` included for an admin's key. Check
+    /// permissions with `auth.api_keys().verify(key, Some(..))` on routes that need them, or
+    /// keep this off. The session is ephemeral: it is never fresh (`Fresh` endpoints and
+    /// `FreshSession` answer `403 SESSION_NOT_FRESH`), it can't create or update keys, register
+    /// passkeys, link accounts or change two-factor (401), and the core session gates (an
+    /// admin ban) run on it like on any other session.
     pub fn sessions(mut self, enabled: bool) -> Self {
         self.sessions = enabled;
         self
@@ -282,6 +297,21 @@ impl Plugin for ApiKeys {
         if self.sessions {
             app.session_resolver(verify::KeyResolver(self.clone()));
         }
+
+        app.on(|event: UserUpdated, ctx: Ctx<D>| async move {
+            let refused = match ctx.internal().ephemeral_session(&event.user_id).await {
+                Err(err) => err.status().is_client_error(),
+                Ok(_) => false,
+            };
+            if refused {
+                ctx.db()
+                    .update::<ApiKey>(ApiKey::USER_ID.eq(&event.user_id))
+                    .set(ApiKey::ENABLED, false)
+                    .exec()
+                    .await?;
+            }
+            Ok(())
+        });
     }
 }
 

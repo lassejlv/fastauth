@@ -449,7 +449,12 @@ async fn get_user_and_set_role() {
 
 #[tokio::test]
 async fn update_user_sets_columns_with_the_matching_permissions() {
-    let auth = build(Admin::new());
+    // Bob becomes an admin in the first update; editing him after that needs
+    // `user:impersonate-admins` (security_fast31.rs covers the refusal).
+    let auth = build(Admin::new().role(
+        "admin",
+        Permissions::admin().allow("user", ["impersonate-admins"]),
+    ));
     let (mut admin, mut bob_browser, bob) = admin_and_user(&auth).await;
     let root = Id::from(
         admin.get("/get-session").await.json["user"]["id"]

@@ -10,7 +10,7 @@ use crate::adapter::{Adapter, Filter, Op, SessionWithUser, Update};
 use crate::config::CoreConfig;
 use crate::cookies::{self, SetCookie};
 use crate::crypto::{Hash, Keys, SignPurpose, base64url, base64url_decode};
-use crate::endpoint::{Ctx, Effects, RequestInfo, Resolved, Shared};
+use crate::endpoint::{Ctx, Effects, RequestInfo, Resolved, SessionUse, Shared};
 use crate::error::AuthError;
 use crate::hlist::{Has, PluginSet};
 use crate::model::{Fields, Model};
@@ -359,7 +359,8 @@ pub(crate) async fn by_token<D: Adapter>(
 }
 
 /// Extends the expiry at most once per `update_age`. The conditional update makes
-/// concurrent requests extend it once.
+/// concurrent requests extend it once. Sessions a plugin marked with
+/// `PluginBuilder::fixed_session_expiry` (impersonation sessions) are never extended.
 async fn refresh<D: Adapter>(
     shared: &Shared<D>,
     db: &D,
@@ -369,7 +370,9 @@ async fn refresh<D: Adapter>(
 ) -> Result<(), AuthError> {
     let now = OffsetDateTime::now_utc();
     let config = &shared.config.session;
-    if now - view.session.updated_at < config.update_age {
+    if now - view.session.updated_at < config.update_age
+        || shared.fixed_expiry.iter().any(|fixed| fixed(view))
+    {
         return Ok(());
     }
     let table = shared.schema.expect(Session::TABLE);
@@ -425,12 +428,14 @@ pub(crate) async fn resolve<D: Adapter>(
             return Ok(None);
         };
         if let Some(view) = read_cache(shared, request, &token) {
+            run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
             return Ok(Some(view));
         }
         let Some(mut view) = by_token(shared, db, &token).await? else {
             clear_session_cookies(&shared.config, effects);
             return Ok(None);
         };
+        run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
         refresh(shared, db, request, effects, &mut view).await?;
         write_cache(shared, effects, &view);
         return Ok(Some(view));
@@ -450,22 +455,90 @@ pub(crate) async fn resolve<D: Adapter>(
                 let Some(mut view) = by_token(shared, db, &token).await? else {
                     return Ok(None);
                 };
+                run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
                 refresh(shared, db, request, effects, &mut view).await?;
                 return Ok(Some(view));
             }
             Some(Resolved::User(user_id)) => {
-                let Some(user_row) = Db::new(db, &shared.schema)
-                    .find::<User>(User::ID.eq(&user_id))
-                    .one_row()
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                return ephemeral(shared, user_row).map(Some);
+                return for_user(shared, within, request, effects, &user_id).await;
             }
         }
     }
     Ok(None)
+}
+
+/// The ephemeral session of `Resolved::User`: the user's row, after the session gates.
+pub(crate) async fn for_user<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
+    request: &Arc<RequestInfo>,
+    effects: &Arc<Mutex<Effects>>,
+    user_id: &crate::value::Id,
+) -> Result<Option<SessionView>, AuthError> {
+    let db = within.map_or(&shared.db, |db| &**db);
+    let Some(user_row) = Db::new(db, &shared.schema)
+        .find::<User>(User::ID.eq(user_id))
+        .one_row()
+        .await?
+    else {
+        return Ok(None);
+    };
+    let view = ephemeral(shared, user_row)?;
+    run_gates(shared, within, request, effects, &view, SessionUse::Request).await?;
+    Ok(Some(view))
+}
+
+/// `Ctx::sensitive_session`: the stored session behind `current`, read without the cookie
+/// cache, after the session gates with `SessionUse::Sensitive`.
+pub(crate) async fn sensitive<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
+    request: &Arc<RequestInfo>,
+    effects: &Arc<Mutex<Effects>>,
+    current: Option<&SessionView>,
+) -> Result<SessionView, AuthError> {
+    let Some(token) = current
+        .filter(|s| !s.ephemeral)
+        .and_then(|s| s.token.as_deref())
+    else {
+        return Err(AuthError::unauthorized());
+    };
+    let db = within.map_or(&shared.db, |db| &**db);
+    let Some(view) = by_token(shared, db, token).await? else {
+        clear_session_cookies(&shared.config, effects);
+        return Err(AuthError::unauthorized());
+    };
+    run_gates(
+        shared,
+        within,
+        request,
+        effects,
+        &view,
+        SessionUse::Sensitive,
+    )
+    .await?;
+    Ok(view)
+}
+
+async fn run_gates<D: Adapter>(
+    shared: &Arc<Shared<D>>,
+    within: Option<&Arc<D>>,
+    request: &Arc<RequestInfo>,
+    effects: &Arc<Mutex<Effects>>,
+    view: &SessionView,
+    usage: SessionUse,
+) -> Result<(), AuthError> {
+    for gate in &shared.session_gates {
+        let ctx = Ctx::new(
+            shared.clone(),
+            within.cloned(),
+            request.clone(),
+            None,
+            effects.clone(),
+        );
+        gate(ctx, view.clone(), usage).await?;
+    }
+    Ok(())
 }
 
 fn ephemeral<D>(shared: &Shared<D>, user_row: Row) -> Result<SessionView, AuthError> {
