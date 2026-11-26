@@ -1,20 +1,21 @@
 ---
 name: use-fastauth
-description: Use fastauth, Better Auth for Rust, in an app. Use in any Rust project that depends on `fastauth` or a `fastauth-*` crate, or when asked to add authentication, login, sessions, OAuth, 2FA, passkeys, magic links or JWTs to a Rust or axum app.
+description: Use fastauth, Better Auth for Rust, in an app. Use in any Rust project that depends on `fastauth` or a `fastauth-*` crate, or when asked to add authentication, login, sessions, OAuth, 2FA, passkeys, magic links, JWTs, usernames, guest users or account switching to a Rust or axum app.
 ---
 
 # Using fastauth in an app
 
 fastauth gives a Rust web app email and password sign-in, sessions, social login,
 two-factor, organizations, admin tools, API keys, magic links, email codes, bearer tokens,
-JWTs and passkeys, with Better Auth's routes and JSON. The whole configuration is one value,
+JWTs, passkeys, usernames, anonymous users and multiple sessions per browser, with Better
+Auth's routes and JSON. The whole configuration is one value,
 `Auth<D, U, P>`: the database adapter, the app's own user columns and the plugin list. The
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
 This skill matches fastauth 0.3 on crates.io and the code on `main`, and so does the repo's
-`docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: username,
-anonymous users and other plugins, organization teams, `TestAuth`,
+`docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
+plugins, organization teams, `TestAuth`,
 `#[endpoint]`, secondary storage (Redis), actix-web and MySQL
 (`docs/01-overview.md#planned`).
 
@@ -49,6 +50,9 @@ serde = { version = "1", features = ["derive"] }
 | `bearer` | no | `fastauth::plugins::bearer`: `Bearer` |
 | `jwt` | no | `fastauth::plugins::jwt`: `Jwt` |
 | `passkey` | no | `fastauth::plugins::passkey`: `Passkey` |
+| `username` | no | `fastauth::plugins::username`: `Username` |
+| `anonymous` | no | `fastauth::plugins::anonymous`: `Anonymous` |
+| `multi-session` | no | `fastauth::plugins::multi_session`: `MultiSession` |
 | `cli` | no | `fastauth::cli::run` for a `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
 
 For SQLite only, set `default-features = false, features = ["axum", "sqlite", "macros"]`.
@@ -176,6 +180,9 @@ Read the reference for the task in front of you:
 | Sessions for mobile, CLI or server clients via `Authorization: Bearer` | [references/bearer.md](references/bearer.md) |
 | JWTs and a JWKS for other services, verifying tokens elsewhere | [references/jwt.md](references/jwt.md) |
 | Passkeys (WebAuthn) | [references/passkey.md](references/passkey.md) |
+| Usernames, sign-in by username | [references/username.md](references/username.md) |
+| Guest users who sign up later | [references/anonymous.md](references/anonymous.md) |
+| Several accounts per browser, account switching | [references/multi-session.md](references/multi-session.md) |
 | Calling sign-up, sign-in or any endpoint from Rust; app-level hooks and events | [references/server-api.md](references/server-api.md) |
 | A custom plugin: tables, endpoints, hooks, gates, resolvers, events | [references/custom-plugins.md](references/custom-plugins.md) |
 | Tests with `MemoryAdapter` and `MemoryMailer` | [references/testing.md](references/testing.md) |

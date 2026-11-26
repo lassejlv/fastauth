@@ -336,3 +336,74 @@ async fn hooks_can_target_server_only_endpoints() {
         .status;
     assert_eq!(status, http::StatusCode::NOT_FOUND, "still no HTTP route");
 }
+
+/// (new session's email, the email of the session the request came with).
+type SeenSessions = Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>;
+
+#[tokio::test]
+async fn session_hooks_run_in_the_request_and_see_the_previous_session() {
+    let seen: SeenSessions = Arc::default();
+    let record = seen.clone();
+    let auth: Auth<MemoryAdapter> = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .configure(move |app| {
+            let record = record.clone();
+            app.on_session_created(move |ctx, session| {
+                let record = record.clone();
+                async move {
+                    let previous = match ctx.signed_cookie("session_token") {
+                        Some(token) => ctx
+                            .internal()
+                            .find_session_by_token(&token)
+                            .await?
+                            .map(|s| s.user.email.clone()),
+                        None => None,
+                    };
+                    record
+                        .lock()
+                        .unwrap()
+                        .push((session.user.email.clone(), previous));
+                    ctx.set_signed_cookie("last_sign_in", &session.user.email, None);
+                    if session.user.email.starts_with("refused") {
+                        return Err(AuthError::bad_request("REFUSED", "refused"));
+                    }
+                    Ok(())
+                }
+            });
+        })
+        .build()
+        .expect("valid config");
+    let mut client = Client::new(auth.clone());
+    client.sign_up("a@acme.dk", "correct horse").await;
+    Client::new(auth.clone())
+        .sign_up("b@acme.dk", "correct horse")
+        .await;
+    let res = client
+        .post(
+            "/sign-in/email",
+            json!({ "email": "b@acme.dk", "password": "correct horse" }),
+        )
+        .await;
+    assert!(
+        res.set_cookies()
+            .iter()
+            .any(|c| c.starts_with("fastauth.last_sign_in=")),
+        "a hook can set cookies"
+    );
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            ("a@acme.dk".to_owned(), None),
+            ("b@acme.dk".to_owned(), None),
+            ("b@acme.dk".to_owned(), Some("a@acme.dk".to_owned())),
+        ]
+    );
+    let refused = Client::new(auth.clone())
+        .sign_up("refused@acme.dk", "correct horse")
+        .await;
+    assert_eq!(refused.json["code"], "REFUSED");
+}

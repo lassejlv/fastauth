@@ -403,6 +403,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             gates: registry.gates,
             resolvers: registry.resolvers,
             response_hooks: registry.response_hooks,
+            session_hooks: registry.session_hooks,
             events: registry.events,
             router,
             rate_limiter: RateLimiter::new(rate_limit),

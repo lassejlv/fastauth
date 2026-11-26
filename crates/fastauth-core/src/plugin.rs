@@ -11,14 +11,15 @@ use http::Method;
 use crate::adapter::Adapter;
 use crate::endpoint::{
     After, Before, Ctx, Endpoint, EndpointHooks, Erased, ErasedAfter, ErasedBefore, ErasedEndpoint,
-    ErasedEventHandler, ErasedResolver, ErasedResponseHook, Gate, HookCtx, OwnedGate, Response,
-    SessionResolver, SignInAttempt,
+    ErasedEventHandler, ErasedResolver, ErasedResponseHook, ErasedSessionHook, Gate, HookCtx,
+    OwnedGate, Response, SessionResolver, SignInAttempt,
 };
 use crate::error::{AuthError, ErrorCodes};
 use crate::events::Event;
 use crate::model::Fields;
 use crate::rate_limit::{Limit, Rule};
 use crate::schema::SchemaBuilder;
+use crate::session::SessionView;
 
 /// A fastauth plugin. See `docs/05-plugins.md`.
 pub trait Plugin: Send + Sync + Sized + 'static {
@@ -63,6 +64,7 @@ pub struct Registry<D> {
     pub(crate) gates: Vec<OwnedGate<D>>,
     pub(crate) resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub(crate) response_hooks: Vec<ErasedResponseHook<D>>,
+    pub(crate) session_hooks: Vec<ErasedSessionHook<D>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub(crate) rate_rules: Vec<Rule>,
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
@@ -82,6 +84,7 @@ impl<D: Adapter> Registry<D> {
             gates: Vec::new(),
             resolvers: Vec::new(),
             response_hooks: Vec::new(),
+            session_hooks: Vec::new(),
             events: HashMap::new(),
             rate_rules: Vec::new(),
             error_codes: Vec::new(),
@@ -207,6 +210,29 @@ impl<D: Adapter> PluginBuilder<'_, D> {
         hook: impl Fn(&Ctx<D>, &mut Response) + Send + Sync + 'static,
     ) -> &mut Self {
         self.registry.response_hooks.push(Arc::new(hook));
+        self
+    }
+
+    /// Runs inside the request right after [`Internal::create_session`] stored a session and
+    /// set its cookies, for every way a session is created (sign-in and sign-up of any
+    /// method, a finished challenge, impersonation). In registration order. The context
+    /// still carries the request's headers, so the session cookie the request came with is
+    /// the previous session; hooks may set cookies and query the database. An error fails
+    /// the request, though the session already exists.
+    ///
+    /// Unlike the [`SessionCreated`](crate::events::SessionCreated) event, which runs after
+    /// the endpoint without the request, this is for plugins that react to a sign-in in
+    /// place, like linking an anonymous user or remembering a device session.
+    ///
+    /// [`Internal::create_session`]: crate::internal::Internal::create_session
+    pub fn on_session_created<F, Fut>(&mut self, hook: F) -> &mut Self
+    where
+        F: Fn(HookCtx<D>, SessionView) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), AuthError>> + Send + 'static,
+    {
+        self.registry
+            .session_hooks
+            .push(Arc::new(move |ctx, session| Box::pin(hook(ctx, session))));
         self
     }
 

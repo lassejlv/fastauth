@@ -61,6 +61,16 @@ impl EmailPassword {
         self.revoke_sessions_on_password_reset
     }
 
+    /// Whether sign-in needs a verified email, for plugins that sign in with a password.
+    pub fn requires_email_verification(&self) -> bool {
+        self.require_email_verification
+    }
+
+    /// The longest password accepted, for plugins that check passwords.
+    pub fn max_password_len(&self) -> usize {
+        self.max_password_length
+    }
+
     pub fn min_password_length(mut self, n: usize) -> Self {
         self.min_password_length = n;
         self
@@ -167,6 +177,12 @@ impl Default for SessionConfig {
 }
 
 impl SessionConfig {
+    /// How long a session lasts, and the session cookie's `Max-Age`, for plugins that set
+    /// session cookies of their own.
+    pub fn lifetime(&self) -> Duration {
+        self.expires_in
+    }
+
     pub fn expires_in(mut self, d: Duration) -> Self {
         self.expires_in = d;
         self

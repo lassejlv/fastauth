@@ -3,7 +3,8 @@
 This file covers `Social` and `TwoFactor`. The others have their own references:
 [organization.md](organization.md), [admin.md](admin.md), [api-keys.md](api-keys.md),
 [magic-link.md](magic-link.md), [email-otp.md](email-otp.md), [bearer.md](bearer.md),
-[jwt.md](jwt.md) and [passkey.md](passkey.md).
+[jwt.md](jwt.md), [passkey.md](passkey.md), [username.md](username.md),
+[anonymous.md](anonymous.md) and [multi-session.md](multi-session.md).
 
 ```rust
 use axum::http::HeaderMap;

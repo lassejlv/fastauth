@@ -18,6 +18,9 @@
 //! | `bearer` | [`fastauth::plugins::bearer`](mod@crate::plugins): `Authorization: Bearer` sessions and `set-auth-token` |
 //! | `jwt` | [`fastauth::plugins::jwt`](mod@crate::plugins): `/token`, `/jwks` and a verifier for resource servers |
 //! | `passkey` | [`fastauth::plugins::passkey`](mod@crate::plugins): passkeys (WebAuthn) on webauthn-rs |
+//! | `username` | [`fastauth::plugins::username`](mod@crate::plugins): usernames, sign-in by username |
+//! | `anonymous` | [`fastauth::plugins::anonymous`](mod@crate::plugins): guest users, linked when they sign up |
+//! | `multi-session` | [`fastauth::plugins::multi_session`](mod@crate::plugins): several signed-in accounts per browser |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
@@ -90,6 +93,18 @@ pub mod plugins {
     /// Passkeys (WebAuthn): `.plugin(Passkey::new())`.
     #[cfg(feature = "passkey")]
     pub use fastauth_plugin_passkey as passkey;
+
+    /// Usernames and sign-in by username: `.plugin(Username::new())`.
+    #[cfg(feature = "username")]
+    pub use fastauth_plugin_username as username;
+
+    /// Anonymous users, linked when they sign up: `.plugin(Anonymous::new())`.
+    #[cfg(feature = "anonymous")]
+    pub use fastauth_plugin_anonymous as anonymous;
+
+    /// Several signed-in accounts per browser: `.plugin(MultiSession::new())`.
+    #[cfg(feature = "multi-session")]
+    pub use fastauth_plugin_multi_session as multi_session;
 }
 
 /// Paths the derive macros expand to. Not public API.

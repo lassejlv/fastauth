@@ -54,6 +54,9 @@ that adds tables or columns ([Databases](06-database.md#migrations)).
 | `plugins::bearer::Bearer` | `bearer` | Sessions from `Authorization: Bearer`; the `set-auth-token` header; a session resolver ([Bearer tokens](17-bearer.md)) |
 | `plugins::jwt::Jwt` | `jwt` | `/token`, `/jwks`, the `set-auth-jwt` header, rotating signing keys in a `jwks` table ([JWT](18-jwt.md)) |
 | `plugins::passkey::Passkey` | `passkey` | WebAuthn registration and sign-in, a `passkey` table; sign-in runs the gates ([Passkeys](19-passkey.md)) |
+| `plugins::username::Username` | `username` | `username` and `display_username` on `user`, `/sign-in/username`, `/is-username-available` ([Usernames](20-username.md)) |
+| `plugins::anonymous::Anonymous` | `anonymous` | `/sign-in/anonymous`, `is_anonymous` on `user`, linking to the real account on sign-in ([Anonymous users](21-anonymous.md)) |
+| `plugins::multi_session::MultiSession` | `multi-session` | Several accounts per browser: device-session cookies, `/multi-session/*` ([Multiple sessions](22-multi-session.md)) |
 
 More plugins are [planned](01-overview.md#planned).
 
@@ -532,6 +535,32 @@ gate that denies returns its error; one that challenges returns `SignInResult::C
 `ctx.internal().create_session(..)` is the gate-free primitive underneath; don't use it to
 finish a sign-in. Two gates that both challenge the same user keep challenging each other,
 so a plugin should challenge only for its own reason.
+
+### After a session is created
+
+`app.on_session_created(..)` runs inside the request right after a session is stored and
+its cookies are set, for every way one is created: any sign-in or sign-up method, a
+finished challenge, impersonation. Its context still has the request's headers, so the
+session cookie it reads is the session the browser had **before**; it can query the
+database and set cookies, and an error fails the response (the new session already exists).
+The anonymous plugin links accounts this way, and multi-session remembers each session in a
+cookie:
+
+```rust
+app.on_session_created(|ctx, session: SessionView| async move {
+    let previous = match ctx.signed_cookie("session_token") {
+        Some(token) => ctx.internal().find_session_by_token(&token).await?,
+        None => None,
+    };
+    if let Some(previous) = previous.filter(|p| p.user.id != session.user.id) {
+        ctx.set_signed_cookie("switched_from", previous.user.id.as_str(), None);
+    }
+    Ok(())
+});
+```
+
+Unlike the `SessionCreated` event, which runs after the endpoint without the request, this
+hook runs inside the request, before the response is built.
 
 ### Depending on another plugin
 

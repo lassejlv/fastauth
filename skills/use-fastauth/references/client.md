@@ -5,7 +5,8 @@ format (`{ code, message }`), so a frontend can use `better-auth/client` (and it
 or Svelte bindings) against a fastauth server. That covers core sign-up, sign-in, sessions,
 password reset and email verification, social sign-in (`/sign-in/social`), and the plugin
 clients `twoFactorClient`, `organizationClient`, `adminClient`, `magicLinkClient`,
-`emailOTPClient` and `jwtClient` (from `better-auth/client/plugins`), `apiKeyClient` (from
+`emailOTPClient`, `jwtClient`, `usernameClient`, `anonymousClient` and `multiSessionClient`
+(from `better-auth/client/plugins`), `apiKeyClient` (from
 `@better-auth/api-key/client`) and `passkeyClient` (from `@better-auth/passkey/client`). The
 bearer plugin needs no client plugin, only `fetchOptions.auth`. Add only
 the client plugins whose fastauth plugins the server registers. Better Auth plugins fastauth

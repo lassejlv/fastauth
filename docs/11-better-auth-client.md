@@ -1,7 +1,8 @@
 # Better Auth's client
 
 fastauth's core endpoints and its first-party plugins (two-factor, organization, admin, API
-keys, magic links, email OTP, bearer, JWT and passkeys) use Better Auth's paths, JSON shapes and error codes, so Better Auth's own TypeScript client works against a fastauth server with no
+keys, magic links, email OTP, bearer, JWT, passkeys, usernames, anonymous users and multiple
+sessions) use Better Auth's paths, JSON shapes and error codes, so Better Auth's own TypeScript client works against a fastauth server with no
 TypeScript of your own. This page shows how to point the client at fastauth, which version
 is tested, and what doesn't match yet.
 
@@ -90,7 +91,7 @@ const authClient = createAuthClient({
 
 ## The compatibility tests
 
-Eight scripts in `compat/better-auth/` each build a server, start it with a fresh database,
+Eleven scripts in `compat/better-auth/` each build a server, start it with a fresh database,
 run a TypeScript file with Better Auth's client, and stop the server. They need cargo and
 bun (`run-passkey.sh` also needs Chrome or Chromium), listen on `PORT` (3000 unless set), and
 exit non-zero when any check fails:
@@ -105,6 +106,9 @@ exit non-zero when any check fails:
 | `run-bearer.sh` | the bearer plugin's `compat_server` example, in memory | `bearer.ts` | 25 |
 | `run-jwt.sh` | the JWT plugin's `compat_server` example, in memory | `jwt.ts` | 26 |
 | `run-passkey.sh` | the passkey plugin's `compat_server` example, in memory, driven in headless Chrome | `passkey.ts` | 52 |
+| `run-username.sh` | the username plugin's `username_server` example, in memory | `username.ts` | 47 |
+| `run-anonymous.sh` | the anonymous plugin's `anonymous_server` example, in memory | `anonymous.ts` | 31 |
+| `run-multi-session.sh` | the multi-session plugin's `multi_session_server` example, in memory | `multi-session.ts` | 40 |
 
 ```bash
 compat/better-auth/run.sh
@@ -138,8 +142,10 @@ and list their gaps:
 [Admin](13-admin.md#better-auths-client), [API keys](14-api-keys.md#better-auths-client),
 [Magic links](15-magic-link.md#better-auths-client),
 [Email OTP](16-email-otp.md#better-auths-client),
-[Bearer tokens](17-bearer.md#better-auths-client), [JWT](18-jwt.md#better-auths-client) and
-[Passkeys](19-passkey.md#better-auths-client).
+[Bearer tokens](17-bearer.md#better-auths-client), [JWT](18-jwt.md#better-auths-client),
+[Passkeys](19-passkey.md#better-auths-client), [Usernames](20-username.md#better-auths-client),
+[Anonymous users](21-anonymous.md#better-auths-client) and
+[Multiple sessions](22-multi-session.md#better-auths-client).
 
 There's no CI job; run the scripts before changing an endpoint's path, input or output.
 

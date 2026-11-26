@@ -330,13 +330,43 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             session_id: session.id.clone(),
             user_id: user_id.clone(),
         });
-        Ok(SessionView {
+        let view = SessionView {
             session,
             row,
             user,
             token: Some(token),
             ephemeral: false,
-        })
+        };
+        for hook in &self.ctx.shared.session_hooks {
+            hook(self.ctx.retype(), view.clone()).await?;
+        }
+        Ok(view)
+    }
+
+    /// The unexpired session `token` belongs to, with its user, without refreshing it.
+    /// For plugins that hold session tokens of their own, such as one per signed-in account.
+    pub async fn find_session_by_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<SessionView>, AuthError> {
+        crate::session::by_token(&self.ctx.shared, self.ctx.adapter(), token).await
+    }
+
+    /// Makes `token` the request's session: sets the session cookie (for the configured
+    /// lifetime, or for the browser session when `remember_me` is false) and drops the
+    /// cookie cache, which belonged to the previous session.
+    pub fn set_session_cookies(&self, token: &str, remember_me: bool) {
+        let config = self.ctx.config();
+        set_session_cookies(
+            config,
+            self.ctx.keys(),
+            &self.ctx.effects,
+            token,
+            remember_me,
+        );
+        self.ctx.set_cookie(crate::cookies::SetCookie::delete(
+            config.cookie_name(SESSION_DATA),
+        ));
     }
 
     /// Runs every sign-in gate in registration order, then creates the session. The first

@@ -3,7 +3,7 @@
 Authentication for Rust web apps, modelled on [Better Auth](https://www.better-auth.com):
 one builder call gives you email and password sign-in, social login, sessions, and a
 plugin system for two-factor, organizations, admin tools, API keys, magic links, email codes,
-bearer tokens, JWTs, passkeys and your own plugins.
+bearer tokens, JWTs, passkeys, usernames, anonymous users, multiple sessions and your own plugins.
 It runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
 
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
@@ -22,8 +22,8 @@ cargo install fastauth-cli   # `fastauth secret` for FASTAUTH_SECRET
 
 Default features are `axum`, `postgres` and `macros`. Use `sqlite` instead of (or as well as)
 `postgres`, and add `oauth` for GitHub and Google sign-in, `two-factor` for TOTP, email codes and
-backup codes, `organization`, `admin`, `api-key`, `magic-link`, `email-otp`, `bearer`, `jwt` and
-`passkey` for those plugins, and `cli` for the migration commands. Requires Rust 1.94 or newer.
+backup codes, `organization`, `admin`, `api-key`, `magic-link`, `email-otp`, `bearer`, `jwt`,
+`passkey`, `username`, `anonymous` and `multi-session` for those plugins, and `cli` for the migration commands. Requires Rust 1.94 or newer.
 
 ## Example
 
@@ -111,13 +111,16 @@ apps on SQLite and in memory.
 | [`fastauth-plugin-bearer`](https://crates.io/crates/fastauth-plugin-bearer) | Sessions from `Authorization: Bearer`, and the `set-auth-token` header (0.3) |
 | [`fastauth-plugin-jwt`](https://crates.io/crates/fastauth-plugin-jwt) | JWTs for signed-in users, a JWKS with rotating keys, `JwksVerifier` for other services (0.3) |
 | [`fastauth-plugin-passkey`](https://crates.io/crates/fastauth-plugin-passkey) | Passkeys (WebAuthn) on webauthn-rs: registration, sign-in, management (0.3) |
+| `fastauth-plugin-username` | Usernames next to emails, sign-in by username, availability checks (unreleased) |
+| `fastauth-plugin-anonymous` | Anonymous users, linked to the real account they sign up or in with (unreleased) |
+| `fastauth-plugin-multi-session` | Several signed-in accounts per browser, switching between them (unreleased) |
 | [`fastauth-cli`](https://crates.io/crates/fastauth-cli) | `fastauth secret`; schema and migration commands run from your app via `fastauth::cli::run` |
 
 The HTTP API is compatible with Better Auth's TypeScript client (tested against
 `better-auth` 1.7.28, see [docs/11](docs/11-better-auth-client.md)), so its React, Vue and
 Svelte clients work against a fastauth server.
 
-Not built yet: username, anonymous users and other plugins, teams in organizations,
+Not built yet: other plugins, teams in organizations,
 actix-web, Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
 
 ## Docs
@@ -143,6 +146,9 @@ actix-web, Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's
 | [Bearer tokens](docs/17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
 | [JWT](docs/18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
 | [Passkeys](docs/19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
+| [Usernames](docs/20-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
+| [Anonymous users](docs/21-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
+| [Multiple sessions](docs/22-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
 
 ## Agent skill
 

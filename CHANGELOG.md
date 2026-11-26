@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+### New plugins
+
+- **fastauth-plugin-username** (feature `username`, `fastauth::plugins::username`): `username`
+  and `display_username` columns on `user`, set on `/sign-up/email`, `/update-user` and
+  `auth.api().create_user`, validated (length, validator), refused when taken and stored
+  normalized (lowercase by default). `POST /sign-in/username` (runs the sign-in gates) and
+  `POST /is-username-available`. Options for length, username and display username
+  validators, normalization, validation order and `immutable_username`. `UsernameExt` for
+  server calls. Wire-compatible with `usernameClient` (`compat/better-auth/run-username.sh`).
+  ([docs/20](docs/20-username.md))
+- **fastauth-plugin-anonymous** (feature `anonymous`, `fastauth::plugins::anonymous`):
+  `POST /sign-in/anonymous` creates a user with a placeholder email and `is_anonymous: true`.
+  When that browser later signs in or up with any real method, `on_link_account` gets both
+  sessions and the anonymous user is deleted (unless `disable_delete_anonymous_user`).
+  `POST /delete-anonymous-user`, `email_domain_name`, `generate_name` and
+  `generate_random_email`. `AnonymousExt` for server calls. Wire-compatible with
+  `anonymousClient` (`compat/better-auth/run-anonymous.sh`). ([docs/21](docs/21-anonymous.md))
+- **fastauth-plugin-multi-session** (feature `multi-session`,
+  `fastauth::plugins::multi_session`): several signed-in accounts per browser through Better
+  Auth's signed `session_token_multi-{token}` cookies, `/multi-session/list-device-sessions`,
+  `/multi-session/set-active` and `/multi-session/revoke`, `maximum_sessions` (default 5),
+  and `/sign-out` signing every remembered account out. `MultiSessionExt` for server calls.
+  Wire-compatible with `multiSessionClient` (`compat/better-auth/run-multi-session.sh`).
+  ([docs/22](docs/22-multi-session.md))
+
+The username and anonymous plugins add columns to `user`; run your migrations after
+registering them.
+
+### Core
+
+All additive; no public trait changed.
+
+- `PluginBuilder::on_session_created`: an async hook that runs inside the request right
+  after a session is created, for every sign-in method. It sees the request's previous
+  session cookie, can query the database and set cookies, and its error fails the response
+  ([Plugins](docs/05-plugins.md#after-a-session-is-created)).
+- `Internal::find_session_by_token` (an unexpired session and its user, without refreshing
+  it) and `Internal::set_session_cookies` (make a token the request's session).
+- Read-only getters for plugins: `EmailPassword::requires_email_verification()`,
+  `EmailPassword::max_password_len()` and `SessionConfig::lifetime()`.
+
 ## 0.3.0 (2026-11-26)
 
 ### Upgrading from 0.2
