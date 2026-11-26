@@ -1,6 +1,83 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-26)
+
+### Highlights
+
+- **MySQL.** `fastauth-sqlx` runs on MySQL 8 next to Postgres and SQLite. Use the facade's
+  `mysql-tls` feature against a default MySQL 8.
+- **actix-web.** The new `fastauth-actix` crate (facade feature `actix`) does for actix-web
+  what `fastauth-axum` does for axum, organization and admin extractors included.
+- **MIT only.** From 0.5.0 on, fastauth is licensed under MIT alone. 0.4.0 and earlier stay
+  MIT OR Apache-2.0.
+- **A security fix for passkeys and API keys.** In 0.4 and earlier, whoever registered an
+  unverified email first could keep access through passkeys or API keys after the real owner
+  claimed it. 0.5.0 deletes them when the owner proves the address. Upgrade if you use the
+  passkey or API-key plugin.
+
+### Upgrading from 0.4
+
+Bump `fastauth` (and any `fastauth-*` crate you depend on directly) to `"0.5"`. Most apps
+need no other change; check this list.
+
+**New, and off unless you turn it on**
+
+- The facade's `actix`, `mysql` and `mysql-tls` features, and `fastauth-sqlx`'s `mysql`
+  and `tls-rustls` features. Defaults are unchanged (`axum`, `postgres`, `macros`).
+- `Passkey::sign_up(resolver)`: passkey-first sign-up for signed-out visitors.
+- `EmailOtp::change_email(true)` and `verify_current_email(true)`: changing the email with a
+  code.
+- Core's `actix` feature and `UserClaimed` event, both additive.
+
+**Database**
+
+- No new tables or columns, and the SQL fastauth generates for Postgres and SQLite is
+  unchanged, so a 0.4 database needs no migration. Passkey-first sign-up and the email change
+  keep their pending state in the existing `verification` table.
+- MySQL is new: `auth.migrator().run()` or your `fastauth migrate` binary creates every
+  table in an empty MySQL 8 database. fastauth doesn't copy data between databases.
+
+**Code that may not compile**
+
+- `EmailOtpError` has four new variants, `ChangeEmailDisabled`, `EmailIsTheSame`,
+  `CurrentEmailOtpRequired` and `EmailAlreadyInUse`, and isn't `#[non_exhaustive]`, so an
+  exhaustive `match` on it needs arms for them.
+- The passkey plugin's `RegisterOutput` has a new public field, `challenge` (a sign-in
+  gate's answer for passkey-first sign-up), so code that builds it or destructures it without
+  `..` needs it.
+- No public trait changed.
+
+**License**
+
+- 0.5.0 is MIT only; its crates declare `license = "MIT"` and ship one `LICENSE` file
+  instead of `LICENSE-MIT` and `LICENSE-APACHE`. If a license allow-list (cargo-deny or
+  similar) only admitted fastauth through Apache-2.0, add MIT.
+
+**Behaviour changes**
+
+- When a magic link, an email code or a social account with a verified email claims a user
+  whose email wasn't verified, that user's passkeys and API keys are deleted, as its accounts
+  and sessions already were. Someone who signed up with an unverified email and added a
+  passkey or key loses it once another person proves the address, so have users verify their
+  email before they rely on either.
+- The email OTP plugin always registers `/email-otp/request-email-change` and
+  `/email-otp/change-email` (3 requests a minute per client, like its other routes). With
+  `change_email` off they answer `400 CHANGE_EMAIL_WITH_OTP_IS_DISABLED` instead of 404.
+- The passkey plugin passes `generate-register-options`' `context` to the `sign_up`
+  resolver instead of ignoring it. Without `sign_up`, registering signed out still answers
+  `401`, and signed-in registration answers as in 0.4.
+- The docs moved into folders (`docs/06-database.md` is now `docs/concepts/02-database.md`,
+  and so on), so links into the repository's `docs/` need updating. Docs site URLs are the
+  same, except `/docs/open-questions/`, which redirects to `/docs/decisions/`.
+
+### Security
+
+- **Claiming an unverified user now revokes its API keys and passkeys.** A magic link, an
+  email code or a verified social account that claims a user whose email wasn't verified
+  deleted that user's accounts and sessions, but an API key or passkey the first registrant
+  had made kept working, so whoever registered someone else's address first kept access
+  after the owner proved it. Both are now deleted on claim (core's new `UserClaimed` event).
+
 
 ### actix-web
 
@@ -37,14 +114,6 @@
 - fastauth is now licensed under MIT only. Earlier releases, 0.4.0 included, were dual-licensed
   MIT OR Apache-2.0 and keep that license; every crate's `license` field is now `MIT` and each
   package ships the MIT text as `LICENSE`.
-
-### Security
-
-- **Claiming an unverified user now revokes its API keys and passkeys.** A magic link, an
-  email code or a verified social account that claims a user whose email wasn't verified
-  deleted that user's accounts and sessions, but an API key or passkey the first registrant
-  had made kept working, so whoever registered someone else's address first kept access
-  after the owner proved it. Both are now deleted on claim (core's new `UserClaimed` event).
 
 ### Plugins
 
