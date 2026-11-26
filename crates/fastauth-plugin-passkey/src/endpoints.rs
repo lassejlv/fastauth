@@ -542,7 +542,7 @@ async fn own_passkey<D: Adapter>(
         .one()
         .await?
         .ok_or(PasskeyError::PasskeyNotFound)?;
-    if row.user_id != ctx.session().user.id {
+    if row.user_id != ctx.sensitive_session().await?.user.id {
         return Err(not_yours);
     }
     Ok(row)

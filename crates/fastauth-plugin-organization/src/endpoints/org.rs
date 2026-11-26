@@ -81,7 +81,7 @@ impl<D: Adapter> Endpoint<D> for CreateOrganization {
                 .ok_or_else(user_not_found)?;
             return create(&ctx, &user.id, input).await;
         }
-        let session = ctx.session().ok_or_else(AuthError::unauthorized)?;
+        let session = &ctx.authoritative_session().await?;
         if !plugin(&ctx).allow_user_to_create_organization {
             return Err(OrganizationError::YouAreNotAllowedToCreateANewOrganization.into());
         }
@@ -188,7 +188,7 @@ impl<D: Adapter> Endpoint<D> for UpdateOrganization {
         ctx: Ctx<D, Authenticated>,
         input: UpdateOrganizationInput,
     ) -> Result<OrganizationRow, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::OrganizationNotFound)?;
         let member = find_member(&ctx, &organization_id, &session.user.id)
@@ -263,7 +263,7 @@ impl<D: Adapter> Endpoint<D> for DeleteOrganization {
         ctx: Ctx<D, Authenticated>,
         input: DeleteOrganizationInput,
     ) -> Result<OrganizationRow, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = Id::from(input.organization_id);
         let member = find_member(&ctx, &organization_id, &session.user.id)
             .await?
@@ -471,7 +471,7 @@ impl<D: Adapter> Endpoint<D> for SetActiveOrganization {
         ctx: Ctx<D, Authenticated>,
         input: SetActiveOrganizationInput,
     ) -> Result<Option<OrganizationRow>, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let active = active_organization(session)?;
         let organization_id = match (input.organization_id, input.organization_slug) {
             (Some(None), _) => {

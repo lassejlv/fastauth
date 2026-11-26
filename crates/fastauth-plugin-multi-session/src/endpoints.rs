@@ -54,11 +54,12 @@ fn invalid_token() -> AuthError {
 /// Whether the browser asked not to be remembered, so a switched-to session cookie should
 /// last for the browser session too.
 fn remember_me<D: Adapter, A>(ctx: &Ctx<D, A>) -> bool {
-    ctx.signed_cookie("dont_remember").is_none()
+    !ctx.dont_remember()
 }
 
 /// Runs after every new session: remembers it in a device-session cookie, after deleting the
-/// browser's older sessions of the same user. Past `maximum_sessions` the new session stays
+/// browser's older sessions of the same user. A `rememberMe: false` session gets a cookie
+/// that ends with the browser session, like its session cookie. Past `maximum_sessions` the new session stays
 /// active but isn't remembered. Better Auth's after hook, rule for rule.
 pub(crate) async fn remember<D: Adapter>(
     plugin: &MultiSession,
@@ -91,7 +92,8 @@ pub(crate) async fn remember<D: Adapter>(
     if cookies.len() - replaced + 1 > plugin.maximum_sessions {
         return Ok(());
     }
-    ctx.set_signed_cookie(&suffix, token, Some(ctx.config().session.lifetime()));
+    let max_age = remember_me(&ctx).then(|| ctx.config().session.lifetime());
+    ctx.set_signed_cookie(&suffix, token, max_age);
     Ok(())
 }
 
