@@ -9,10 +9,10 @@
 //! | `postgres` (default), `sqlite` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
-//! | `two-factor` | [`fastauth::plugins::two_factor`](crate::plugins): TOTP, email OTP, backup codes |
-//! | `organization` | [`fastauth::plugins::organization`](crate::plugins): organizations, members, invitations, roles |
-//! | `admin` | [`fastauth::plugins::admin`](crate::plugins): roles, bans, impersonation, user management |
-//! | `api-key` | [`fastauth::plugins::api_key`](crate::plugins): per-user API keys |
+//! | `two-factor` | [`fastauth::plugins::two_factor`](mod@crate::plugins): TOTP, email OTP, backup codes |
+//! | `organization` | [`fastauth::plugins::organization`](mod@crate::plugins): organizations, members, invitations, roles |
+//! | `admin` | [`fastauth::plugins::admin`](mod@crate::plugins): roles, bans, impersonation, user management |
+//! | `api-key` | [`fastauth::plugins::api_key`](mod@crate::plugins): per-user API keys |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.

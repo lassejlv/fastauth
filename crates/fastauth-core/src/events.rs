@@ -49,6 +49,13 @@ pub struct UserUpdated {
     pub user_id: Id,
 }
 
+/// Emitted after a user and their sessions and accounts are deleted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserDeleted {
+    pub user_id: Id,
+    pub email: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionCreated {
     pub session_id: Id,
@@ -80,6 +87,7 @@ pub struct AccountLinked {
 
 impl Event for UserCreated {}
 impl Event for UserUpdated {}
+impl Event for UserDeleted {}
 impl Event for SessionCreated {}
 impl Event for SessionRevoked {}
 impl Event for PasswordChanged {}

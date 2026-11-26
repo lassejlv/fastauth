@@ -69,6 +69,27 @@
   `LiveSchema::id_storage` for adapters that store ids per strategy.
 - Docs: every page rewritten to match `main`, new pages for the three plugins, and the
   agent skill updated; every Rust sample compiles.
+- `PluginBuilder::server_endpoint::<E>()` declares an endpoint with no HTTP route that hooks
+  can still target. Core's `CreateUser`, the organization plugin's `AddMember`,
+  `CheckPermission` and `UserInvitations`, and the API key plugin's `VerifyApiKey` and
+  `DeleteAllExpiredApiKeys` use it, so hooking them is no longer a `BuildError`.
+- Core event `UserDeleted { user_id, email }`, emitted by the admin plugin's `remove-user`.
+
+### Fixed
+
+- Organization: the server API's `create` runs the same `CreateOrganization` endpoint as the
+  route (`CreateOrganization::client()` / `::server()`), so hooks on it run for both;
+  `CreateOrganizationInput` gains a server-only `user_id`, which a request body can't set.
+  `add_member` runs hooks on `AddMember`. `CreateOrganizationFor` and `NewOrganization`
+  are gone.
+- Admin: `RequireRole<_, role::Admin>` lets in every admin by `Admin::is_admin`, the check
+  the endpoints use: any configured admin role, whatever its name, and `admin_user_ids`
+  whatever their role. Before, it only knew the role named `admin`. Custom `Role` markers can
+  override the new `Role::held_by`.
+- Admin: `set-user-password` emits `PasswordChanged`, like core's change and reset.
+- Doc comments: `Api::create_user` names `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`,
+  `ListUserInvitations` points at `invitations_for_email`, and the facade's plugin links
+  are no longer ambiguous to rustdoc.
 
 ## 0.1.0 (2026-11-25)
 

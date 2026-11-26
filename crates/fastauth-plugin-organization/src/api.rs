@@ -7,8 +7,7 @@ use fastauth_core::plugin_prelude::*;
 use fastauth_core::routes::Status;
 
 use crate::endpoints::server::{
-    AddMember, CheckPermission, CreateOrganizationFor, EmailQuery, NewMember, NewOrganization,
-    PermissionCheck, UserInvitations,
+    AddMember, CheckPermission, EmailQuery, NewMember, PermissionCheck, UserInvitations,
 };
 use crate::endpoints::*;
 use crate::{Invitation, Member, MemberWithUser, Organization, OrganizationRow, Roles};
@@ -48,28 +47,29 @@ impl<A: AuthInstance> OrganizationApi<'_, A> {
         &self.plugin.roles
     }
 
-    /// Creates an organization owned by `user_id`. Ignores
-    /// `allow_user_to_create_organization`, but not `organization_limit`. Emits
-    /// `OrganizationCreated` and `MemberAdded`.
+    /// Creates an organization owned by `user_id` (which replaces `input.user_id`). Ignores
+    /// `allow_user_to_create_organization`, but not `organization_limit`. Runs hooks on
+    /// `CreateOrganization` and emits `OrganizationCreated` and `MemberAdded`.
     pub async fn create(
         &self,
         user_id: &Id,
         input: CreateOrganizationInput,
     ) -> Result<OrganizationWithMembers, AuthError> {
-        let input = NewOrganization {
-            user_id: user_id.clone(),
-            organization: input,
+        let input = CreateOrganizationInput {
+            user_id: Some(user_id.clone()),
+            ..input
         };
         Ok(self
             .auth
             .api()
-            .call(&CreateOrganizationFor, input)
+            .call(&CreateOrganization::server(), input)
             .await?
             .data)
     }
 
     /// Adds a user to an organization without an invitation. `role` is one role or a
-    /// comma-separated list; each must exist. Emits `MemberAdded`.
+    /// comma-separated list; each must exist. Runs hooks on `AddMember` and emits
+    /// `MemberAdded`.
     pub async fn add_member(
         &self,
         organization_id: &Id,
@@ -119,7 +119,7 @@ impl<A: AuthInstance> OrganizationApi<'_, A> {
 }
 
 macro_rules! session_calls {
-    ($($route:literal $name:ident($endpoint:ident, $input:ty) -> $output:ty;)*) => {
+    ($($route:literal $name:ident($endpoint:expr, $input:ty) -> $output:ty;)*) => {
         impl<A: AuthInstance> OrganizationApi<'_, A> {
             $(
                 #[doc = concat!("`", $route, "` as the session in `headers`.")]
@@ -136,7 +136,7 @@ macro_rules! session_calls {
 }
 
 session_calls! {
-    "POST /organization/create" create_as(CreateOrganization, CreateOrganizationInput) -> OrganizationWithMembers;
+    "POST /organization/create" create_as(CreateOrganization::client(), CreateOrganizationInput) -> OrganizationWithMembers;
     "POST /organization/update" update(UpdateOrganization, UpdateOrganizationInput) -> OrganizationRow;
     "POST /organization/delete" delete(DeleteOrganization, DeleteOrganizationInput) -> OrganizationRow;
     "GET /organization/list" list(ListOrganizations, Empty) -> Vec<OrganizationRow>;

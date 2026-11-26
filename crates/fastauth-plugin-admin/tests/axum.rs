@@ -122,3 +122,76 @@ async fn require_role_answers_401_403_or_lets_the_role_in() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn role_admin_follows_the_configured_admin_roles_and_user_ids() {
+    let db = MemoryAdapter::new();
+    let build = |admin: Admin| -> AppAuth {
+        FastAuth::builder()
+            .secret(secret())
+            .base_url("http://localhost:3000")
+            .database(db.clone())
+            .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+            .rate_limit(RateLimit::disabled())
+            .plugin(admin.role("superadmin", Permissions::admin()))
+            .build()
+            .unwrap()
+    };
+    let auth = build(Admin::new().admin_roles(["superadmin"]));
+    let mut root = Client::new(auth.clone());
+    let root_id = Id::from(
+        root.sign_up("root@acme.dk", "correct horse").await.json["user"]["id"]
+            .as_str()
+            .unwrap(),
+    );
+    let mut bob = Client::new(auth.clone());
+    let bob_id = Id::from(
+        bob.sign_up("bob@acme.dk", "correct horse").await.json["user"]["id"]
+            .as_str()
+            .unwrap(),
+    );
+
+    auth.admin().set_role(&root_id, "superadmin").await.unwrap();
+    assert_eq!(
+        status(&auth, "/admin", root.cookie_header()).await,
+        StatusCode::OK,
+        "a custom admin role is an admin"
+    );
+    auth.admin().set_role(&root_id, "admin").await.unwrap();
+    assert_eq!(
+        status(&auth, "/admin", root.cookie_header()).await,
+        StatusCode::FORBIDDEN,
+        "\"admin\" isn't an admin role in this configuration"
+    );
+
+    assert_eq!(
+        status(&auth, "/admin", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+    let listed = build(
+        Admin::new()
+            .admin_roles(["superadmin"])
+            .admin_user_ids([bob_id.clone()]),
+    );
+    assert_eq!(fields_role(&listed, &bob_id).await.as_deref(), Some("user"));
+    assert_eq!(
+        status(&listed, "/admin", bob.cookie_header()).await,
+        StatusCode::OK,
+        "admin_user_ids are admins whatever their role"
+    );
+    assert_eq!(
+        status(&listed, "/support", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN,
+        "admin_user_ids hold admin roles, not every role"
+    );
+}
+
+async fn fields_role(auth: &AppAuth, id: &Id) -> Option<String> {
+    auth.admin()
+        .get_user(id)
+        .await
+        .unwrap()
+        .fields::<fastauth_plugin_admin::AdminUser>()
+        .unwrap()
+        .role
+}

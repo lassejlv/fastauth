@@ -328,7 +328,9 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
 
         problems.append(&mut registry.errors);
         for (type_id, name, owner) in &registry.hook_targets {
-            if !registry.routes.iter().any(|r| r.type_id == *type_id) {
+            if !registry.routes.iter().any(|r| r.type_id == *type_id)
+                && !registry.server_endpoints.contains(type_id)
+            {
                 problems.push(format!(
                     "`{owner}` hooks endpoint `{name}`, which no plugin registers"
                 ));
@@ -845,8 +847,8 @@ impl<D: Adapter> Api<'_, D> {
     }
 
     /// Creates a user, plus a credential account when `password` is set. Server-only: there
-    /// is no HTTP route. Validates like sign-up and answers `USER_ALREADY_EXISTS` (422) when
-    /// the email is taken.
+    /// is no HTTP route. Validates like sign-up and answers
+    /// `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` (422) when the email is taken.
     pub async fn create_user(&self, input: routes::CreateUserInput) -> Result<UserView, AuthError> {
         Ok(self.call(&routes::CreateUser, input).await?.data)
     }

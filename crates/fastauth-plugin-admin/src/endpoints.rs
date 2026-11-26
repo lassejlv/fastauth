@@ -1,6 +1,6 @@
 //! The `/admin/*` endpoints, the ban check, and the helpers they share.
 
-use fastauth_core::events::UserUpdated;
+use fastauth_core::events::{PasswordChanged, UserDeleted, UserUpdated};
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::routes::Status;
 use fastauth_core::schema::ColumnDef;
@@ -945,8 +945,8 @@ pub struct SetUserPasswordInput {
     pub user_id: Id,
 }
 
-/// `POST /admin/set-user-password`: needs `user:set-password`. Checks the password policy
-/// and creates the credential account when the user has none.
+/// `POST /admin/set-user-password`: needs `user:set-password`. Checks the password policy,
+/// creates the credential account when the user has none, and emits `PasswordChanged`.
 pub struct SetUserPassword(pub(crate) Caller);
 
 impl<D: Adapter> Endpoint<D> for SetUserPassword {
@@ -973,6 +973,9 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
         internal
             .set_password(&input.user_id, &input.new_password)
             .await?;
+        ctx.emit(PasswordChanged {
+            user_id: input.user_id,
+        });
         Ok(Status { status: true })
     }
 }
@@ -980,7 +983,8 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
 // ---------------------------------------------------------------------------- remove-user
 
 /// `POST /admin/remove-user`: needs `user:delete`. Deletes the user's sessions and
-/// accounts, then the user.
+/// accounts, then the user, and emits `SessionRevoked` (when they had sessions) and
+/// `UserDeleted`.
 pub struct RemoveUser(pub(crate) Caller);
 
 impl<D: Adapter> Endpoint<D> for RemoveUser {
@@ -1004,7 +1008,7 @@ impl<D: Adapter> Endpoint<D> for RemoveUser {
         if session.is_some_and(|s| s.user.id == input.user_id) {
             return Err(AdminError::YouCannotRemoveYourself.into());
         }
-        find_user(&ctx, &input.user_id).await?;
+        let user = find_user(&ctx, &input.user_id).await?;
         ctx.internal()
             .revoke_user_sessions(&input.user_id, None)
             .await?;
@@ -1012,6 +1016,10 @@ impl<D: Adapter> Endpoint<D> for RemoveUser {
             .delete::<Account>(Account::USER_ID.eq(&input.user_id))
             .await?;
         ctx.db().delete::<User>(User::ID.eq(&input.user_id)).await?;
+        ctx.emit(UserDeleted {
+            user_id: input.user_id,
+            email: user.email.clone(),
+        });
         Ok(Success { success: true })
     }
 }

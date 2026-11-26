@@ -230,8 +230,8 @@ pub async fn can_pay(auth: &AppAuth, org_id: &Id, user_id: &Id) -> Result<bool, 
 
 | Method | Returns | Notes |
 |---|---|---|
-| `create(&user_id, CreateOrganizationInput)` | `OrganizationWithMembers` | Ignores `allow_user_to_create_organization`, respects `organization_limit`. Doesn't change any session's active organization. |
-| `add_member(&org_id, &user_id, role)` | `Member` | No invitation. `role` is a name or a comma-separated list; each must exist. |
+| `create(&user_id, CreateOrganizationInput)` | `OrganizationWithMembers` | Ignores `allow_user_to_create_organization`, respects `organization_limit`. Doesn't change any session's active organization. Runs hooks on `CreateOrganization`. |
+| `add_member(&org_id, &user_id, role)` | `Member` | No invitation. `role` is a name or a comma-separated list; each must exist. Runs hooks on `AddMember`. |
 | `has_permission(&org_id, &user_id, &[(resource, &[actions])])` | `bool` | `false` for non-members. |
 | `invitations_for_email(email)` | `Vec<InvitationWithOrganization>` | Pending invitations for any address. |
 | `roles()` | `&Roles` | The configured roles. |
@@ -288,9 +288,12 @@ types ([Hooks](05-plugins.md#hooks)):
 The endpoint types are named after the routes (`CreateOrganization`, `UpdateOrganization`,
 `DeleteOrganization`, `InviteMember`, `AcceptInvitation`, `RemoveMember`,
 `UpdateMemberRole` and so on), with `...Input` types for their bodies. A hook on
-`CreateOrganization` runs for the route and for `create_as`, but not for the server-only
-`create`: that goes through a separate endpoint (`CreateOrganizationFor`) that isn't
-registered, so it can't be hooked. The same holds for `add_member`.
+`CreateOrganization` runs for the route, `create_as` and the server-only `create`. For
+`create`, `input.user_id` names the creator; over HTTP it's `None` and the creator is the
+session's user (a `userId` in a request body is ignored, as in Better Auth). The
+server-only calls have their own types to hook: `AddMember` (input `NewMember`) for
+`add_member`, `CheckPermission` for `has_permission` and `UserInvitations` for
+`invitations_for_email`.
 
 ## Axum extractors
 

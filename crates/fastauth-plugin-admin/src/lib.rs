@@ -118,7 +118,8 @@ impl Admin {
         self
     }
 
-    /// Users who are admins whatever their role: every permission check passes for them.
+    /// Users who are admins whatever their role: every permission check passes for them,
+    /// and they pass `RequireRole<_, role::Admin>`.
     pub fn admin_user_ids(mut self, ids: impl IntoIterator<Item = impl Into<Id>>) -> Self {
         self.admin_user_ids = ids.into_iter().map(Into::into).collect();
         self

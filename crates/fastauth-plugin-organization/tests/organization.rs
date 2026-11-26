@@ -4,12 +4,14 @@ use std::sync::{Arc, Mutex};
 
 use common::{Client, Res, secret};
 use fastauth_core::crypto::Argon2id;
+use fastauth_core::endpoint::Before;
 use fastauth_core::mail::AuthEmail;
 use fastauth_core::prelude::*;
 use fastauth_core::query::Db;
 use fastauth_plugin_organization::{
-    CreateOrganizationInput, Invitation, InvitationAccepted, MemberAdded, MemberRemoved,
-    Organization, OrganizationCreated, OrganizationExt, OrganizationRow, Roles,
+    AddMember, CreateOrganization, CreateOrganizationInput, Invitation, InvitationAccepted,
+    MemberAdded, MemberRemoved, NewMember, Organization, OrganizationCreated, OrganizationExt,
+    OrganizationRow, RoleInput, Roles,
 };
 use http::StatusCode;
 use serde_json::{Value, json};
@@ -1387,4 +1389,156 @@ async fn server_api_calls_endpoints_as_the_session() {
         active_org(&mut owner).await,
         json!(created.data.organization.id)
     );
+}
+
+fn hooked() -> (AppAuth, Arc<Mutex<Vec<String>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (create_seen, add_seen) = (seen.clone(), seen.clone());
+    let auth = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .plugin(Organization::default())
+        .configure(move |app| {
+            app.hook::<CreateOrganization>()
+                .before(move |_ctx, input: CreateOrganizationInput| {
+                    let seen = create_seen.clone();
+                    async move {
+                        let creator = input.user_id.as_ref().map_or("session", Id::as_str);
+                        seen.lock()
+                            .unwrap()
+                            .push(format!("create {} by {creator}", input.slug));
+                        if input.slug.starts_with("blocked") {
+                            return Err(AuthError::bad_request("SLUG_BLOCKED", "blocked"));
+                        }
+                        Ok(Before::Continue(input))
+                    }
+                });
+            app.hook::<AddMember>()
+                .before(move |_ctx, input: NewMember| {
+                    let seen = add_seen.clone();
+                    async move {
+                        seen.lock().unwrap().push(format!("add {}", input.user_id));
+                        if input.role == RoleInput::from("guest") {
+                            return Err(AuthError::bad_request("NO_GUESTS", "no guests"));
+                        }
+                        Ok(Before::Continue(input))
+                    }
+                });
+        })
+        .build()
+        .expect("CreateOrganization and AddMember can be hooked");
+    (auth, seen)
+}
+
+#[tokio::test]
+async fn create_hooks_run_for_http_and_server_calls() {
+    let (auth, seen) = hooked();
+    let mut owner = user(&auth, "owner@acme.dk").await;
+    let owner_id = id_of(&mut owner).await;
+
+    create(&mut owner, "acme").await;
+    let res = owner
+        .post(
+            "/organization/create",
+            json!({ "name": "Blocked", "slug": "blocked-http" }),
+        )
+        .await;
+    assert_err(&res, StatusCode::BAD_REQUEST, "SLUG_BLOCKED");
+
+    let api = auth.organization();
+    let input = |slug: &str| CreateOrganizationInput {
+        name: "Server".into(),
+        slug: slug.into(),
+        ..Default::default()
+    };
+    let created = api.create(&owner_id, input("server")).await.unwrap();
+    assert_eq!(created.members[0].user_id, owner_id);
+    let err = api
+        .create(&owner_id, input("blocked-server"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "SLUG_BLOCKED");
+
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            "create acme by session".to_owned(),
+            "create blocked-http by session".to_owned(),
+            format!("create server by {owner_id}"),
+            format!("create blocked-server by {owner_id}"),
+        ]
+    );
+    for slug in ["blocked-http", "blocked-server"] {
+        let count = db(&auth)
+            .count::<OrganizationRow>(OrganizationRow::SLUG.eq(slug))
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{slug} was refused before it was created");
+    }
+}
+
+#[tokio::test]
+async fn add_member_hooks_run_and_can_reject() {
+    let (auth, seen) = hooked();
+    let mut owner = user(&auth, "owner@acme.dk").await;
+    let org = Id::from(create(&mut owner, "acme").await["id"].as_str().unwrap());
+    let mut guest = user(&auth, "guest@acme.dk").await;
+    let guest_id = id_of(&mut guest).await;
+
+    let api = auth.organization();
+    let err = api.add_member(&org, &guest_id, "guest").await.unwrap_err();
+    assert_eq!(err.code(), "NO_GUESTS");
+    let member = api.add_member(&org, &guest_id, "member").await.unwrap();
+    assert_eq!(member.role, "member");
+    let adds = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|line| **line == format!("add {guest_id}"))
+        .count();
+    assert_eq!(adds, 2);
+}
+
+#[tokio::test]
+async fn only_the_server_names_the_creator() {
+    let Setup { auth, .. } = app();
+    let mut owner = user(&auth, "owner@acme.dk").await;
+    let owner_id = id_of(&mut owner).await;
+    let mut other = user(&auth, "other@acme.dk").await;
+    let other_id = id_of(&mut other).await;
+    let res = other
+        .post(
+            "/organization/create",
+            json!({ "name": "Acme", "slug": "acme", "userId": owner_id.as_str() }),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    assert_eq!(
+        res.json["members"][0]["userId"],
+        other_id.as_str(),
+        "a body's userId is ignored; the session creates it"
+    );
+    let res = Client::new(auth.clone())
+        .post(
+            "/organization/create",
+            json!({ "name": "Acme 2", "slug": "acme-2", "userId": owner_id.as_str() }),
+        )
+        .await;
+    assert_eq!(res.status, StatusCode::UNAUTHORIZED);
+    let err = auth
+        .organization()
+        .create(
+            &Id::from("nobody"),
+            CreateOrganizationInput {
+                name: "Acme".into(),
+                slug: "acme".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "USER_NOT_FOUND");
 }

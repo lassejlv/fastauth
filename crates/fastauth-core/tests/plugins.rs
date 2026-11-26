@@ -7,7 +7,9 @@ use common::{Client, secret};
 use fastauth_core::crypto::Argon2id;
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::prelude::{EmailPassword, FastAuth, MemoryAdapter, RateLimit};
-use fastauth_core::routes::{GetSession, SignUpEmail, SignUpEmailInput};
+use fastauth_core::routes::{
+    CreateUser, CreateUserInput, GetSession, SignUpEmail, SignUpEmailInput,
+};
 use fastauth_core::{Auth, plugins};
 use serde_json::json;
 
@@ -291,4 +293,46 @@ fn schema_shows_owners() {
     assert_eq!(user.column("beta").unwrap().owner, "beta");
     assert_eq!(user.column("email").unwrap().owner, "core");
     assert!(!auth.plugin::<Beta, _>().challenge_members);
+}
+
+#[tokio::test]
+async fn hooks_can_target_server_only_endpoints() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let auth: Auth<MemoryAdapter> = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .configure(move |app| {
+            app.hook::<CreateUser>()
+                .before(move |_ctx, input: CreateUserInput| {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        if input.email.ends_with("@spam.dk") {
+                            return Err(AuthError::bad_request("SPAM", "no spam"));
+                        }
+                        Ok(Before::Continue(input))
+                    }
+                });
+        })
+        .build()
+        .expect("CreateUser is a server endpoint, so it can be hooked");
+    let input = |email: &str| CreateUserInput {
+        email: email.into(),
+        name: "Server".into(),
+        ..CreateUserInput::default()
+    };
+    let err = auth
+        .api()
+        .create_user(input("bot@spam.dk"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "SPAM");
+    auth.api().create_user(input("ok@acme.dk")).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let status = Client::new(auth.clone())
+        .post("/create-user", json!({ "email": "x@acme.dk", "name": "X" }))
+        .await
+        .status;
+    assert_eq!(status, http::StatusCode::NOT_FOUND, "still no HTTP route");
 }

@@ -58,6 +58,7 @@ pub struct Registry<D> {
     pub(crate) routes: Vec<RouteDef<D>>,
     pub(crate) hooks: HashMap<TypeId, EndpointHooks<D>>,
     pub(crate) hook_targets: Vec<(TypeId, &'static str, &'static str)>,
+    pub(crate) server_endpoints: Vec<TypeId>,
     pub(crate) gates: Vec<OwnedGate<D>>,
     pub(crate) resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
     pub(crate) events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
@@ -75,6 +76,7 @@ impl<D: Adapter> Registry<D> {
             routes: Vec::new(),
             hooks: HashMap::new(),
             hook_targets: Vec::new(),
+            server_endpoints: Vec::new(),
             gates: Vec::new(),
             resolvers: Vec::new(),
             events: HashMap::new(),
@@ -149,6 +151,13 @@ impl<D: Adapter> PluginBuilder<'_, D> {
             type_id: TypeId::of::<E>(),
             endpoint: Arc::new(Erased(endpoint)),
         });
+        self
+    }
+
+    /// Declares an endpoint with no HTTP route, one only the server API calls through
+    /// `auth.api().call(..)`, so hooks may target it like a routed one.
+    pub fn server_endpoint<E: Endpoint<D>>(&mut self) -> &mut Self {
+        self.registry.server_endpoints.push(TypeId::of::<E>());
         self
     }
 

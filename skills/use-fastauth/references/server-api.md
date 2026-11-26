@@ -137,8 +137,8 @@ FastAuth::builder()
   `BuildError`.
 - `.on(|e: Event, ctx| ..)` runs after the endpoint that emitted the event succeeds. Its
   error is logged and doesn't fail the request. Core events, all in the prelude:
-  `UserCreated { user_id, email }`, `UserUpdated`, `SessionCreated`, `SessionRevoked`,
-  `PasswordChanged`, `EmailVerified`, `AccountLinked`. Two-factor adds `TwoFactorEnabled`
+  `UserCreated { user_id, email }`, `UserUpdated`, `UserDeleted { user_id, email }`,
+  `SessionCreated`, `SessionRevoked`, `PasswordChanged`, `EmailVerified`, `AccountLinked`. Two-factor adds `TwoFactorEnabled`
   and `TwoFactorDisabled`.
 - To stop a sign-in for every method (bans, forced resets), write a sign-in gate in a
   plugin ([custom-plugins.md](custom-plugins.md#gates)); a hook on `SignInEmail` misses social

@@ -89,8 +89,9 @@ means the session's active organization.
   `invitations_for_email(email)`.
 - One method per route, taking `&HeaderMap` (the caller's cookies) and the route's input:
   `create_as`, `update`, `invite_member`, `list_members`, … Returns `ApiResponse { data, set_cookies }`.
-- Hooks: `.configure(|app| { app.hook::<CreateOrganization>().before(..); })`. They don't
-  run for the server-only `create` or `add_member`.
+- Hooks: `.configure(|app| { app.hook::<CreateOrganization>().before(..); })` runs for the
+  route, `create_as` and the server-only `create` (there `input.user_id` is the creator; over
+  HTTP it's `None`). Hook `add_member` with `AddMember` (input `NewMember`).
 
 ## Extractors (`fastauth::plugins::organization::extract`)
 

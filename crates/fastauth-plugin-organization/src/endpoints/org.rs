@@ -7,7 +7,8 @@ use serde_json::{Map, Value as JsonValue};
 
 use super::{
     active_organization, find_member, find_organization, find_organization_by_slug, nullable,
-    organization, plugin, requested_organization, require_text, set_active, slug_taken, with_users,
+    organization, plugin, requested_organization, require_text, set_active, slug_taken,
+    user_not_found, with_users,
 };
 use crate::access::OWNER;
 use crate::model::{Invitation, Member, MemberWithUser, OrganizationRow, OrganizationSession};
@@ -24,6 +25,10 @@ pub struct CreateOrganizationInput {
     /// Leave the session's active organization as it is instead of switching to the new one.
     #[serde(default)]
     pub keep_current_active_organization: bool,
+    /// The creator, who becomes the owner, when the server API creates it. Never read from a
+    /// request body: over HTTP (and `create_as`) the session's user is the creator.
+    #[serde(skip)]
+    pub user_id: Option<Id>,
 }
 
 /// An organization with its members: what `/organization/create` answers.
@@ -35,23 +40,48 @@ pub struct OrganizationWithMembers {
 }
 
 /// `POST /organization/create`: creates an organization with the caller as its owner and
-/// makes it the session's active organization.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct CreateOrganization;
+/// makes it the session's active organization. The server API's `create` runs the same
+/// endpoint, so hooks on `CreateOrganization` see both.
+#[derive(Clone, Copy, Debug)]
+pub struct CreateOrganization {
+    trusted: bool,
+}
+
+impl CreateOrganization {
+    /// The HTTP route: the session's user creates it, if `allow_user_to_create_organization`.
+    pub fn client() -> Self {
+        Self { trusted: false }
+    }
+
+    /// The server API: `user_id` names the creator, no session is needed, and
+    /// `allow_user_to_create_organization` doesn't apply.
+    pub fn server() -> Self {
+        Self { trusted: true }
+    }
+}
 
 impl<D: Adapter> Endpoint<D> for CreateOrganization {
     const METHOD: Method = Method::POST;
     const PATH: &'static str = "/organization/create";
-    type Access = Authenticated;
+    type Access = MaybeAuthenticated;
     type Input = CreateOrganizationInput;
     type Output = OrganizationWithMembers;
 
     async fn call(
         &self,
-        ctx: Ctx<D, Authenticated>,
-        input: CreateOrganizationInput,
+        ctx: Ctx<D, MaybeAuthenticated>,
+        mut input: CreateOrganizationInput,
     ) -> Result<OrganizationWithMembers, AuthError> {
-        let session = ctx.session();
+        if self.trusted {
+            let user_id = input.user_id.take().ok_or_else(AuthError::unauthorized)?;
+            let user = ctx
+                .internal()
+                .find_user_by_id(&user_id)
+                .await?
+                .ok_or_else(user_not_found)?;
+            return create(&ctx, &user.id, input).await;
+        }
+        let session = ctx.session().ok_or_else(AuthError::unauthorized)?;
         if !plugin(&ctx).allow_user_to_create_organization {
             return Err(OrganizationError::YouAreNotAllowedToCreateANewOrganization.into());
         }
@@ -64,9 +94,8 @@ impl<D: Adapter> Endpoint<D> for CreateOrganization {
     }
 }
 
-/// Creates the organization and its owner membership in one transaction. Shared by the
-/// HTTP endpoint and the server-only `auth.organization().create(..)`.
-pub(crate) async fn create<D: Adapter, A>(
+/// Creates the organization and its owner membership in one transaction.
+async fn create<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     user_id: &Id,
     input: CreateOrganizationInput,

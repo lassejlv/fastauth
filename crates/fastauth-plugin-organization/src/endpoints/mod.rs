@@ -83,6 +83,11 @@ fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+/// The 400 `USER_NOT_FOUND` the server API answers for an unknown `user_id`.
+fn user_not_found() -> AuthError {
+    AuthError::bad_request(codes::USER_NOT_FOUND, "User not found")
+}
+
 fn plugin<D: Adapter, A>(ctx: &Ctx<D, A>) -> &Organization {
     ctx.plugin::<Organization>()
 }
