@@ -95,11 +95,11 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
   <main id="main">
     <section class="hero" aria-labelledby="hero-title">
       <div class="container">
-        <div class="hero-copy">
+        <div class="hero-copy ambient-cover">
           <h1 id="hero-title">{hero.title}</h1>
           <p>{hero.lede}</p>
         </div>
-        <div class="hero-actions">
+        <div class="hero-actions ambient-cover">
           <div class="install">
             <code><Fragment set:html={installHtml} /></code>
             <button type="button" class="copy-action install-copy" data-copy={install}>Copy</button>
@@ -110,13 +110,13 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
           </div>
         </div>
         <div class="hero-band" aria-hidden="true"></div>
-        <div class="hero-code" set:html={heroHtml} />
+        <div class="hero-code ambient-cover" set:html={heroHtml} />
       </div>
     </section>
 
     <section class="band" aria-labelledby="compile-title">
       <div class="container">
-        <h2 id="compile-title">A missing plugin is a compile error.</h2>
+        <h2 id="compile-title" class="ambient-cover">A missing plugin is a compile error.</h2>
         <div class="compile-grid">
           <figure class="code compile-card">
             <figcaption class="code-head"><span>src/main.rs, without TwoFactor</span><Fragment set:html={copyButton} /></figcaption>
@@ -126,7 +126,7 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
               <pre class="code-body"><code set:html={rustcLines(rustcOutput)} /></pre>
             </div>
           </figure>
-          <div class="checks">
+          <div class="checks ambient-cover">
             <p class="list-label" id="checks-label">Checked by rustc</p>
             <ul aria-labelledby="checks-label">
               {checks.map((c) => <li>{c}</li>)}
@@ -138,9 +138,9 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
 
     <section class="band" aria-labelledby="client-title">
       <div class="container">
-        <h2 id="client-title">Better Auth's TypeScript client works unchanged.</h2>
+        <h2 id="client-title" class="ambient-cover">Better Auth's TypeScript client works unchanged.</h2>
         <div class="client-grid">
-          <dl class="specs">
+          <dl class="specs ambient-cover">
             {
               client.map(([label, value]) => (
                 <div>
@@ -157,8 +157,8 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
 
     <section class="band" aria-labelledby="crates-title">
       <div class="container">
-        <h2 id="crates-title">What's in {release}</h2>
-        <dl class="crates">
+        <h2 id="crates-title" class="ambient-cover">What's in {release}</h2>
+        <dl class="crates ambient-cover">
           {
             crates.map(([name, what]) => (
               <div>
@@ -181,7 +181,7 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
   </main>
 
   <footer class="site-footer">
-    <div class="container site-footer-inner">
+    <div class="container site-footer-inner ambient-cover">
       <div class="footer-brand">
         <Logo />
         <p>MIT</p>
