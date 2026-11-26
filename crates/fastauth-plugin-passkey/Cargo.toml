@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 base64 = "0.22.1"
-fastauth-core = { version = "0.3.0", path = "../fastauth-core", features = ["macros"] }
+fastauth-core = { version = "0.4.0", path = "../fastauth-core", features = ["macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_cbor_2 = "0.13.0"
 serde_json = "1.0.154"
@@ -27,8 +27,8 @@ webauthn-rs-proto = "0.6.2"
 aws-lc-rs = "1.19.0"
 axum = "0.8.9"
 bytes = "1.12.2"
-fastauth-axum = { version = "0.3.0", path = "../fastauth-axum" }
-fastauth-plugin-two-factor = { version = "0.3.0", path = "../fastauth-plugin-two-factor" }
-fastauth-sqlx = { version = "0.3.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
+fastauth-axum = { version = "0.4.0", path = "../fastauth-axum" }
+fastauth-plugin-two-factor = { version = "0.4.0", path = "../fastauth-plugin-two-factor" }
+fastauth-sqlx = { version = "0.4.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
 http = "1.5.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }

@@ -24,7 +24,7 @@ pub async fn me(session: Session<AppAuth>) -> String {
 
 Full page: `docs/17-bearer.md`.
 
-- `fastauth = { version = "0.3", features = ["bearer"] }`; path `fastauth::plugins::bearer`.
+- `fastauth = { version = "0.4", features = ["bearer"] }`; path `fastauth::plugins::bearer`.
   No tables.
 - Every response that sets the session cookie also carries the signed token in
   `set-auth-token` (listed in `Access-Control-Expose-Headers`). Clients store it and send
