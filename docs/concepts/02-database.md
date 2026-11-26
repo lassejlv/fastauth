@@ -108,23 +108,31 @@ The types are the schema's column types (`id`, `text`, `bool`, `int`, `timestamp
 ### MySQL
 
 `Sqlx<MySql>` needs MySQL 8.0.17 or later (it's tested on 8.4) with InnoDB. MariaDB isn't
-supported: it lacks the `utf8mb4_0900_bin` collation. Turn on the facade's `mysql` feature:
+supported: it lacks the `utf8mb4_0900_bin` collation. Turn on the facade's `mysql-tls`
+feature:
 
 ```toml
-fastauth = { version = "0.5", default-features = false, features = ["axum", "mysql", "macros"] }
+fastauth = { version = "0.5", default-features = false, features = ["axum", "mysql-tls", "macros"] }
 ```
 
-**Connecting.** MySQL 8's default login, `caching_sha2_password`, needs TLS or RSA to send
-the password the first time, and sqlx 0.9 ships neither by default. Turn on a TLS backend,
-and require it in the URL with `?ssl-mode=required`:
+**Connecting.** MySQL 8's default login, `caching_sha2_password`, sends the password over
+TLS. `mysql-tls` is `mysql` plus TLS through sqlx's rustls backend (`fastauth-sqlx`'s
+`tls-rustls` feature), so it connects to a default MySQL 8 as it comes. sqlx's default
+`ssl-mode` is `preferred`, which uses TLS whenever the server offers it. In production, say
+what you need in the URL:
 
-```toml
-sqlx = { version = "0.9", default-features = false, features = ["tls-rustls"] }
+```bash
+DATABASE_URL='mysql://acme@db.internal/acme?ssl-mode=verify_identity'                     # TLS, check the certificate and host name
+DATABASE_URL='mysql://acme@db.internal/acme?ssl-mode=verify_identity&ssl-ca=/etc/ca.pem'  # the same, with a private CA
+DATABASE_URL='mysql://root@127.0.0.1/acme?ssl-mode=required'                              # TLS without checks (MySQL's self-signed default cert)
 ```
 
-On a trusted network you can turn on sqlx's `mysql-rsa` instead. sqlx made it opt-in because
-the `rsa` crate has an open advisory (RUSTSEC-2023-0071). Without either, connecting fails
-with "RSA auth backend disabled". sqlx sets each connection's `time_zone` to `+00:00`.
+The TLS backend is shared by every sqlx driver, so it also gives Postgres connections TLS.
+Plain `mysql` builds no TLS. That only works when no password has to cross the wire in
+full: a login plugin that doesn't send one, or a password the server has already cached.
+Otherwise connecting fails with "RSA auth backend disabled". fastauth doesn't offer sqlx's
+`mysql-rsa` as an alternative, because the `rsa` crate has an open advisory
+(RUSTSEC-2023-0071). sqlx sets each connection's `time_zone` to `+00:00`.
 
 **How tables are created.** Each table gets `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 COLLATE=utf8mb4_0900_bin`:
@@ -179,7 +187,8 @@ docker run -d --name fastauth-mysql -e MYSQL_ROOT_PASSWORD=fastauth -e MYSQL_DAT
 MYSQL_DATABASE_URL=mysql://root:fastauth@127.0.0.1:3306/fastauth cargo test --workspace --all-features
 ```
 
-The tests turn on sqlx's `mysql-rsa` for the login.
+The tests log in with sqlx's `mysql-rsa`, which only their dev-dependencies turn on, so they
+work without TLS on a local server.
 
 ## Ids
 

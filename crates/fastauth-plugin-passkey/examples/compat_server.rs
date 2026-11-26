@@ -1,6 +1,7 @@
 //! The server `compat/better-auth/run-passkey.sh` points Better Auth's `passkeyClient` at: email
 //! and password plus the passkey plugin, on localhost:$PORT (3000 unless set). In memory, or on
 //! MySQL when `DATABASE_URL` is set (an empty database; tables are created on start).
+//! Passkey-first sign-up is on, taking the new user's email from `addPasskey`'s `context`.
 //!
 //! ```bash
 //! cargo run -p fastauth-plugin-passkey --example compat_server
@@ -13,7 +14,7 @@ use axum::Router;
 use fastauth_axum::AuthRouter;
 use fastauth_core::adapter::Adapter;
 use fastauth_core::prelude::*;
-use fastauth_plugin_passkey::Passkey;
+use fastauth_plugin_passkey::{Passkey, PasskeyUser};
 use fastauth_sqlx::{MySqlPool, Sqlx};
 
 #[tokio::main]
@@ -33,7 +34,16 @@ async fn serve<D: Adapter>(db: D, port: &str) -> Result<(), Box<dyn Error>> {
         .database(db)
         .email_password(EmailPassword::default())
         .rate_limit(RateLimit::disabled())
-        .plugin(Passkey::new())
+        .plugin(Passkey::new().sign_up(|request| async move {
+            let email = request.context.ok_or_else(|| {
+                AuthError::bad_request("EMAIL_REQUIRED", "pass the new user's email as context")
+            })?;
+            Ok(PasskeyUser {
+                name: request.name.unwrap_or_default(),
+                email,
+                email_verified: false,
+            })
+        }))
         .build()?;
     auth.migrator().run().await?;
     let app = Router::new()

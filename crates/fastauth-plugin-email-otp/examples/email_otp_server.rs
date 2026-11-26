@@ -1,5 +1,6 @@
 //! The server `compat/better-auth/run-email-otp.sh` points Better Auth's client at: email and
-//! password plus the email OTP plugin, in memory, on localhost:$PORT (3000 by default).
+//! password plus the email OTP plugin with the change-email flow on, in memory, on
+//! localhost:$PORT (3000 by default).
 //!
 //! Emails go to the JSON-lines file in `FASTAUTH_OUTBOX` (default `outbox.jsonl`), so the
 //! compat script can read the codes a real mailer would deliver. Only for that test.
@@ -54,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .email_verification(EmailVerification::default().send_on_sign_up(false))
         .rate_limit(RateLimit::disabled())
         .mailer(Outbox(outbox.into()))
-        .plugin(EmailOtp::new())
+        .plugin(EmailOtp::new().change_email(true))
         .build()?;
     let app = Router::new()
         .merge(auth.router())

@@ -18,6 +18,8 @@ default = ["postgres", "sqlite"]
 postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
 mysql = ["sqlx/mysql"]
+## TLS for database connections through rustls (sqlx's `tls-rustls`), with webpki roots.
+tls-rustls = ["sqlx/tls-rustls"]
 
 [dependencies]
 fastauth-core = { version = "0.4.0", path = "../fastauth-core" }

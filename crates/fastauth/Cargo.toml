@@ -34,6 +34,7 @@ macros = ["fastauth-core/macros"]
 postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
 mysql = ["dep:fastauth-sqlx", "fastauth-sqlx/mysql"]
+mysql-tls = ["mysql", "fastauth-sqlx/tls-rustls"]
 oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
 two-factor = ["dep:fastauth-plugin-two-factor"]
 organization = ["dep:fastauth-plugin-organization"]
@@ -76,6 +77,7 @@ time = { version = "0.3.45", features = ["formatting", "macros"], optional = tru
 actix-web = { version = "4.20.0", default-features = false, features = ["macros"] }
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }

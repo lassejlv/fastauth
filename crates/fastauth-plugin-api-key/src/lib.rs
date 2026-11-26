@@ -67,13 +67,16 @@
 //! 401 (or the admin plugin's 403), so a key can't mint another key or lift its own limits.
 //! When a user update leaves a user refused by the session gates (an admin ban), their keys
 //! are disabled; they stay disabled after the ban lifts, until the owner re-enables them.
+//! When proof of an email claims an unverified user
+//! ([`UserClaimed`](fastauth_core::events::UserClaimed)), their keys are deleted: they were
+//! created before anyone proved the address, so they don't belong to its owner.
 
 mod endpoints;
 mod error;
 mod model;
 mod verify;
 
-use fastauth_core::events::UserUpdated;
+use fastauth_core::events::{UserClaimed, UserUpdated};
 use fastauth_core::plugin_prelude::*;
 use http::HeaderName;
 
@@ -310,6 +313,12 @@ impl Plugin for ApiKeys {
                     .exec()
                     .await?;
             }
+            Ok(())
+        });
+        app.on(|claimed: UserClaimed, ctx: Ctx<D>| async move {
+            ctx.db()
+                .delete::<ApiKey>(ApiKey::USER_ID.eq(&claimed.user_id))
+                .await?;
             Ok(())
         });
     }

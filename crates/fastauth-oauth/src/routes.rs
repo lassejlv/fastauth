@@ -6,7 +6,7 @@ use fastauth_core::adapter::{Adapter, Order, Transaction};
 use fastauth_core::crypto::{Hash, base64url, ct_eq, random_token};
 use fastauth_core::endpoint::{Authenticated, Ctx, Empty, Endpoint, Public};
 use fastauth_core::error::codes;
-use fastauth_core::events::{AccountLinked, EmailVerified, SessionRevoked};
+use fastauth_core::events::{AccountLinked, EmailVerified, SessionRevoked, UserClaimed};
 use fastauth_core::internal::{NewAccount, NewUser, SignInResult};
 use fastauth_core::model::Model;
 use fastauth_core::models::{Account, Session, User};
@@ -614,6 +614,9 @@ async fn claim_unverified_user<D: Adapter>(
         });
     }
     ctx.emit(EmailVerified {
+        user_id: user_id.clone(),
+    });
+    ctx.emit(UserClaimed {
         user_id: user_id.clone(),
     });
     ctx.emit(AccountLinked {

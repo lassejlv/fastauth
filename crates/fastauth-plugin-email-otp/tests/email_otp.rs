@@ -4,13 +4,14 @@ mod common;
 
 use common::{Client, plugin_emails, secret};
 use fastauth_core::crypto::{Argon2id, Hash};
-use fastauth_core::endpoint::Gate;
+use fastauth_core::endpoint::{Gate, Resolved, SessionResolver};
 use fastauth_core::mail::MemoryMailer;
 use fastauth_core::models::Verification;
 use fastauth_core::prelude::*;
 use fastauth_core::query::Where;
 use fastauth_plugin_email_otp::{
-    EmailOtp, EmailOtpExt, OtpType, SendOtpInput, SignInEmailOtpInput, SignInEmailOtpOutput,
+    ChangeEmailOtpInput, EmailOtp, EmailOtpExt, OtpType, RequestEmailChangeOtpInput, SendOtpInput,
+    SignInEmailOtpInput, SignInEmailOtpOutput,
 };
 use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
@@ -572,4 +573,262 @@ async fn the_server_api_signs_in_without_http() {
     };
     assert_eq!(user["name"], "Ada");
     assert!(!signed_in.set_cookies.is_empty());
+}
+
+// ---------------------------------------------------------------------------- change email
+
+async fn request_change(client: &mut App, new_email: &str, otp: Option<&str>) -> common::Res {
+    client
+        .post(
+            "/email-otp/request-email-change",
+            json!({ "newEmail": new_email, "otp": otp }),
+        )
+        .await
+}
+
+async fn change(client: &mut App, new_email: &str, otp: &str) -> common::Res {
+    client
+        .post(
+            "/email-otp/change-email",
+            json!({ "newEmail": new_email, "otp": otp }),
+        )
+        .await
+}
+
+#[tokio::test]
+async fn change_email_is_off_by_default() {
+    let (mut ada, mailer) = setup(EmailOtp::new());
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    let res = request_change(&mut ada, "ada@new.dk", None).await;
+    assert_error(
+        &res,
+        StatusCode::BAD_REQUEST,
+        "CHANGE_EMAIL_WITH_OTP_IS_DISABLED",
+    );
+    let res = change(&mut ada, "ada@new.dk", "123456").await;
+    assert_error(
+        &res,
+        StatusCode::BAD_REQUEST,
+        "CHANGE_EMAIL_WITH_OTP_IS_DISABLED",
+    );
+    assert!(plugin_emails(&mailer).is_empty());
+}
+
+#[tokio::test]
+async fn a_change_email_code_moves_the_user_to_the_new_address() {
+    let (mut ada, mailer) = setup(EmailOtp::new().change_email(true));
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    let res = request_change(&mut ada, "Ada@New.dk", None).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    assert_eq!(res.json, json!({ "success": true }));
+    let code = last_code(&mailer, "ada@new.dk", "email-otp-change-email");
+
+    let res = change(&mut ada, "ada@new.dk", &wrong(&code)).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = change(&mut ada, "ada@new.dk", &code).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    assert_eq!(res.json, json!({ "success": true }));
+    let session = ada.get("/get-session").await.json;
+    assert_eq!(session["user"]["email"], "ada@new.dk");
+    assert_eq!(session["user"]["emailVerified"], true);
+    let res = change(&mut ada, "ada@new.dk", &code).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "EMAIL_IS_THE_SAME");
+
+    let mut phone = Client::new(ada.auth.clone());
+    let old = phone
+        .post(
+            "/sign-in/email",
+            json!({ "email": "ada@acme.dk", "password": "correct horse battery" }),
+        )
+        .await;
+    assert_eq!(old.status, StatusCode::UNAUTHORIZED, "{}", old.json);
+    let new = phone
+        .post(
+            "/sign-in/email",
+            json!({ "email": "ada@new.dk", "password": "correct horse battery" }),
+        )
+        .await;
+    assert_eq!(new.status, StatusCode::OK, "{}", new.json);
+}
+
+#[tokio::test]
+async fn change_email_needs_a_session_and_a_new_valid_address() {
+    let (mut ada, mailer) = setup(EmailOtp::new().change_email(true));
+    let res = request_change(&mut ada, "ada@new.dk", None).await;
+    assert_eq!(res.status, StatusCode::UNAUTHORIZED, "{}", res.json);
+    let res = change(&mut ada, "ada@new.dk", "123456").await;
+    assert_eq!(res.status, StatusCode::UNAUTHORIZED, "{}", res.json);
+
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    let res = request_change(&mut ada, "ADA@acme.dk", None).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "EMAIL_IS_THE_SAME");
+    let res = request_change(&mut ada, "ada", None).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    assert!(plugin_emails(&mailer).is_empty());
+}
+
+#[tokio::test]
+async fn a_taken_address_gets_no_code() {
+    let (mut ada, mailer) = setup(EmailOtp::new().change_email(true));
+    let mut bob = Client::new(ada.auth.clone());
+    bob.sign_up("bob@acme.dk", "correct horse battery").await;
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+
+    let res = request_change(&mut ada, "bob@acme.dk", None).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    assert_eq!(res.json, json!({ "success": true }), "doesn't reveal bob");
+    assert!(plugin_emails(&mailer).is_empty());
+    let res = change(&mut ada, "bob@acme.dk", "000000").await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+
+    request_change(&mut ada, "carol@acme.dk", None).await;
+    let code = last_code(&mailer, "carol@acme.dk", "email-otp-change-email");
+    let mut carol = Client::new(ada.auth.clone());
+    carol
+        .sign_up("carol@acme.dk", "correct horse battery")
+        .await;
+    let res = change(&mut ada, "carol@acme.dk", &code).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "EMAIL_ALREADY_IN_USE");
+    assert_eq!(
+        ada.get("/get-session").await.json["user"]["email"],
+        "ada@acme.dk"
+    );
+}
+
+#[tokio::test]
+async fn a_change_email_code_works_for_its_user_and_address_only() {
+    let (mut ada, mailer) = setup(EmailOtp::new().change_email(true));
+    let mut bob = Client::new(ada.auth.clone());
+    bob.sign_up("bob@acme.dk", "correct horse battery").await;
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    request_change(&mut ada, "ada@new.dk", None).await;
+    let code = last_code(&mailer, "ada@new.dk", "email-otp-change-email");
+
+    let res = change(&mut bob, "ada@new.dk", &code).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = change(&mut ada, "ada@other.dk", &code).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = sign_in(&mut bob, "ada@new.dk", &code).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = change(&mut ada, "ada@new.dk", &code).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+}
+
+#[tokio::test]
+async fn verify_current_email_asks_for_a_code_to_the_old_address() {
+    let (mut ada, mailer) = setup(
+        EmailOtp::new()
+            .change_email(true)
+            .verify_current_email(true),
+    );
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    let res = request_change(&mut ada, "ada@new.dk", None).await;
+    assert_error(
+        &res,
+        StatusCode::BAD_REQUEST,
+        "OTP_IS_REQUIRED_TO_VERIFY_CURRENT_EMAIL",
+    );
+    send(&mut ada, "ada@acme.dk", "email-verification").await;
+    let current = last_code(&mailer, "ada@acme.dk", "email-otp-email-verification");
+    let res = request_change(&mut ada, "ada@new.dk", Some(&wrong(&current))).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = request_change(&mut ada, "ada@new.dk", Some(&current)).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+    let code = last_code(&mailer, "ada@new.dk", "email-otp-change-email");
+    let res = request_change(&mut ada, "ada@new.dk", Some(&current)).await;
+    assert_error(&res, StatusCode::BAD_REQUEST, "INVALID_OTP");
+    let res = change(&mut ada, "ada@new.dk", &code).await;
+    assert_eq!(res.status, StatusCode::OK, "{}", res.json);
+}
+
+#[tokio::test]
+async fn the_server_api_changes_the_email() {
+    let (mut ada, mailer) = setup(EmailOtp::new().change_email(true));
+    ada.sign_up("ada@acme.dk", "correct horse battery").await;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        http::header::COOKIE,
+        ada.cookie_header().unwrap().parse().unwrap(),
+    );
+    let otp = ada.auth.email_otp();
+    otp.request_email_change(
+        &headers,
+        RequestEmailChangeOtpInput {
+            new_email: "ada@new.dk".into(),
+            otp: None,
+        },
+    )
+    .await
+    .unwrap();
+    let code = last_code(&mailer, "ada@new.dk", "email-otp-change-email");
+    otp.change_email(
+        &headers,
+        ChangeEmailOtpInput {
+            new_email: "ada@new.dk".into(),
+            otp: code,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ada.get("/get-session").await.json["user"]["email"],
+        "ada@new.dk"
+    );
+}
+
+/// Turns an `x-user` header into an ephemeral session for that user id, like an API key.
+struct HeaderUser;
+
+impl SessionResolver<MemoryAdapter> for HeaderUser {
+    async fn resolve(
+        &self,
+        _ctx: &fastauth_core::endpoint::Ctx<MemoryAdapter>,
+        headers: &HeaderMap,
+    ) -> Result<Option<Resolved>, AuthError> {
+        Ok(headers
+            .get("x-user")
+            .and_then(|v| v.to_str().ok())
+            .map(|id| Resolved::User(id.to_owned().into())))
+    }
+}
+
+#[tokio::test]
+async fn ephemeral_sessions_cant_change_the_email() {
+    let mailer = MemoryMailer::new();
+    let auth: Auth<MemoryAdapter, (), Plugins> = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .mailer(mailer.clone())
+        .plugin(EmailOtp::new().change_email(true))
+        .configure(|app| {
+            app.session_resolver(HeaderUser);
+        })
+        .build()
+        .unwrap();
+    let mut ada = Client::new(auth.clone());
+    let user_id = ada
+        .sign_up("ada@acme.dk", "correct horse battery")
+        .await
+        .json["user"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut headers = HeaderMap::new();
+    headers.insert("x-user", user_id.parse().unwrap());
+    let err = auth
+        .email_otp()
+        .request_email_change(
+            &headers,
+            RequestEmailChangeOtpInput {
+                new_email: "mallory@evil.dk".into(),
+                otp: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), StatusCode::UNAUTHORIZED, "{err:?}");
+    assert!(plugin_emails(&mailer).is_empty());
 }

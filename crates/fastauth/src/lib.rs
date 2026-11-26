@@ -8,6 +8,7 @@
 //! | `axum` (default) | [`fastauth::axum`](crate::axum): `auth.router()`, the `Session` extractors, the session layer |
 //! | `actix` | [`fastauth::actix`](crate::actix): `auth.scope()`, the `Session` extractors, the session middleware for actix-web |
 //! | `postgres` (default), `sqlite`, `mysql` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
+//! | `mysql-tls` | `mysql`, plus TLS for database connections (sqlx's rustls backend), which MySQL 8's default login needs |
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
 //! | `two-factor` | [`fastauth::plugins::two_factor`](mod@crate::plugins): TOTP, email OTP, backup codes |

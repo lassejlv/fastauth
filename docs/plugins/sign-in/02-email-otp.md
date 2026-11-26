@@ -1,7 +1,7 @@
 # Email OTP
 
-The `EmailOtp` plugin sends one-time codes by email to sign in, verify an email address or
-reset a password. It matches Better Auth's `emailOTP` plugin, including its routes, JSON and
+The `EmailOtp` plugin sends one-time codes by email to sign in, verify an email address,
+reset a password or change a user's email. It matches Better Auth's `emailOTP` plugin, including its routes, JSON and
 error codes, so `emailOTPClient` works unchanged. A sign-in code for an unknown email
 creates the user, unless you turn sign-up off.
 
@@ -53,6 +53,7 @@ Your mailer gets `AuthEmail::Plugin` with the code in `code` and a `kind` per pu
 | `sign-in` | `email-otp-sign-in` |
 | `email-verification` | `email-otp-email-verification` |
 | `forget-password` | `email-otp-forget-password` |
+| `change-email` | `email-otp-change-email` |
 
 `subject` and `text` are plain-text defaults you can replace with a template:
 
@@ -62,7 +63,7 @@ match email {
         let code = e.code.expect("email OTP emails carry the code");
         self.send_template(e.kind, &e.to, &code).await
     }
-    other => { /* .. */ }
+    other => self.send_plain(other).await,
 }
 ```
 
@@ -74,6 +75,8 @@ match email {
 | `.expires_in(Duration)` | 5 minutes | How long a code works (Better Auth's `expiresIn: 300`) |
 | `.allowed_attempts(u32)` | 3 | Wrong guesses a code survives; the next guess answers `403 TOO_MANY_ATTEMPTS` and burns it |
 | `.disable_sign_up(bool)` | `false` | Sign-in codes go only to existing users, and `/sign-in/email-otp` never creates one |
+| `.change_email(bool)` | `false` | Turns on [changing the email](#changing-the-email) with a code (Better Auth's `changeEmail.enabled`) |
+| `.verify_current_email(bool)` | `false` | A change also needs a code sent to the current address (`changeEmail.verifyCurrentEmail`) |
 | `.rate_limit(Limit)` | 3 per minute | Requests per client to each route, as in Better Auth. App rules win |
 
 Core settings apply too: `EmailVerification::auto_sign_in_after_verification` makes
@@ -92,6 +95,8 @@ Under your `base_path` (`/api/auth` by default):
 | `POST` | `/email-otp/request-password-reset` | `authClient.emailOtp.requestPasswordReset` | `email`. Sends a `forget-password` code |
 | `POST` | `/forget-password/email-otp` | `authClient.forgetPassword.emailOtp` | The older name of the route above |
 | `POST` | `/email-otp/reset-password` | `authClient.emailOtp.resetPassword` | `email`, `otp`, `password`. Answers `{ "success": true }` |
+| `POST` | `/email-otp/request-email-change` | `authClient.emailOtp.requestEmailChange` | Session. `newEmail`, `otp` with `verify_current_email`. Answers `{ "success": true }` |
+| `POST` | `/email-otp/change-email` | `authClient.emailOtp.changeEmail` | Session. `newEmail`, `otp`. Answers `{ "success": true }` |
 
 **Sending.** `type` is `sign-in`, `email-verification` or `forget-password`; `change-email`
 answers `400 INVALID_OTP_TYPE`, as Better Auth does on this route. A new code replaces the
@@ -107,9 +112,9 @@ a user with `emailVerified: true`. Extra body keys are user fields, checked like
 
 **Claiming unverified users.** A code proves who owns the email. When a sign-in or
 password-reset code lands on a user whose email isn't verified, every account (password
-and OAuth links) and session that user had is deleted first and the email is marked
-verified, so whoever registered the address first keeps no access. Better Auth does the
-same for sign-in. Password reset then creates a fresh password.
+and OAuth links), session and [passkey](03-passkey.md#claimed-users) that user had is
+deleted first and the email is marked verified, so whoever registered the address first
+keeps no access. Better Auth does the same for sign-in, except for passkeys. Password reset then creates a fresh password.
 
 **Verifying an email.** `/email-otp/verify-email` sets `emailVerified` and emits
 `EmailVerified`. `token` is `null` unless `auto_sign_in_after_verification` is on.
@@ -119,11 +124,45 @@ for the new password; it keeps the code. `reset-password` uses it up, sets the p
 revokes every session of the user unless `revoke_sessions_on_password_reset(false)` is set,
 and emits `PasswordChanged`.
 
+### Changing the email
+
+With `.change_email(true)`, a signed-in user moves their account to a new address by proving
+they own it:
+
+```ts
+await authClient.emailOtp.requestEmailChange({ newEmail: "ada@new.dk" });
+// the code arrives at ada@new.dk
+await authClient.emailOtp.changeEmail({ newEmail: "ada@new.dk", otp: "123456" });
+```
+
+1. `/email-otp/request-email-change` emails a `change-email` code to `newEmail`. The code is
+   stored under `change-email-otp-{userId}:{newEmail}`, so it only works for that user and
+   that address. When another user has the address, nothing is sent and the answer is the
+   same `{ "success": true }`, so the route doesn't reveal who has an account.
+2. `/email-otp/change-email` checks the code like any other (attempts, expiry), then sets
+   the user's email to `newEmail` with `emailVerified: true`, emits `UserUpdated` and
+   `EmailVerified`, and drops the cookie cache so the next `get-session` shows the new
+   address. If another user took the address in between, it answers
+   `400 EMAIL_ALREADY_IN_USE`; that is only said to someone who holds a right code.
+
+Both routes need a session that may change credentials: they read it again from the database
+(`Ctx::sensitive_session`), so a revoked session gets `401`, an API key's `401`, and an
+impersonation session `403 NOT_ALLOWED_WHILE_IMPERSONATING` with the admin plugin. A new email
+that equals the current one answers `400 EMAIL_IS_THE_SAME`.
+
+With `.verify_current_email(true)` the user must also prove the current address: send an
+`email-verification` code to it with `send-verification-otp` and pass that code as `otp` to
+`request-email-change`, which uses it up. Without one it answers
+`400 OTP_IS_REQUIRED_TO_VERIFY_CURRENT_EMAIL`.
+
+Other sessions stay signed in, the password stays, and linked social accounts stay linked,
+as in Better Auth.
+
 ## Server API
 
 `auth.email_otp()` (trait `EmailOtpExt`) calls the endpoints without HTTP:
 `send_verification_otp`, `check_verification_otp`, `verify_email`, `sign_in`,
-`request_password_reset` and `reset_password`.
+`request_password_reset`, `reset_password`, `request_email_change` and `change_email`.
 
 ```rust
 use fastauth::plugins::email_otp::{EmailOtpExt, OtpType, SendOtpInput};
@@ -135,7 +174,7 @@ auth.email_otp()
 
 Every endpoint type (`SendVerificationOtp`, `SignInEmailOtp`, `VerifyEmailOtp`,
 `CheckVerificationOtp`, `RequestPasswordResetOtp`, `ForgetPasswordOtp`,
-`ResetPasswordOtp`) is hookable ([Hooks](../../reference/01-plugin-authoring.md#hooks)).
+`ResetPasswordOtp`, `RequestEmailChangeOtp`, `ChangeEmailOtp`) is hookable ([Hooks](../../reference/01-plugin-authoring.md#hooks)).
 
 ## How codes are stored
 
@@ -163,6 +202,10 @@ Every endpoint type (`SendVerificationOtp`, `SignInEmailOtp`, `VerifyEmailOtp`,
 | `OTP_EXPIRED` | 400 | The code is past `expires_in` |
 | `TOO_MANY_ATTEMPTS` | 403 | The code already took `allowed_attempts` wrong guesses |
 | `INVALID_OTP_TYPE` | 400 | `send-verification-otp` with `type: "change-email"` |
+| `CHANGE_EMAIL_WITH_OTP_IS_DISABLED` | 400 | A change-email route without `.change_email(true)` |
+| `EMAIL_IS_THE_SAME` | 400 | `newEmail` is the user's current email |
+| `OTP_IS_REQUIRED_TO_VERIFY_CURRENT_EMAIL` | 400 | `request-email-change` without `otp` when `verify_current_email` is on |
+| `EMAIL_ALREADY_IN_USE` | 400 | `change-email` with a right code for an address another user took meanwhile |
 
 Core's codes appear too: `400 INVALID_EMAIL`, `400 USER_NOT_FOUND` (a right code for an
 email whose user was deleted), `400 INVALID_FIELD`, `400 PASSWORD_TOO_SHORT` and
@@ -188,12 +231,12 @@ writes emails to an outbox file, and runs `email-otp.ts` against it with Better 
 1.7.28. It checks sign-up by code (a verified user, `getSession`), a used code, three wrong
 codes then `403 TOO_MANY_ATTEMPTS`, `verifyEmail` after a password sign-up,
 `requestPasswordReset`, `checkVerificationOtp` and `resetPassword` followed by a password
-sign-in, the deprecated `forgetPassword.emailOtp`, and invalid input.
+sign-in, the deprecated `forgetPassword.emailOtp`, invalid input, and changing the email
+(`requestEmailChange` and `changeEmail`, a wrong code, a taken address, the same address,
+signed out). Its server turns `change_email` on.
 
 ## Not built
 
-- The change-email flow (`changeEmail`, `/email-otp/request-email-change`,
-  `/email-otp/change-email`).
 - `sendVerificationOnSignUp` and `overrideDefaultEmailVerification`; core's link-based
   verification email still goes out on sign-up unless you turn it off with
   `EmailVerification::send_on_sign_up(false)`.

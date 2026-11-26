@@ -14,6 +14,16 @@ pub enum EmailOtpError {
     TooManyAttempts,
     /// `INVALID_OTP_TYPE` (400): `change-email` isn't supported by this route.
     InvalidOtpType,
+    /// `CHANGE_EMAIL_WITH_OTP_IS_DISABLED` (400): the change-email flow is off.
+    ChangeEmailDisabled,
+    /// `EMAIL_IS_THE_SAME` (400): the new email is the user's current one.
+    EmailIsTheSame,
+    /// `OTP_IS_REQUIRED_TO_VERIFY_CURRENT_EMAIL` (400): `verify_current_email` is on and the
+    /// request has no code for the current address.
+    CurrentEmailOtpRequired,
+    /// `EMAIL_ALREADY_IN_USE` (400): another user has the new email. Only answered after a
+    /// right code, so it reveals nothing to someone who doesn't own the address.
+    EmailAlreadyInUse,
 }
 
 impl EmailOtpError {
@@ -30,6 +40,26 @@ impl EmailOtpError {
                 StatusCode::BAD_REQUEST,
                 "INVALID_OTP_TYPE",
                 "Invalid OTP type",
+            ),
+            Self::ChangeEmailDisabled => (
+                StatusCode::BAD_REQUEST,
+                "CHANGE_EMAIL_WITH_OTP_IS_DISABLED",
+                "Change email with OTP is disabled",
+            ),
+            Self::EmailIsTheSame => (
+                StatusCode::BAD_REQUEST,
+                "EMAIL_IS_THE_SAME",
+                "Email is the same",
+            ),
+            Self::CurrentEmailOtpRequired => (
+                StatusCode::BAD_REQUEST,
+                "OTP_IS_REQUIRED_TO_VERIFY_CURRENT_EMAIL",
+                "OTP is required to verify current email",
+            ),
+            Self::EmailAlreadyInUse => (
+                StatusCode::BAD_REQUEST,
+                "EMAIL_ALREADY_IN_USE",
+                "Email already in use",
             ),
         }
     }
@@ -53,5 +83,9 @@ impl ErrorCodes for EmailOtpError {
         Self::InvalidOtp.code(),
         Self::TooManyAttempts.code(),
         Self::InvalidOtpType.code(),
+        Self::ChangeEmailDisabled.code(),
+        Self::EmailIsTheSame.code(),
+        Self::CurrentEmailOtpRequired.code(),
+        Self::EmailAlreadyInUse.code(),
     ];
 }

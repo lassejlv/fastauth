@@ -79,6 +79,15 @@ pub struct EmailVerified {
     pub user_id: Id,
 }
 
+/// Emitted when proof of an email (a magic link, an email code, a verified social profile)
+/// claimed a user whose email wasn't verified: the accounts and sessions it collected before
+/// the proof are gone. Plugins that keep sign-in credentials of their own, such as passkeys,
+/// delete them on this event, so whoever registered the address first keeps no way in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserClaimed {
+    pub user_id: Id,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountLinked {
     pub user_id: Id,
@@ -92,4 +101,5 @@ impl Event for SessionCreated {}
 impl Event for SessionRevoked {}
 impl Event for PasswordChanged {}
 impl Event for EmailVerified {}
+impl Event for UserClaimed {}
 impl Event for AccountLinked {}

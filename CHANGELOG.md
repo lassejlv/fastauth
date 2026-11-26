@@ -24,8 +24,10 @@
   Every core and plugin table migrates and passes the adapter conformance suite. Tables are
   InnoDB, utf8mb4 with the case-sensitive `utf8mb4_0900_bin` collation; UUID ids are
   `binary(16)`, other ids and key text `varchar(768)`, timestamps `datetime(6)` in UTC. See
-  [Databases](docs/concepts/02-database.md#mysql) for the column types and how to connect
-  (MySQL 8's default login needs TLS or sqlx's `mysql-rsa`).
+  [Databases](docs/concepts/02-database.md#mysql) for the column types and how to connect.
+- The facade's `mysql-tls` feature is `mysql` plus TLS through sqlx's rustls backend
+  (`fastauth-sqlx`'s new `tls-rustls` feature). MySQL 8's default login needs TLS, so this
+  is the feature to use against a default MySQL 8.
 - The sqlx and plugin SQL tests also run on MySQL when `MYSQL_DATABASE_URL` is set, and the
   Better Auth compat servers for `run.sh`, `run-organization.sh` and `run-passkey.sh` run on
   MySQL when `DATABASE_URL` is set.
@@ -35,6 +37,34 @@
 - fastauth is now licensed under MIT only. Earlier releases, 0.4.0 included, were dual-licensed
   MIT OR Apache-2.0 and keep that license; every crate's `license` field is now `MIT` and each
   package ships the MIT text as `LICENSE`.
+
+### Security
+
+- **Claiming an unverified user now revokes its API keys and passkeys.** A magic link, an
+  email code or a verified social account that claims a user whose email wasn't verified
+  deleted that user's accounts and sessions, but an API key or passkey the first registrant
+  had made kept working, so whoever registered someone else's address first kept access
+  after the owner proved it. Both are now deleted on claim (core's new `UserClaimed` event).
+
+### Plugins
+
+- **Passkey-first sign-up.** `Passkey::sign_up(resolver)`, off by default, lets a signed-out
+  visitor register a passkey and become a user with it: Better Auth's
+  `registration: { requireSession: false, resolveUser }` with `addPasskey({ context })`. The
+  user is created only after the attestation verifies, never gets a passkey added when the
+  email is taken (`422`), and `createSession` signs in through the sign-in gates. Signed-in
+  registration still needs a fresh session that may mint credentials.
+- **Email OTP: change the email with a code.** `EmailOtp::change_email(true)` adds Better
+  Auth's `/email-otp/request-email-change` and `/email-otp/change-email`
+  (`emailOtp.requestEmailChange` and `emailOtp.changeEmail`): a code sent to the new address
+  makes it the user's, verified. `verify_current_email(true)` also asks for a code sent to the
+  current address. Both routes need a session that may change credentials.
+
+### Core
+
+- New event `UserClaimed { user_id }`, emitted when proof of an email claims an unverified
+  user (`Internal::claim_unverified_user` and social sign-in), so plugins can drop
+  credentials of their own.
 
 ### Docs and tooling
 
