@@ -932,14 +932,17 @@ dependencies = [
  "fastauth-core",
  "fastauth-oauth",
  "fastauth-plugin-admin",
+ "fastauth-plugin-anonymous",
  "fastauth-plugin-api-key",
  "fastauth-plugin-bearer",
  "fastauth-plugin-email-otp",
  "fastauth-plugin-jwt",
  "fastauth-plugin-magic-link",
+ "fastauth-plugin-multi-session",
  "fastauth-plugin-organization",
  "fastauth-plugin-passkey",
  "fastauth-plugin-two-factor",
+ "fastauth-plugin-username",
  "fastauth-sqlx",
  "serde",
  "tempfile",
@@ -1058,6 +1061,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastauth-plugin-anonymous"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "http",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "fastauth-plugin-api-key"
 version = "0.3.0"
 dependencies = [
@@ -1145,6 +1164,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastauth-plugin-multi-session"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "http",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "fastauth-plugin-organization"
 version = "0.3.0"
 dependencies = [
@@ -1195,6 +1229,21 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "tokio",
+]
+
+[[package]]
+name = "fastauth-plugin-username"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "fastauth-axum",
+ "fastauth-core",
+ "fastauth-sqlx",
+ "http",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

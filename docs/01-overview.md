@@ -47,6 +47,9 @@ fastauth-plugin-email-otp      one-time codes by email: sign-in, email verificat
 fastauth-plugin-bearer         sessions from Authorization: Bearer, the set-auth-token header
 fastauth-plugin-jwt            JWTs and a JWKS with rotating keys, JwksVerifier for other services
 fastauth-plugin-passkey        passkeys (WebAuthn) on webauthn-rs
+fastauth-plugin-username       usernames, sign-in by username
+fastauth-plugin-anonymous      anonymous users, linked when they sign up or in
+fastauth-plugin-multi-session  several signed-in accounts per browser
 fastauth-cli                   `fastauth secret`; schema and migrations run from your app's binary (`cli` feature)
 ```
 
@@ -80,6 +83,9 @@ fastauth = { version = "0.3", default-features = false, features = [
 | `bearer` | `fastauth-plugin-bearer`, as `fastauth::plugins::bearer` |
 | `jwt` | `fastauth-plugin-jwt`, as `fastauth::plugins::jwt` |
 | `passkey` | `fastauth-plugin-passkey`, as `fastauth::plugins::passkey` |
+| `username` | `fastauth-plugin-username`, as `fastauth::plugins::username` |
+| `anonymous` | `fastauth-plugin-anonymous`, as `fastauth::plugins::anonymous` |
+| `multi-session` | `fastauth-plugin-multi-session`, as `fastauth::plugins::multi_session` |
 | `cli` | `fastauth::cli::run` for your app's `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
 
 argon2id is always on; it isn't a feature.
@@ -106,6 +112,9 @@ argon2id is always on; it isn't a feature.
 | [Bearer tokens](17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
 | [JWT](18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
 | [Passkeys](19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
+| [Usernames](20-username.md) | Usernames on sign-up and update-user, sign-in by username, validation and normalization |
+| [Anonymous users](21-anonymous.md) | Guest sign-in, linking to the real account, deleting anonymous users |
+| [Multiple sessions](22-multi-session.md) | Several accounts per browser, device-session cookies, switching and revoking |
 
 ## The decisions that shape everything else
 
@@ -137,7 +146,7 @@ calls it; the server API (`auth.api().sign_in_email(..)`) calls it directly with
 
 None of this exists yet. Don't write code against it; it may change shape before it lands.
 
-- **Plugins:** username, anonymous users, an OIDC provider, CAPTCHA. Each shipped plugin's
+- **Plugins:** an OIDC provider, CAPTCHA. Each shipped plugin's
   page lists what it doesn't build yet.
 - **Organization:** teams, dynamic access control, invitation and membership limits beyond
   `organization_limit`.

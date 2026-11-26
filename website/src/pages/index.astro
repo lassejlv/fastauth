@@ -86,11 +86,14 @@ const crates = [
   ["fastauth-plugin-bearer", "Sessions from Authorization: Bearer, and the set-auth-token header"],
   ["fastauth-plugin-jwt", "JWTs for signed-in users, a JWKS with rotating keys, JwksVerifier for other services"],
   ["fastauth-plugin-passkey", "Passkeys (WebAuthn) on webauthn-rs: registration, sign-in, management"],
+  ["fastauth-plugin-username", "Usernames next to emails, sign-in by username, availability checks"],
+  ["fastauth-plugin-anonymous", "Anonymous users, linked to the real account they sign up or in with"],
+  ["fastauth-plugin-multi-session", "Several signed-in accounts per browser, switching between them"],
   ["fastauth-cli", "fastauth secret; schema and migration commands run from your app via fastauth::cli::run"],
 ];
 
 const later = [
-  ["Not built yet", "Username and anonymous plugins, organization teams, actix-web, Redis and MySQL"],
+  ["Not built yet", "Organization teams, an OIDC provider, actix-web, Redis and MySQL"],
 ];
 
 const nav = [
