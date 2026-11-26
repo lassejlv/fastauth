@@ -65,17 +65,44 @@ fn with_query(url: &str, key: &str, value: &str) -> String {
 /// email route normalizes this way, so plugins that take an email should too.
 pub fn normalize_email(email: &str) -> Result<String, AuthError> {
     let email = email.trim().to_lowercase();
-    let valid = email.len() <= 254
-        && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.')
-        });
-    if !valid {
+    if email.len() > 254 || !is_email(&email) {
         return Err(AuthError::bad_request(
             codes::INVALID_EMAIL,
             "invalid email",
         ));
     }
     Ok(email)
+}
+
+/// One plain address, with the rules of Better Auth's `z.email()`: a local part of letters,
+/// digits and `_'+-.` (no leading dot, no `..`, not ending in `.` or `'`), then a domain of
+/// labels of letters, digits and `-` that don't start with `-`, ending in a TLD of two or
+/// more letters. So no lists, spaces, control characters, quotes or second `@`. Expects
+/// lowercase.
+fn is_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_'+-.".contains(&b))
+        && !local.starts_with('.')
+        && !local.contains("..")
+        && !local.ends_with(['.', '\'']);
+    let labels: Vec<&str> = domain.split('.').collect();
+    let domain_ok = labels.len() >= 2
+        && labels[..labels.len() - 1].iter().all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && labels
+            .last()
+            .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_lowercase()));
+    local_ok && domain_ok
 }
 
 /// Turns extra JSON body keys into user columns, as sign-up does. Only app and plugin `input`

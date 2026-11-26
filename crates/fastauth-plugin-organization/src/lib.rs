@@ -77,6 +77,7 @@ pub struct Organization {
     pub(crate) invitation_ttl: Duration,
     pub(crate) invitation_url: Option<String>,
     pub(crate) require_email_verification_on_invitation: bool,
+    pub(crate) invitation_limit: u64,
 }
 
 impl Default for Organization {
@@ -88,6 +89,7 @@ impl Default for Organization {
             invitation_ttl: Duration::hours(48),
             invitation_url: None,
             require_email_verification_on_invitation: true,
+            invitation_limit: 100,
         }
     }
 }
@@ -110,6 +112,15 @@ impl Organization {
     /// (default: no limit).
     pub fn organization_limit(mut self, limit: u64) -> Self {
         self.organization_limit = Some(limit);
+        self
+    }
+
+    /// How many pending invitations one organization may have at once (default 100, as in
+    /// Better Auth). Each invitation emails an address the inviter picks, with the
+    /// inviter's and the organization's names in it, so this bounds how much mail one
+    /// account can send through the app.
+    pub fn invitation_limit(mut self, limit: u64) -> Self {
+        self.invitation_limit = limit;
         self
     }
 

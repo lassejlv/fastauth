@@ -25,6 +25,24 @@ pub struct Secret(Zeroizing<Vec<u8>>);
 impl Secret {
     pub const MIN_LEN: usize = 32;
 
+    /// The least estimated entropy `.build()` accepts for a production `base_url`, as in
+    /// Better Auth. See [`Secret::entropy_bits`].
+    pub const MIN_ENTROPY_BITS: f64 = 120.0;
+
+    /// A rough entropy estimate: length times log2 of the number of distinct bytes. A
+    /// generated secret scores about 370 bits; one repeated byte scores 0.
+    pub fn entropy_bits(&self) -> f64 {
+        let mut seen = [false; 256];
+        for byte in self.0.iter() {
+            seen[usize::from(*byte)] = true;
+        }
+        let distinct = seen.iter().filter(|s| **s).count();
+        if distinct < 2 {
+            return 0.0;
+        }
+        self.0.len() as f64 * (distinct as f64).log2()
+    }
+
     /// Raw bytes. Prefer `from_env` or `from_base64` so the secret never sits in source.
     pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Secret(Zeroizing::new(bytes.into()))
@@ -131,8 +149,11 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
 
-/// Keys derived from the configured secrets. The first secret signs and encrypts; every
-/// secret verifies and decrypts, so secrets rotate without signing anyone out.
+/// Keys derived from the configured secrets. The first secret signs, verifies and encrypts.
+/// Every secret decrypts, so encrypted columns stay readable after a rotation, and every
+/// secret verifies a signed session token ([`Keys::verify_token`]), which is only a
+/// pointer to a session row, so rotating signs nobody out. A retired secret can't sign
+/// anything self-contained (the cookie cache, plugin cookies) that is accepted.
 pub struct Keys {
     cookie: Vec<Zeroizing<[u8; 32]>>,
     cache: Vec<Zeroizing<[u8; 32]>>,
@@ -193,12 +214,23 @@ impl Keys {
         format!("{value}.{}", B64.encode(tag))
     }
 
-    /// The value, when the signature matches any configured secret.
+    /// The value, when the current (first) secret signed it. For values that carry their
+    /// own meaning, like the cookie cache or a plugin's signed cookie.
     pub fn verify<'a>(&self, purpose: SignPurpose, signed: &'a str) -> Option<&'a str> {
+        Self::verify_with(&self.sign_keys(purpose)[..1], signed)
+    }
+
+    /// A session token signed with [`SignPurpose::Cookie`] by any configured secret. Only
+    /// for raw session tokens: a token means nothing until its session row is found, so a
+    /// retired secret can't forge one, and tokens signed before a rotation keep working.
+    pub fn verify_token<'a>(&self, signed: &'a str) -> Option<&'a str> {
+        Self::verify_with(&self.cookie, signed)
+    }
+
+    fn verify_with<'a>(keys: &[Zeroizing<[u8; 32]>], signed: &'a str) -> Option<&'a str> {
         let (value, sig) = signed.rsplit_once('.')?;
         let sig = B64.decode(sig).ok()?;
-        self.sign_keys(purpose)
-            .iter()
+        keys.iter()
             .any(|key| Self::mac(key, value).verify_slice(&sig).is_ok())
             .then_some(value)
     }
@@ -408,14 +440,19 @@ mod tests {
     }
 
     #[test]
-    fn rotation_verifies_old_signatures() {
+    fn rotation_keeps_old_tokens_and_ciphertexts_but_not_old_signatures() {
         let old = keys();
         let signed = old.sign(SignPurpose::Cookie, "v");
+        let cached = old.sign(SignPurpose::CookieCache, "v");
         let rotated = Keys::new(vec![
             Secret::from_bytes(vec![9u8; 32]),
             Secret::from_bytes(vec![7u8; 32]),
         ]);
-        assert_eq!(rotated.verify(SignPurpose::Cookie, &signed), Some("v"));
+        assert_eq!(rotated.verify_token(&signed), Some("v"));
+        assert_eq!(rotated.verify(SignPurpose::Cookie, &signed), None);
+        assert_eq!(rotated.verify(SignPurpose::CookieCache, &cached), None);
+        let fresh = rotated.sign(SignPurpose::CookieCache, "v");
+        assert_eq!(rotated.verify(SignPurpose::CookieCache, &fresh), Some("v"));
         assert_eq!(
             rotated.decrypt(&old.encrypt(b"hi")).as_deref(),
             Some(&b"hi"[..])
@@ -438,6 +475,16 @@ mod tests {
         assert!(hasher.verify("correct horse", &hash).unwrap());
         assert!(!hasher.verify("wrong", &hash).unwrap());
         assert!(Argon2id::owasp().needs_rehash(&hash));
+    }
+
+    #[test]
+    fn entropy_estimate_separates_generated_from_guessable_secrets() {
+        assert!(Secret::from_base64(&Secret::generate()).entropy_bits() > 300.0);
+        assert_eq!(Secret::from_bytes(vec![0u8; 32]).entropy_bits(), 0.0);
+        assert!(
+            Secret::from_base64("password password password pass!").entropy_bits()
+                < Secret::MIN_ENTROPY_BITS
+        );
     }
 
     #[test]

@@ -59,8 +59,8 @@ impl Serialize for UserView {
     }
 }
 
-/// A session as endpoints and plugins see it.
-#[derive(Clone, Debug)]
+/// A session as endpoints and plugins see it. Debug output never shows the raw token.
+#[derive(Clone)]
 pub struct SessionView {
     pub session: Session,
     pub row: Row,
@@ -69,6 +69,18 @@ pub struct SessionView {
     pub token: Option<String>,
     /// Created for this request only by a resolver (e.g. an API key); not in the database.
     pub ephemeral: bool,
+}
+
+impl std::fmt::Debug for SessionView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionView")
+            .field("session", &self.session)
+            .field("row", &self.row)
+            .field("user", &self.user)
+            .field("token", &self.token.as_ref().map(|_| "[redacted]"))
+            .field("ephemeral", &self.ephemeral)
+            .finish()
+    }
 }
 
 impl SessionView {
@@ -419,11 +431,7 @@ pub(crate) async fn resolve<D: Adapter>(
     let db = within.map_or(&shared.db, |db| &**db);
     let cookie_name = shared.config.cookie_name(SESSION_TOKEN);
     if let Some(raw) = cookies::read(&request.headers, &cookie_name) {
-        let Some(token) = shared
-            .keys
-            .verify(SignPurpose::Cookie, raw)
-            .map(str::to_owned)
-        else {
+        let Some(token) = shared.keys.verify_token(raw).map(str::to_owned) else {
             clear_session_cookies(&shared.config, effects);
             return Ok(None);
         };

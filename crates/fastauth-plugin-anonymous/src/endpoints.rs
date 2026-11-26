@@ -15,7 +15,7 @@ const PLACEHOLDER_DOMAIN: &str = "anonymous.placeholder.invalid";
 /// The request's own session from its cookie, without refreshing it. Sign-in endpoints are
 /// public, so their context carries no session.
 async fn cookie_session<D: Adapter, A>(ctx: &Ctx<D, A>) -> Result<Option<SessionView>, AuthError> {
-    let Some(token) = ctx.signed_cookie("session_token") else {
+    let Some(token) = ctx.signed_token_cookie("session_token") else {
         return Ok(None);
     };
     ctx.internal().find_session_by_token(&token).await

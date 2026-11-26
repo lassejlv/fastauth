@@ -474,13 +474,20 @@ impl<D: Adapter, A> Ctx<D, A> {
         self.set_cookie(SetCookie::new(name, value, max_age));
     }
 
-    /// Reads `{prefix}.{name}` and checks its signature.
+    /// Reads `{prefix}.{name}` and checks that the current secret signed it.
     pub fn signed_cookie(&self, name: &str) -> Option<String> {
         let raw = self.cookie(&self.shared.config.cookie_name(name))?;
         self.shared
             .keys
             .verify(SignPurpose::Cookie, raw)
             .map(str::to_owned)
+    }
+
+    /// Reads `{prefix}.{name}` holding a session token, signed by any configured secret
+    /// (see [`Keys::verify_token`]), so the cookie survives a secret rotation.
+    pub fn signed_token_cookie(&self, name: &str) -> Option<String> {
+        let raw = self.cookie(&self.shared.config.cookie_name(name))?;
+        self.shared.keys.verify_token(raw).map(str::to_owned)
     }
 
     pub fn delete_cookie(&self, name: &str) {

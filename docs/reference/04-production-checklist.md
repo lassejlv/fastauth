@@ -1,0 +1,154 @@
+# Production checklist
+
+The settings an app must get right before real users. Each item says what to set and why.
+The IDs in parentheses are the findings of the security review of 0.5.0 that the item
+covers.
+
+## 1. Client IP
+
+Rate limits are kept per client IP, so fastauth must see the real one (DOS-1, DOS-2, DOS-8).
+
+- axum: serve with `app.into_make_service_with_connect_info::<SocketAddr>()`.
+- actix-web: nothing to do; `auth.scope()` reads the peer address.
+- Behind a proxy or load balancer the socket address is the proxy's. Set
+  `.client_ip(ClientIp::Header(..))` for a header holding one address that the proxy
+  overwrites (`fly-client-ip`, `cf-connecting-ip`, `x-real-ip` from your own nginx), or
+  `ClientIp::TrustedProxies { header: "x-forwarded-for".into(), proxies: n }` with `n` the
+  number of proxies that append to it.
+- Never `ClientIp::Header("x-forwarded-for")`: its first value is whatever the client sent.
+- `.build()` can't check this, because the socket address only exists per request. Watch
+  the logs instead: the first request without a client IP logs an error (a warning when
+  `base_url` is local). One such line means requests are limited per account or in one
+  shared bucket, not per client.
+
+See [Configuration](../get-started/03-configuration.md#rate-limits).
+
+## 2. An https `base_url`
+
+Set `base_url` to the public https origin (CFG-4). Cookies get `Secure` and the `__Secure-`
+prefix from it, and emailed links are built from it.
+
+- `.build()` always refuses a `base_url` with credentials (`https://user:pw@..`), a query or
+  a fragment.
+- It refuses an `http://` `base_url` unless the host is local (`localhost`, `*.localhost`
+  or a loopback address), since cookies would go out without `Secure`.
+- Terminate TLS in front of the app; fastauth doesn't serve it.
+
+## 3. A generated secret
+
+- Generate it with `fastauth secret` (from `cargo install fastauth-cli`) or
+  `Secret::generate()`. Both give 64 random bytes as base64url. Load it with
+  `Secret::from_env("FASTAUTH_SECRET")`, never from source.
+- `.build()` refuses a secret with less than about 120 bits of estimated entropy when
+  `base_url` isn't local (CFG-3): 32 zero bytes, `"a"` repeated, a short phrase.
+- Rotate with `.secrets([new, old])`. Nobody is signed out, and a secret that is no longer
+  first stops verifying the cookie cache and plugin cookies, so a leaked secret can't forge
+  sessions once it's rotated out (CRYPTO-1). Keep the old secret in the list while columns
+  encrypted under it (OAuth tokens, two-factor secrets) exist; there is no re-encryption
+  command yet. [Security](../concepts/03-security.md#secrets) has the details.
+
+## 4. No `allow_insecure_config` in production
+
+`.allow_insecure_config(true)` turns the refusals in 2 and 3 into warnings. It's for local
+development, CI and staging on a private network. Don't set it in production, or set it
+from an environment variable that production doesn't have. It also turns the missing
+client IP error from 1 into a warning.
+
+## 5. A mailer that answers quickly or queues
+
+Emails are sent in the background on tokio's blocking pool, at most 8 at once per process
+(DOS-4).
+
+- Up to 10,000 more wait their turn; past that, emails are dropped and logged with
+  `tracing::error!`.
+- A send is abandoned and logged after 60 seconds, but only when the mailer's future
+  yields; a mailer that blocks its thread isn't cut off.
+- So a slow SMTP server delays email without slowing sign-in, but a burst can still drop
+  mail. Use an HTTP mail API with a short timeout, or hand emails to your own queue and
+  return.
+- Watch the logs for "fastauth could not send", "fastauth dropped" and "fastauth gave up".
+
+## 6. The cookie cache, if you turn it on
+
+`SessionConfig::cookie_cache(..)` is off by default. It saves a database read per request
+and costs this:
+
+- A revoked session keeps working until the cache cookie expires. That includes the admin
+  routes and impersonation, which decide on the cached session: an admin whose sessions you
+  revoke or whose role you remove keeps admin rights for the cache's max age (SESS-1). In
+  apps with the admin plugin, leave it off or keep it to a minute or two.
+- The cache cookie is signed, not encrypted, and carries the user row: a column marked
+  `#[field(returned = false)]` is readable in the browser (SESS-6).
+- Whoever holds the current secret can sign a cache cookie for any user (CRYPTO-1). Rotate a
+  leaked secret out at once (item 3).
+
+## 7. Rate limits
+
+On by default; keep them on (DOS-1, DOS-2, DOS-6, DOS-8).
+
+- 100 requests per 10 seconds per client and path, and 3 per 10 seconds on sign-in,
+  sign-up, password reset, verification email and change-password. Plugins add their own
+  rules.
+- IPv6 clients are limited per /64, because one subscriber or cloud VM holds a whole /64.
+  `RateLimit::ipv6_prefix(bits)` changes it.
+- On every route with a rule of its own, each account the JSON body names (`email`,
+  `username`) also has a limit of 30 requests per 10 minutes, whatever the client IP.
+  `RateLimit::account_limit(None)` turns it off; you shouldn't need to.
+- The limiter keeps at most 100,000 keys in memory (`RateLimit::max_keys(n)`).
+- Counters are per process. With several instances, a client gets the limit once per
+  instance it reaches.
+
+## 8. Shared caches and CDNs
+
+Every response from the auth routes carries `Cache-Control: no-store` unless the endpoint
+set its own, so a shared cache never stores `/get-session` or a response holding a token
+(CFG-2). Don't override it for the auth path in your CDN or proxy, and don't cache
+`/api/auth/*` at all.
+
+## 9. Database TLS
+
+Connect with TLS that checks the server's certificate and host name (DB-3).
+
+- MySQL: build with the facade's `mysql-tls` feature and add `ssl-mode=verify_identity` to
+  `DATABASE_URL` (plus `ssl-ca=..` for a private CA). sqlx's default, `preferred`, checks
+  no certificate and falls back to plaintext without saying so.
+- Postgres: add `sslmode=verify-full` (plus `sslrootcert=..` for a private CA). The default
+  `postgres` feature builds no TLS, so turn on a TLS backend for sqlx: `mysql-tls` does it,
+  or add `features = ["tls-rustls"]` to your own `sqlx` dependency.
+
+See [Databases](../concepts/02-database.md#mysql).
+
+## 10. MySQL, not MariaDB
+
+`Sqlx<MySql>` needs MySQL 8.0.17 or later. MariaDB isn't supported and fails at the first
+`CREATE TABLE` (DB-5).
+
+## 11. Migrations run to completion
+
+- Generate migrations with `cargo run --bin fastauth -- generate`, review them, and apply
+  them before the new version serves traffic.
+- Run `cargo run --bin fastauth -- status` in CI; it exits 1 when a migration is missing.
+- MySQL commits each DDL statement on its own. If a migration stops between adding a
+  unique column and adding its constraint, running it again doesn't add the constraint
+  (DB-1). After a failed MySQL migration, check that every `<table>_<column>_key`
+  constraint exists.
+
+[Databases](../concepts/02-database.md#migrations) has the commands.
+
+## 12. Logs
+
+`Debug` output of `VerifyEmail`, `ResetPassword` and `PluginEmail` prints `[redacted]`
+for the link, token, code and body, and `SessionView` for the session token (CFG-5). Your
+own logging still has to keep secrets out:
+
+- Don't log request bodies of the auth routes: they hold passwords, codes and tokens.
+- Don't log the `Cookie`, `Set-Cookie`, `Authorization` or `set-auth-token` headers.
+- Don't log the messages your mailer builds; they hold sign-in links and codes.
+
+## 13. Organization and admin limits
+
+- `Organization::invitation_limit(n)` caps pending invitations per organization (100 by
+  default). Each invitation emails an address the inviter picks, so lower it when your
+  organizations are small (DOS-7).
+- `/admin/list-users` answers at most 100 users when the request gives no `limit` (DOS-5).
+  Page with `limit` and `offset` in your admin UI.

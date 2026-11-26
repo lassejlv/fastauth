@@ -183,6 +183,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 | [Plugin authoring](docs/reference/01-plugin-authoring.md) | Writing a plugin: schema, endpoints, resolvers, hooks, gates, events, errors, dependencies, tests |
 | [Internals](docs/reference/02-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
 | [Decisions](docs/reference/03-decisions.md) | The design decisions, including the ones made since 0.1 |
+| [Production checklist](docs/reference/04-production-checklist.md) | What to set before real users: client IP, https, the secret, mail, cookie cache, rate limits, database TLS, logs |
 
 ## Agent skill
 

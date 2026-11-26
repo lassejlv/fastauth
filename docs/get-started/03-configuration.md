@@ -28,22 +28,51 @@ FastAuth::builder()
 ```
 
 `.build()` returns `Result<Auth<..>, BuildError>`. It fails on configuration that types
-can't express: a secret shorter than 32 bytes, a `base_url` that isn't an http(s) URL,
-`require_email_verification` without a mailer, two plugins defining the same column, route
-or error code, and a hook on an endpoint nothing registered. Every problem is collected and
-reported at once.
+can't express: a secret shorter than 32 bytes, a `base_url` that isn't an http(s) URL or
+has credentials, a query or a fragment, `require_email_verification` without a mailer, two
+plugins defining the same column, route or error code, and a hook on an endpoint nothing
+registered. For a `base_url` that isn't local it also refuses an `http://` URL and a
+secret with too little entropy ([Production checks](#production-checks)). Every problem is
+collected and reported at once.
 
 ## Secrets
 
 ```rust
 .secret(Secret::from_env("FASTAUTH_SECRET")?)
-// Rotation: the first secret signs and encrypts; all of them verify and decrypt.
+// Rotation: the first secret signs, verifies and encrypts; the others only decrypt
+// and verify session tokens.
 .secrets([Secret::from_env("FASTAUTH_SECRET")?, Secret::from_env("FASTAUTH_SECRET_OLD")?])
 ```
 
-`Secret::from_env` reads base64url (what `fastauth secret` prints) or, failing that, the
-raw string, and fails with a `BuildError` when the variable isn't set. `Secret` zeroizes on
-drop and is never printed.
+`Secret::from_env` reads base64url (what `fastauth secret` and `Secret::generate()` give)
+or, failing that, the raw string, and fails with a `BuildError` when the variable isn't
+set. `Secret` zeroizes on drop and is never printed.
+
+A rotation signs nobody out, but values signed with the old secret that carry their own
+meaning stop verifying: cookie caches are read again from the database, trusted devices
+ask for the second factor once more, and sign-ins in flight through OAuth, passkeys or
+two-factor start again. Keep the old secret in the list for as long as columns encrypted
+under it exist ([Security](../concepts/03-security.md#secrets)).
+
+## Production checks
+
+For a `base_url` that isn't local (`localhost`, `*.localhost` or a loopback address),
+`.build()` refuses an `http://` URL, since cookies would go out without `Secure`, and a
+secret whose estimated entropy (`Secret::entropy_bits()`) is below
+`Secret::MIN_ENTROPY_BITS`, 120 bits. A generated secret scores about 370. For a local
+`base_url` both are logged as warnings.
+
+```rust
+.base_url("http://staging.internal:3000")
+.allow_insecure_config(true)   // warn instead of refusing; never in production
+```
+
+`allow_insecure_config(true)` turns both refusals into warnings on any host, for local
+development, CI and staging on a private network. It also logs a request without a client
+IP as a warning instead of an error ([Rate limits](#rate-limits)). A `base_url` with
+credentials, a query or a fragment is refused either way. The
+[Production checklist](../reference/04-production-checklist.md) lists the rest to check before
+real users.
 
 ## Email and password
 
@@ -77,8 +106,12 @@ implements `Mailer`. Emails whose sending depends on whether an account exists (
 reset, email verification, email OTP codes) are sent in the background, so the response
 doesn't wait for your mailer and takes as long for unknown emails as for known ones (see
 [Security](../concepts/03-security.md#account-enumeration)). A background send that fails is logged with
-`tracing::error!`; the client already got its answer. `LogMailer` and `MemoryMailer` do no
-I/O, so they send before the response, and tests can read `MemoryMailer` right away.
+`tracing::error!`; the client already got its answer. At most 8 background sends run at
+once per process, up to 10,000 more wait, and past that an email is dropped and logged; a
+send is abandoned after 60 seconds. So a slow mailer delays email without slowing
+sign-in, but a mailer that takes seconds per message should hand emails to a queue and
+return. `LogMailer` and `MemoryMailer` do no I/O, so they send before the response, and
+tests can read `MemoryMailer` right away.
 
 ```rust
 use fastauth::mail::MailError;
@@ -218,6 +251,9 @@ is [planned](01-overview.md#planned), not built.
         .default_limit(Limit::per(Duration::seconds(10), 200))
         .rule("/sign-in/*", Limit::per(Duration::seconds(10), 5))
         .rule("/two-factor/verify-*", Limit::per(Duration::minutes(1), 3))
+        .account_limit(Some(Limit::per(Duration::minutes(10), 30)))  // default; None turns it off
+        .ipv6_prefix(64)                        // default; 128 limits each IPv6 address
+        .max_keys(100_000)                      // default
 )
 .client_ip(ClientIp::Header("fly-client-ip".into()))   // default: ClientIp::Socket
 ```
@@ -230,6 +266,15 @@ then core's 3 per 10 seconds on `/sign-in/*`, `/sign-up/*`, `/request-password-r
 `/forget-password`, `/send-verification-email` and `/change-password`.
 `RateLimit::disabled()` turns limiting off, which is useful in tests. The counters live in
 memory, per process.
+
+- `account_limit` is a second limit on every route with a rule of its own: each account the
+  JSON body names (`email` and `username`) gets that many requests per rule, whatever the
+  client IP, so guesses at one account from many addresses still stop. Routes on the
+  default limit don't have it. Better Auth has no such limit.
+- `ipv6_prefix` groups IPv6 clients by network prefix, 64 bits by default as in Better
+  Auth, because one subscriber or cloud VM holds a whole /64.
+- `max_keys` bounds the limiter's memory. Expired keys are dropped as it goes, and when
+  it's full, the half of the keys closest to expiry.
 
 Limits are kept per client IP, which `.client_ip(..)` says where to find:
 
@@ -246,8 +291,11 @@ every limit. With `TrustedProxies`, count only proxies that append: with one ngi
 counts as no IP.
 
 A request without a client IP (no socket address, a missing header, or too few hops) is
-logged once with `tracing::warn!`. Such requests are limited per account when the JSON body
-names one (`email` or `username`), so guessing one account's password stays limited without
+logged once, with `tracing::error!` when `base_url` isn't local and
+`allow_insecure_config` is off, else with `tracing::warn!`. `.build()` can't catch this,
+because the socket address only exists per request, so check the logs after deploying.
+Such requests are limited per account when the JSON body names one (on both `email` and
+`username` when it has both), so guessing one account's password stays limited without
 letting one client lock everybody out of sign-in, and otherwise share one bucket.
 
 ## Ids

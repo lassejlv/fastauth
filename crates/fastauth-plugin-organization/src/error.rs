@@ -66,6 +66,8 @@ pub enum OrganizationError {
     UserIsAlreadyInvitedToThisOrganization,
     #[auth_error(status = 400, message = "Invitation not found")]
     InvitationNotFound,
+    #[auth_error(status = 403, message = "Invitation limit reached")]
+    InvitationLimitReached,
     #[auth_error(status = 403, message = "You are not the recipient of the invitation")]
     YouAreNotTheRecipientOfTheInvitation,
     #[auth_error(
