@@ -2,8 +2,48 @@
 
 ## Unreleased
 
+### Docs and tooling
+
+- The docs are grouped into folders that match the docs site: `docs/get-started`,
+  `docs/concepts`, `docs/integrations`, `docs/plugins` (by kind) and `docs/reference`.
+  [All plugins](docs/plugins/README.md) lists every plugin with its crate and feature, and the
+  plugin authoring guide moved to [its own page](docs/reference/01-plugin-authoring.md). Site
+  URLs stay the same except `/docs/open-questions/`, which redirects to `/docs/decisions/`.
+- Docs site: the layout is centered with a 1440px frame on wide screens, the header dither
+  stays clear of the controls, code blocks scroll instead of wrapping, and code in tables
+  only breaks between path segments.
+
+## 0.4.0 (2026-11-26)
+
 ### Security
 
+0.4.0 fixes 28 findings from a security review of 0.3.0 (2 high, 9 medium, 8 low, 9 info).
+**All versions before 0.4.0 are affected; upgrade.** The two highs:
+
+- **Open redirect and password-reset account takeover (CORE-1).** A callback URL with a tab
+  or newline after the first `/` passed the redirect check, and the browser followed it to
+  another site. Without signing in, an attacker could request a password reset for any
+  user with such a `redirectTo`; the genuine reset email's link then sent the user's
+  browser, reset token attached, to the attacker's site, and the attacker could set a new
+  password for that account. Every
+  `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` and `redirectTo` was an open
+  redirect.
+- **Banned users kept access through API keys (AUTHZ-1).** With the admin and API-key
+  plugins, a banned user's API key still authenticated, and could create more keys. Bans now
+  apply to every kind of session, and banning disables the user's keys.
+
+Every finding, by id:
+
+- **CORE-1** (high, also TOKENS-1): a callback URL such as `/<TAB>/evil.example` passed the
+  redirect check, and a browser opened it as `//evil.example`: an open redirect on every
+  `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` and `redirectTo`, and theft of
+  password-reset tokens through a genuine reset email. Redirect targets are now refused with
+  control characters, backslashes or encoded `/` and `\`, resolved against `base_url`, and
+  required to stay on a trusted origin; `Location` carries the resolved URL.
+  ([Security](docs/concepts/03-security.md#redirects))
+- **AUTHZ-1** (high): a banned user's API key no longer authenticates. The admin plugin's ban
+  check is a session gate, so it applies to every session (API key, bearer, cookie cache),
+  and banning disables the user's API keys.
 - **CORE-2**: without a client IP, the strict sign-in/sign-up/reset limits no longer put every
   client in one bucket, where three wrong passwords from anyone locked everyone out. Requests
   without an IP are limited per account named in the JSON body (`email` or `username`), the
@@ -16,22 +56,17 @@
   default.
 - **CORE-5**: `/change-password` and two-factor's `/enable`, `/disable`, `/get-totp-uri` and
   `/generate-backup-codes` are under the strict limit (3 per 10 seconds).
+- **CORE-6**: passkey registration, two-factor enable/disable, `/link-social` and API-key
+  create/update use `Ctx::sensitive_session()`, which skips the cookie cache.
 - **CORE-7**: `ClientIp::Header` accepts only a value that is a single valid IP, and the new
   `ClientIp::TrustedProxies { header, proxies }` reads `x-forwarded-for` from the right. The
   docs say never to use `ClientIp::Header` with `x-forwarded-for`.
-- **CORE-1** (high, also TOKENS-1): a callback URL such as `/<TAB>/evil.example` passed the
-  redirect check, and a browser opened it as `//evil.example`: an open redirect on every
-  `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` and `redirectTo`, and theft of
-  password-reset tokens through a genuine reset email. Redirect targets are now refused with
-  control characters, backslashes or encoded `/` and `\`, resolved against `base_url`, and
-  required to stay on a trusted origin; `Location` carries the resolved URL.
-  ([Security](docs/concepts/03-security.md#redirects))
-- **2FA-1**: concurrent wrong guesses on `/two-factor/verify-otp` all counted as one attempt.
-  Each guess now claims its attempt with a compare-and-swap before the code is compared.
 - **CORE-8**: TOTP and backup codes had no per-challenge attempt cap, and the pending
   two-factor cookie could be replayed for its whole max age. The pending sign-in is now a
   server-side `verification` row that allows 5 guesses across all methods and is deleted
   when a code finishes it. ([Security](docs/concepts/03-security.md#two-factor-sign-in))
+- **2FA-1**: concurrent wrong guesses on `/two-factor/verify-otp` all counted as one attempt.
+  Each guess now claims its attempt with a compare-and-swap before the code is compared.
 - **TOKENS-2**: `/link-social` linked any provider identity. It now requires a live starting
   session, a provider-verified email equal to the user's (unless
   `Social::allow_different_emails(true)`), and linking not `AccountLinking::Off`.
@@ -46,9 +81,6 @@
   `UnknownKey(None)`.
 - **TOKENS-7**: documented that the bearer plugin's `set-auth-token` header lets page scripts
   read the session token ([Bearer tokens](docs/plugins/tokens/01-bearer.md#security)).
-- **AUTHZ-1** (high): a banned user's API key no longer authenticates. The admin plugin's ban
-  check is a session gate, so it applies to every session (API key, bearer, cookie cache),
-  and banning disables the user's API keys.
 - **AUTHZ-2**: an API key's session is never fresh, so it can't register a passkey or pass
   `FreshSession`.
 - **AUTHZ-3**: an API key's session can't create keys or update them (so it can't lift its own
@@ -69,45 +101,113 @@
 - **AUTHZ-11**: `/organization/remove-member` answers `MEMBER_NOT_FOUND` for another
   organization's member before any role check, so it no longer reveals who owns it.
 - **AUTHZ-12**: `/organization/cancel-invitation` only cancels pending invitations.
-- **CORE-6**: passkey registration, two-factor enable/disable, `/link-social` and API-key
-  create/update use `Ctx::sensitive_session()`, which skips the cookie cache.
 
-### Behaviour changes
+### Upgrading from 0.3
+
+Bump `fastauth` to `"0.4"` and go through this list: some defaults changed, and two public
+enums gained variants.
+
+**Code that may not compile**
+
+- `ClientIp` has a new variant, `TrustedProxies { header, proxies }`, so an exhaustive
+  `match` on it needs an arm for it.
+- `AdminError` has two new variants, `YouCannotManageAdmins` and
+  `NotAllowedWhileImpersonating`, so an exhaustive `match` on it needs arms for them.
+- No public trait changed; the core additions are listed under Core below.
+
+**Database**
+
+- Core tables are unchanged. Two-factor's pending sign-ins live in the existing
+  `verification` table (its `data` column, there since 0.1), so they need no migration.
+- The username plugin adds `username` (unique) and `display_username` to `user`, and the
+  anonymous plugin adds `is_anonymous`. Run your migrations after registering either.
+  Multi-session adds no table or column.
+- Two-factor sign-ins that are pending when you deploy must start over: the `two_factor`
+  cookie now names a `verification` row, and old cookies don't. A pending sign-in allows 5
+  guesses across TOTP, email codes and backup codes; after that the user signs in with their
+  password again.
+
+**Changed defaults**
 
 - `EmailPassword::revoke_sessions_on_password_reset` defaults to `true` (was `false`), for
-  `/reset-password` and `/email-otp/reset-password`. Better Auth defaults to `false`; set
-  `.revoke_sessions_on_password_reset(false)` to keep sessions.
-- Emails from those routes are sent after the response. A mailer error is logged with
-  `tracing::error!` instead of answering 500. `LogMailer` and `MemoryMailer` still send
-  before the response.
-- `ClientIp::Header` no longer takes the first of several comma-separated values; such a
-  value counts as no IP.
-- `ClientIp` has a new variant, so an exhaustive `match` on it needs an arm for
-  `TrustedProxies`.
+  `/reset-password` and `/email-otp/reset-password`: a reset signs the user out everywhere.
+  Better Auth defaults to `false`; set `.revoke_sessions_on_password_reset(false)` to keep
+  sessions.
+- **Organization:** `require_email_verification_on_invitation` defaults to `true` (was
+  `false`). Users must verify their email before they can view, accept or reject an
+  invitation. Set it to `false` to keep 0.3 behaviour (Better Auth's default for its random
+  ids).
+
+**Redirects**
+
 - Redirects answer with an absolute `Location`: `callbackURL: "/dashboard"` redirects to
-  `{base_url}/dashboard`, the same place a browser resolved the relative one to. Better
-  Auth sends relative targets back as they came. The JSON `url` of `/sign-in/*` is
-  unchanged.
-- `Ctx::redirect` answers 403 `INVALID_CALLBACK_URL` for a URL that fails
-  `is_safe_redirect`, so plugins can only redirect to the app or a trusted origin.
+  `{base_url}/dashboard`, the same place a browser resolved the relative one to. Better Auth
+  sends relative targets back as they came. The JSON `url` of `/sign-in/*` is unchanged.
 - Callback URLs with control characters, backslashes or `%2f`/`%5c` in the path are refused
   with 403 `INVALID_CALLBACK_URL`, as Better Auth refuses them.
+- `Ctx::redirect` answers 403 `INVALID_CALLBACK_URL` for a URL that fails
+  `is_safe_redirect`, so custom plugins can only redirect to the app or a trusted origin.
+
+**Sessions that didn't come from a sign-in**
+
+- An API key's session (`ApiKeys::sessions(true)`) can't mint credentials: it is never
+  fresh (`403 SESSION_NOT_FRESH` from `Fresh` endpoints and `FreshSession`), and it gets
+  `401` from API-key create and update, passkey registration, `/link-social` and
+  two-factor enable and disable.
+- An impersonation session gets `403 NOT_ALLOWED_WHILE_IMPERSONATING` from those same
+  endpoints, and session refresh no longer extends it past
+  `impersonation_session_duration`.
+- Those endpoints read the session from the database, so a session revoked while still in
+  the cookie cache can't use them either.
+
+**Social sign-in**
+
 - `AccountLinking::Off` now also refuses `/link-social` (`?error=unable_to_link_account`),
-  and `/link-social` refuses another email (`?error=email_doesn't_match`) unless
+  like Better Auth's `accountLinking.enabled: false`.
+- `/link-social` needs a live session started by a sign-in, and refuses a provider account
+  with a different email (`?error=email_doesn't_match`) unless
   `Social::allow_different_emails(true)`.
-- A pending two-factor sign-in allows 5 guesses in all; after that the user signs in with
-  their password again. Sign-ins pending when you upgrade must start over, because the
-  `two_factor` cookie now names a `verification` row.
-- JWTs with a future `nbf` no longer verify, and server-side `verify()` stops accepting a
-  retired key once its grace period ends.
-- **Organization:** `require_email_verification_on_invitation` now defaults to `true`. Users
-  must verify their email before they can view, accept or reject an invitation. Set it to
-  `false` to keep 0.3 behaviour (Better Auth's default for its random ids).
-- **API keys:** a key's session gets `403 SESSION_NOT_FRESH` from `Fresh` endpoints and
-  `FreshSession`, and `401` from key create/update, passkey registration, `/link-social` and
-  two-factor enable/disable.
-- **Admin:** a banned user's requests answer `403 BANNED_USER` whatever the session came
-  from; acting on another admin needs `user:impersonate-admins`.
+
+**Admin**
+
+- A banned user's requests answer `403 BANNED_USER` whatever the session came from (cookie,
+  cookie cache, bearer token, API key).
+- Banning a user disables their API keys. They stay disabled when the ban lifts, until the
+  owner turns them back on.
+- Acting on another admin's account (password, email, role, ban, removal, revoking sessions)
+  needs `user:impersonate-admins`, or answers `403 YOU_CANNOT_MANAGE_ADMINS`.
+
+**Client IP and rate limits**
+
+- `ClientIp::Header` accepts only a value that is a single valid IP; a comma-separated list
+  counts as no IP. For `x-forwarded-for`, use `ClientIp::TrustedProxies`.
+- Requests without a client IP are rate-limited per account named in the JSON body instead
+  of sharing one bucket, and the first one logs a warning. With axum, serve with
+  `into_make_service_with_connect_info::<SocketAddr>()` so `ClientIp::Socket` sees the
+  address.
+- `/change-password` and two-factor's `/enable`, `/disable`, `/get-totp-uri` and
+  `/generate-backup-codes` are limited to 3 requests per 10 seconds.
+
+**Emails**
+
+- Password reset, verification, sign-up (with `require_email_verification`) and email OTP
+  send their emails after the response. A mailer error is logged with `tracing::error!`
+  instead of answering 500. `LogMailer` and `MemoryMailer` still send before the response,
+  so tests can read `MemoryMailer` as before.
+
+**JWT**
+
+- Tokens with a future `nbf` no longer verify, in `JwksVerifier` and `auth.jwt().verify()`.
+- A token without a `kid` is `VerifyError::Invalid` instead of `UnknownKey(None)`.
+- `auth.jwt().verify()` only trusts the keys `/jwks` publishes, so a retired key stops
+  verifying once its grace period ends, and `rotate()` deletes keys past their grace period.
+
+**Organization**
+
+- `/organization/remove-member` answers `MEMBER_NOT_FOUND` for another organization's
+  member before any role check.
+- `/organization/cancel-invitation` only cancels pending invitations; an accepted, rejected
+  or cancelled one answers `INVITATION_NOT_FOUND`.
 
 ### New plugins
 
@@ -133,9 +233,6 @@
   and `/sign-out` signing every remembered account out. `MultiSessionExt` for server calls.
   Wire-compatible with `multiSessionClient` (`compat/better-auth/run-multi-session.sh`).
   ([docs/22](docs/plugins/access/03-multi-session.md))
-
-The username and anonymous plugins add columns to `user`; run your migrations after
-registering them.
 
 ### Core
 
@@ -166,17 +263,6 @@ All additive; no public trait changed.
   in the background.
 - `CoreConfig::resolve_redirect(target)`: the URL a redirect to `target` lands on, or `None`
   when it isn't safe; `is_safe_redirect` is built on it.
-
-### Docs and tooling
-
-- The docs are grouped into folders that match the docs site: `docs/get-started`,
-  `docs/concepts`, `docs/integrations`, `docs/plugins` (by kind) and `docs/reference`.
-  [All plugins](docs/plugins/README.md) lists every plugin with its crate and feature, and the
-  plugin authoring guide moved to [its own page](docs/reference/01-plugin-authoring.md). Site
-  URLs stay the same except `/docs/open-questions/`, which redirects to `/docs/decisions/`.
-- Docs site: the layout is centered with a 1440px frame on wide screens, the header dither
-  stays clear of the controls, code blocks scroll instead of wrapping, and code in tables
-  only breaks between path segments.
 
 ## 0.3.0 (2026-11-26)
 

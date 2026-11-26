@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 aws-lc-rs = "1.19.0"
-fastauth-core = { version = "0.3.0", path = "../fastauth-core", features = ["macros"] }
+fastauth-core = { version = "0.4.0", path = "../fastauth-core", features = ["macros"] }
 http = "1.5.0"
 jsonwebtoken = { version = "12.0.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 pem = "4"
@@ -26,7 +26,7 @@ time = { version = "0.3.45", features = ["serde"] }
 [dev-dependencies]
 axum = "0.8.9"
 bytes = "1.12.2"
-fastauth-axum = { version = "0.3.0", path = "../fastauth-axum" }
-fastauth-plugin-bearer = { version = "0.3.0", path = "../fastauth-plugin-bearer" }
-fastauth-sqlx = { version = "0.3.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
+fastauth-axum = { version = "0.4.0", path = "../fastauth-axum" }
+fastauth-plugin-bearer = { version = "0.4.0", path = "../fastauth-plugin-bearer" }
+fastauth-sqlx = { version = "0.4.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }

@@ -11,7 +11,7 @@ Turn on the facade's `email-otp` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.3", features = ["email-otp"] }
+fastauth = { version = "0.4", features = ["email-otp"] }
 ```
 
 The plugin lives at `fastauth::plugins::email_otp` (crate `fastauth-plugin-email-otp`).

@@ -14,7 +14,7 @@ Turn on the facade's `passkey` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.3", features = ["passkey"] }
+fastauth = { version = "0.4", features = ["passkey"] }
 ```
 
 or `cargo add fastauth --features passkey`. The plugin lives at `fastauth::plugins::passkey`

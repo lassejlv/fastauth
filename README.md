@@ -9,9 +9,10 @@ It runs on sqlx and axum out of the box, and the plugin API is checked by the co
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.3.0 is on crates.io. It adds the magic link, email OTP, bearer, JWT and passkey
-plugins, and nothing in it breaks 0.2 apps (see the [CHANGELOG](CHANGELOG.md)). The docs in
-`docs/` describe 0.3.
+**Status:** 0.4.0 is on crates.io. It fixes two high-severity security issues that affect every
+earlier version, adds the username, anonymous and multi-session plugins, and changes a few
+defaults; read [upgrading from 0.3](CHANGELOG.md#upgrading-from-03) before you bump. The docs in
+`docs/` describe 0.4.
 
 ## Install
 
@@ -115,9 +116,9 @@ apps on SQLite and in memory.
 | [`fastauth-plugin-bearer`](https://crates.io/crates/fastauth-plugin-bearer) | Sessions from `Authorization: Bearer`, and the `set-auth-token` header (0.3) |
 | [`fastauth-plugin-jwt`](https://crates.io/crates/fastauth-plugin-jwt) | JWTs for signed-in users, a JWKS with rotating keys, `JwksVerifier` for other services (0.3) |
 | [`fastauth-plugin-passkey`](https://crates.io/crates/fastauth-plugin-passkey) | Passkeys (WebAuthn) on webauthn-rs: registration, sign-in, management (0.3) |
-| `fastauth-plugin-username` | Usernames next to emails, sign-in by username, availability checks (unreleased) |
-| `fastauth-plugin-anonymous` | Anonymous users, linked to the real account they sign up or in with (unreleased) |
-| `fastauth-plugin-multi-session` | Several signed-in accounts per browser, switching between them (unreleased) |
+| [`fastauth-plugin-username`](https://crates.io/crates/fastauth-plugin-username) | Usernames next to emails, sign-in by username, availability checks (0.4) |
+| [`fastauth-plugin-anonymous`](https://crates.io/crates/fastauth-plugin-anonymous) | Anonymous users, linked to the real account they sign up or in with (0.4) |
+| [`fastauth-plugin-multi-session`](https://crates.io/crates/fastauth-plugin-multi-session) | Several signed-in accounts per browser, switching between them (0.4) |
 | [`fastauth-cli`](https://crates.io/crates/fastauth-cli) | `fastauth secret`; schema and migration commands run from your app via `fastauth::cli::run` |
 
 The HTTP API is compatible with Better Auth's TypeScript client (tested against
@@ -185,7 +186,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against `main` (0.3). Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.4). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License

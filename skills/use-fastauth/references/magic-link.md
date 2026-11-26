@@ -41,7 +41,7 @@ Full page: `docs/plugins/sign-in/01-magic-link.md`.
 
 ## Setup
 
-- `fastauth = { version = "0.3", features = ["magic-link"] }`; path `fastauth::plugins::magic_link`.
+- `fastauth = { version = "0.4", features = ["magic-link"] }`; path `fastauth::plugins::magic_link`.
 - Needs a mailer (`.mailer(..)`); without one, `/sign-in/magic-link` answers 500.
 - No tables or columns: links live in core's `verification` table, as a SHA-256 of the token.
 - Options: `expires_in` (5 minutes), `disable_sign_up(true)` (unknown emails get
