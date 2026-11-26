@@ -75,6 +75,7 @@ time = { version = "0.3.45", features = ["formatting", "macros"], optional = tru
 actix-web = { version = "4.20.0", default-features = false, features = ["macros"] }
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
 tracing-subscriber = "0.3.23"

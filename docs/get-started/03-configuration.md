@@ -81,6 +81,8 @@ doesn't wait for your mailer and takes as long for unknown emails as for known o
 I/O, so they send before the response, and tests can read `MemoryMailer` right away.
 
 ```rust
+use fastauth::mail::MailError;
+
 pub struct AcmeMailer;
 
 impl Mailer for AcmeMailer {

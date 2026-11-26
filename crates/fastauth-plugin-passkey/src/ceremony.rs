@@ -14,8 +14,8 @@ use webauthn_rs::prelude::{
 };
 use webauthn_rs_proto::{AuthenticatorTransport, UserVerificationPolicy};
 
-use crate::PasskeyError;
 use crate::model::PasskeyRow;
+use crate::{PasskeyError, PasskeyUser};
 
 /// Better Auth's `base64.encode` pads; decoding accepts either.
 const BASE64: GeneralPurpose = GeneralPurpose::new(
@@ -41,6 +41,11 @@ pub(crate) enum Challenge {
     Registration {
         #[serde(rename = "userId")]
         user_id: String,
+        state: PasskeyRegistration,
+    },
+    /// A signed-out registration that creates `user` once it verifies.
+    SignUp {
+        user: PasskeyUser,
         state: PasskeyRegistration,
     },
     Authentication {

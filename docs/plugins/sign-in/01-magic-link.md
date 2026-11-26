@@ -91,8 +91,9 @@ defaulting to `/` and the other two callbacks included when you passed them.
    and the `name` from the sign-in request (or `""`).
 2. **Claims an unverified user.** If the email belongs to a user whose email isn't
    verified, the link is the first proof of who owns it. Every account (password and OAuth
-   links) and session that user had is deleted, and the email is marked verified, so
-   whoever registered the address first keeps no access. Better Auth does the same.
+   links), session and [passkey](03-passkey.md#claimed-users) that user had is deleted, and
+   the email is marked verified, so whoever registered the address first keeps no access.
+   Better Auth does the same, except for passkeys.
 3. **Signs in** through every plugin's sign-in gate, with method `"magic-link"`.
 4. **Answers.** With `callbackURL` in the query, a `302` to it, or to `newUserCallbackURL`
    when step 1 created the user. Without one, Better Auth's `{ token, user, session }` JSON.

@@ -73,6 +73,7 @@ let userId = "";
 let passkeyId = "";
 let credentialID = "";
 let firstCredential: Awaited<ReturnType<typeof credentials>>[number] | undefined;
+let restoredAuthenticatorId = "";
 
 console.log(`better-auth passkeyClient in ${await browser.version()} against ${BASE_URL} (${email})\n`);
 
@@ -238,6 +239,7 @@ await step("signIn.passkey with a deleted passkey", async () => {
       automaticPresenceSimulation: true,
     },
   });
+  restoredAuthenticatorId = restored.authenticatorId;
   if (!firstCredential) throw new Error("no saved credential");
   await cdp.send("WebAuthn.addCredential", {
     authenticatorId: restored.authenticatorId,
@@ -250,6 +252,65 @@ await step("signIn.passkey with a deleted passkey", async () => {
   check("error.code PASSKEY_NOT_FOUND", error?.code === "PASSKEY_NOT_FOUND", error);
   const session = await page.evaluate(() => window.client.getSession());
   check("still signed out", session.data === null, session);
+});
+
+// Passkey-first sign-up: compat_server's Passkey::sign_up takes the new user's email from
+// addPasskey's context.
+const firstEmail = `passkey-first-${run}@example.com`;
+
+await step("passkey.addPasskey signed out with a context (passkey-first sign-up)", async () => {
+  if (restoredAuthenticatorId) {
+    await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId: restoredAuthenticatorId });
+  }
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  });
+  const before = await page.evaluate(() => window.client.getSession());
+  check("signed out first", before.data === null, before);
+  const { data, error }: Result = await page.evaluate(
+    (context) => window.client.passkey.addPasskey({ name: "First", context, createSession: true }),
+    firstEmail,
+  );
+  check("no error", !error, error);
+  check("returns the passkey", data?.name === "First" && typeof data?.credentialID === "string", data);
+  check("creates the user", data?.user?.email === firstEmail, data);
+  check("the user's email is unverified", data?.user?.emailVerified === false, data);
+  check("the passkey is the new user's", data?.userId === data?.user?.id, data);
+  check("returns the session", typeof data?.session?.token === "string", data);
+  const session = await page.evaluate(() => window.client.getSession());
+  check("getSession is the new user", session.data?.user?.email === firstEmail, session);
+  await page.evaluate(() => window.client.signOut());
+  const signedIn: Result = await page.evaluate(() => window.client.signIn.passkey());
+  check("signIn.passkey signs the new user in", signedIn.data?.user?.email === firstEmail, signedIn);
+  await page.evaluate(() => window.client.signOut());
+});
+
+await step("passkey.addPasskey signed out for a taken email", async () => {
+  const { data, error }: Result = await page.evaluate(
+    (context) => window.client.passkey.addPasskey({ name: "Taken", context }),
+    email,
+  );
+  check("no data", !data, data);
+  check("status 422", error?.status === 422, error);
+  check(
+    "error.code USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+    error?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+    error,
+  );
+});
+
+await step("passkey.addPasskey signed out without a context", async () => {
+  const { data, error }: Result = await page.evaluate(() => window.client.passkey.addPasskey({ name: "None" }));
+  check("no data", !data, data);
+  check("status 400 from the resolver", error?.status === 400, error);
+  check("error.code EMAIL_REQUIRED", error?.code === "EMAIL_REQUIRED", error);
 });
 
 await browser.close();
