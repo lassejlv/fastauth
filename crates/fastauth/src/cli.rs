@@ -351,7 +351,7 @@ mod tests {
         let (result, out) = execute(Command::Status, &auth).await;
         assert_eq!(result.unwrap_err().to_string(), "8 migration steps pending");
         assert!(
-            out.starts_with("8 pending steps:\n  create table user (7 columns, owner core)\n"),
+            out.starts_with("8 pending steps:\n  create table user (8 columns, owner core)\n"),
             "{out}"
         );
 

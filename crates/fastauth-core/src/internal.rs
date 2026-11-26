@@ -713,6 +713,12 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .ok_or_else(|| AuthError::internal("user deleted while claiming it"))
     }
 
+    /// [`claim_user`](Self::claim_user) without an account to link, the 0.5 name.
+    #[deprecated(since = "0.5.1", note = "use `claim_user(user, None)`")]
+    pub async fn claim_unverified_user(&self, user: UserView) -> Result<UserView, AuthError> {
+        self.claim_user(user, None).await
+    }
+
     /// The claim's statements, in `tx`. The user row is written first, so a concurrent
     /// [`stamp_holds`](Self::stamp_holds) waits for the claim. `None` when the user was
     /// verified meanwhile; otherwise how many sessions were revoked.

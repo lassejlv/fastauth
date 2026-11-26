@@ -90,10 +90,12 @@ defaulting to `/` and the other two callbacks included when you passed them.
 1. **Finds or creates the user.** An unknown email creates a user with `emailVerified: true`
    and the `name` from the sign-in request (or `""`).
 2. **Claims an unverified user.** If the email belongs to a user whose email isn't
-   verified, the link is the first proof of who owns it. Every account (password and OAuth
-   links), session and [passkey](03-passkey.md#claimed-users) that user had is deleted, and
-   the email is marked verified, so whoever registered the address first keeps no access.
-   Better Auth does the same, except for passkeys.
+   verified, the link is the first proof of who owns it. Core
+   [claims the user](../../concepts/03-security.md#claiming-an-email) in one transaction:
+   every account (password and OAuth links), session, [passkey](03-passkey.md#claimed-users),
+   API key and two-factor enrollment that user had is deleted, and the email is marked
+   verified, so whoever registered the address first keeps no access. Better Auth does the
+   same, except for passkeys, API keys and two-factor.
 3. **Signs in** through every plugin's sign-in gate, with method `"magic-link"`.
 4. **Answers.** With `callbackURL` in the query, a `302` to it, or to `newUserCallbackURL`
    when step 1 created the user. Without one, Better Auth's `{ token, user, session }` JSON.

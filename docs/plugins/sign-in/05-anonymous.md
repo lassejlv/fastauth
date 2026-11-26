@@ -82,6 +82,12 @@ session belongs to the same user or to another anonymous user. An error from
 session already exists, so the client can retry the link by signing in again. A failure to
 delete is logged and doesn't fail the sign-in.
 
+**Becoming a real account.** A guest whose email gets verified, for example by moving to a
+real address with [email OTP's change-email](02-email-otp.md#changing-the-email), is no longer
+anonymous: `isAnonymous` turns `false`, and signing in to another account in that browser
+keeps it instead of deleting it. Better Auth keeps `isAnonymous: true`, so its next sign-in
+there deletes the account the guest just made real.
+
 **Deleting.** `POST /delete-anonymous-user` deletes the signed-in anonymous user with their
 sessions and accounts, clears the session cookies and answers `{ "success": true }`.
 
