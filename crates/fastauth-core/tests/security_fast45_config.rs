@@ -14,10 +14,7 @@ use common::{Client, ORIGIN, secret};
 use fastauth_core::ClientAddr;
 use fastauth_core::crypto::Argon2id;
 use fastauth_core::mail::{AuthEmail, MailError, Mailer, MemoryMailer, ResetPassword};
-use fastauth_core::model::Model;
-use fastauth_core::plugin_prelude::Where;
 use fastauth_core::prelude::*;
-use fastauth_core::session::{SessionView, UserView};
 use http::{Method, Request, StatusCode, header};
 use serde_json::json;
 
@@ -450,28 +447,9 @@ async fn sec_debug_output_redacts_tokens() {
     let mut client = Client::new(auth.clone());
     let res = client.sign_up("ada@acme.dk", "correct horse").await;
     let token = res.json["token"].as_str().unwrap().to_owned();
-    let api = auth.api();
-    let row = api
-        .db()
-        .find::<Session>(Where::all())
-        .one_row()
-        .await
-        .unwrap()
-        .unwrap();
-    let user = api
-        .db()
-        .find::<User>(Where::all())
-        .one_row()
-        .await
-        .unwrap()
-        .unwrap();
-    let view = SessionView {
-        session: Session::decode(&row).unwrap(),
-        row,
-        user: UserView::from_row(user).unwrap(),
-        token: Some(token.clone()),
-        ephemeral: false,
-    };
+    let session = auth.get_session_by_token(&token).await.unwrap().unwrap();
+    let view = session.view();
+    assert_eq!(view.token.as_deref(), Some(token.as_str()));
     let view_debug = format!("{view:?}");
 
     let mut leaks = Vec::new();
