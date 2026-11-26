@@ -55,7 +55,7 @@ pub async fn migration_sql(auth: &AppAuth) -> Result<String, Box<dyn std::error:
 }
 ```
 
-`plan.steps` print as `create table user (7 columns, owner core)`, `create index on
+`plan.steps` print as `create table user (8 columns, owner core)`, `create index on
 session.user_id`, `add column user.plan (Text, owner app)`. `sql()` renders the same plan as
 `CREATE TABLE`, `ALTER TABLE` and `CREATE INDEX` statements for the pool's database (adding
 `Profile` below gives `ALTER TABLE "user" ADD COLUMN "plan" text NOT NULL DEFAULT 'free';`),

@@ -251,7 +251,7 @@ impl<D: Adapter> Endpoint<D> for VerifyMagicLink {
         }
 
         let (user, is_new) = match internal.find_user_by_email(&record.email).await? {
-            Some(user) => (internal.claim_unverified_user(user).await?, false),
+            Some(user) => (internal.claim_user(user, None).await?, false),
             None if self.0.disable_sign_up => return fail("new_user_signup_disabled", None),
             None => {
                 let new_user = NewUser {

@@ -188,7 +188,8 @@ impl Plugin for TwoFactor {
         app.sign_in_gate(move |ctx, attempt| {
             let plugin = plugin.clone();
             async move { endpoints::gate(&plugin, ctx, attempt).await }
-        });
+        })
+        .on_claim(|claim| Box::pin(endpoints::end_on_claim(claim)));
     }
 }
 

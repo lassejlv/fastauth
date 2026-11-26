@@ -59,7 +59,7 @@ Core tables (column names in snake_case; JSON uses camelCase):
 
 | Table | Columns |
 |---|---|
-| `user` | `id`, `email` (unique), `email_verified`, `name`, `image`, `created_at`, `updated_at` |
+| `user` | `id`, `email` (unique), `email_verified`, `name`, `image`, `security_stamp` (never sent to clients; [Claiming an email](03-security.md#claiming-an-email)), `created_at`, `updated_at` |
 | `session` | `id`, `token_hash` (unique), `user_id` → user, `expires_at`, `ip_address`, `user_agent`, `created_at`, `updated_at` |
 | `account` | `id`, `user_id` → user, `provider_id`, `account_id`, `password_hash`, `access_token` (encrypted), `refresh_token` (encrypted), `id_token`, `access_token_expires_at`, `refresh_token_expires_at`, `scope`, `created_at`, `updated_at` |
 | `verification` | `id`, `identifier`, `value_hash`, `data`, `expires_at`, `created_at`, `updated_at` |

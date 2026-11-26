@@ -32,8 +32,12 @@ impl Fields for AnonymousUser {
     }
 }
 
-/// Whether `user` was created by `/sign-in/anonymous`.
+/// Whether `user` was created by `/sign-in/anonymous` and is still a guest. A user whose
+/// email is verified (moved to a real address, for example with an email code) is a real
+/// account, whatever the column says, so linking never deletes it.
 pub fn is_anonymous(user: &UserView) -> bool {
-    user.fields::<AnonymousUser>()
-        .is_ok_and(|fields| fields.is_anonymous)
+    !user.email_verified
+        && user
+            .fields::<AnonymousUser>()
+            .is_ok_and(|fields| fields.is_anonymous)
 }

@@ -31,6 +31,37 @@
 - Organization role and permission checks on every route that changes something also read
   the session from the database now (the SESS-1 class).
 
+Fixes from the FAST-45 security review. One claim model now covers every path that proves an
+email: whoever proves control of an address becomes the only owner of its user
+([Claiming an email](docs/concepts/03-security.md#claiming-an-email)).
+
+- **ATO-1 (high):** a sign-in the first registrant left waiting at the two-factor step can no
+  longer finish after the owner claims the address; the claim deletes it, and the security
+  stamp refuses one already in flight.
+- **ATO-2 (high):** `/reset-password` with an emailed link now claims an unverified user, so
+  the first registrant's API keys, passkeys, OAuth links and two-factor no longer survive it.
+- **ATO-3 (high):** a verification link (`/verify-email`, `/email-otp/verify-email`) opened
+  without proof of the password claims the user and deletes the password, instead of
+  verifying the first registrant's account and leaving their password working.
+- **ATO-4 (high):** a verified social sign-in that claims a user deletes every earlier OAuth
+  link, not only the password, so a provider link the first registrant made stops signing in.
+- **ATO-5 (medium):** a claim deletes the user's two-factor enrollment (secret, backup codes,
+  trusted devices) and clears `twoFactorEnabled`.
+- **ATO-6 (medium):** plugin cleanup runs inside the claim's transaction
+  (`PluginBuilder::on_claim`) instead of on the post-commit `UserClaimed` event, so a sign-in
+  refused after the claim no longer leaves API keys or passkeys behind; a failing cleanup
+  fails the whole claim.
+- **ATO-7 (medium):** password-reset and email-verification links are bound to the user's
+  address and security stamp, so they die when the email changes or the user is claimed.
+- **ATO-8 (medium):** a guest whose email gets verified (email OTP change-email) is no longer
+  anonymous, so the next sign-in in that browser doesn't delete the account.
+- **ATO-10 (low):** username rules run wherever a client writes user fields
+  (`PluginBuilder::prepare_user_input`), so email-OTP sign-up validates `username`, and
+  `"username": null` no longer clears an immutable username.
+- **RACE-1 (medium):** a password sign-in that was in flight while the user was claimed no
+  longer keeps a session: every sign-in and account link compares the user's new
+  `security_stamp` before it finishes, on Postgres, SQLite and MySQL.
+
 ### Behaviour changes
 
 - With the cookie cache on, admin and organization routes that change something,
@@ -48,6 +79,28 @@
 - JWTs expire with their session at the latest.
 - The cookie-cache format changed, so every existing cache cookie is ignored once (the next
   request reads the database and writes a new one).
+- Opening a verification link signed out, in another browser than the one that signed up
+  (no session and no `pending_verification` cookie), deletes the user's password with
+  everything else from before the proof. The owner signs in with a magic link or code, or sets
+  a password with a reset. Better Auth only sets `emailVerified`.
+- `/reset-password` and email OTP's reset on an unverified user verify the email and delete
+  the user's other accounts, sessions, passkeys, API keys and two-factor, even with
+  `revoke_sessions_on_password_reset(false)`.
+- A sign-in or social link that was in progress while the user was claimed answers 401
+  `UNAUTHORIZED` instead of a session.
+- Password-reset and email-verification links sent before the upgrade no longer work; users
+  request a new one.
+- Sign-up and a sign-in refused with `EMAIL_NOT_VERIFIED` set a signed
+  `<prefix>.pending_verification` cookie that lives as long as a verification link.
+- A user with a verified email is never anonymous, whatever `is_anonymous` says.
+
+### Upgrading
+
+- **Database:** a new column, `user.security_stamp` (integer, not null, default 0). Run
+  `auth.migrator().run()` or `fastauth migrate` (or `fastauth generate` for a SQL file) on
+  Postgres, SQLite and MySQL; existing users get 0 and keep signing in.
+- **Plugins:** move credential cleanup from `on::<UserClaimed>` to `on_claim`.
+  `Internal::claim_unverified_user` is deprecated in favour of `claim_user(user, None)`.
 
 ### Core
 
@@ -60,6 +113,12 @@
   with its own expiry and plugin columns in one insert. `create_session` calls it.
 - `SessionView` has a new private field, so code outside core can't build one with a struct
   literal any more.
+- Claim model: `Internal::claim_user(user, link)`, `prove_email`, `create_user_verification` /
+  `consume_user_verification`, `link_account_unless_claimed`, `remember_password_holder` and
+  `user_fields`; `PluginBuilder::on_claim` with `Claim` and `prepare_user_input` with
+  `UserInput` (all in `plugin_prelude`); `User::SECURITY_STAMP` and
+  `UserView::security_stamp()`. `UserClaimed` is for notifications only. No public trait
+  changed.
 
 ## 0.5.0 (2026-11-26)
 

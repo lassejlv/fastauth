@@ -214,9 +214,9 @@ out answers `401 UNAUTHORIZED`.
 
 **Unverified emails.** Leave `email_verified` false unless your app has proven the visitor
 owns the address. An unverified user is claimed by whoever later proves the email with a
-magic link, an email code or a verified social account: core deletes the accounts and
-sessions from before the proof and emits `UserClaimed`, and the passkey plugin deletes that
-user's passkeys on it. So someone who signs up with another person's email keeps no way in.
+magic link, an email code, a password reset, a verification link or a verified social
+account: core deletes the accounts and sessions from before the proof, and the passkey plugin
+deletes that user's passkeys in the same transaction. So someone who signs up with another person's email keeps no way in.
 
 This is Better Auth's `registration: { requireSession: false, resolveUser }`. Better Auth
 leaves creating the user to an `afterVerification` callback; fastauth creates it from what the
@@ -263,8 +263,9 @@ own `verify-authentication` skips this and creates the session directly.
 ### Claimed users
 
 When proof of an email claims a user whose email wasn't verified (a magic link, an email
-code, a verified social account; see [Email OTP](02-email-otp.md)), core emits `UserClaimed`
-and the plugin deletes every passkey that user had. They were registered before anyone proved
+code, a password reset, a verification link, a verified social account; see
+[Claiming an email](../../concepts/03-security.md#claiming-an-email)), the plugin deletes every
+passkey that user had, inside the claim's transaction. They were registered before anyone proved
 the address, so they don't count as the owner's.
 
 ### Errors

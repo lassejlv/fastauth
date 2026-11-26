@@ -756,6 +756,29 @@ fn otp_identifier(user_id: &Id) -> String {
     format!("two-factor-otp:{user_id}")
 }
 
+/// Ends a claimed user's two-factor, inside the claim: the enrollment (TOTP secret and backup
+/// codes, so trusted-device cookies stop matching too), the `two_factor_enabled` flag, a
+/// sign-in waiting at the two-factor step and an emailed code. Whoever registered the address
+/// before the proof set all of these up.
+pub(crate) async fn end_on_claim<D: Adapter>(
+    claim: fastauth_core::internal::Claim<'_, D>,
+) -> Result<(), AuthError> {
+    let db = claim.db();
+    let user_id = claim.user_id();
+    db.delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(user_id))
+        .await?;
+    db.update::<User>(User::ID.eq(user_id))
+        .set(TwoFactorUser::TWO_FACTOR_ENABLED, false)
+        .exec()
+        .await?;
+    db.delete::<Verification>(Verification::IDENTIFIER.in_([
+        format!("{PENDING_PREFIX}{user_id}"),
+        otp_identifier(user_id),
+    ]))
+    .await?;
+    Ok(())
+}
+
 /// Codes in Better Auth's shape: ten letters and digits, split `xxxxx-xxxxx`.
 fn new_backup_codes(count: usize) -> Vec<String> {
     (0..count)

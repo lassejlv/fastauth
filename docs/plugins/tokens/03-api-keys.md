@@ -356,9 +356,11 @@ The plugin adds no extractors of its own. What changes:
   codes.
 - **Bans apply.** The core session gates run on it, so a banned owner's key answers
   `403 BANNED_USER` ([Admin](../access/02-admin.md#bans)), and banning disables the owner's keys.
-- **Claims delete keys.** When a magic link, an email code or a verified social account
-  claims a user whose email wasn't verified, every key that user had is deleted (core's
-  `UserClaimed` event), whether `.sessions` is on or not. The keys were made before anyone
+- **Claims delete keys.** When a magic link, an email code, a password reset, a verification
+  link or a verified social account claims a user whose email wasn't verified, every key that
+  user had is deleted in the claim's transaction
+  ([Claiming an email](../../concepts/03-security.md#claiming-an-email)), whether `.sessions`
+  is on or not. The keys were made before anyone
   proved the address, so whoever registered it first keeps no key to it.
 - **Permissions aren't checked.** A key with `{ "files": ["read"] }` gets a full session for
   its owner, as in Better Auth: every route that takes a session, `/admin/*` included for an

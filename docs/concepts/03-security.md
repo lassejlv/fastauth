@@ -195,6 +195,62 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
 
 `LogMailer` and `MemoryMailer` do no I/O, so they still send before the response.
 
+## Claiming an email
+
+Anyone can sign up with an address they don't own: nothing proves the mailbox until a link or
+code sent to it comes back. So whoever proves control of an email becomes the only owner of
+its user, on every path that proves one:
+
+- a magic link, and an email code that signs in or resets a password;
+- `/reset-password` with a link from `/request-password-reset` (the link was mailed to the
+  address, so it proves the mailbox like a magic link does);
+- a social sign-in or link where the provider verified the email;
+- `/verify-email` and `/email-otp/verify-email`, unless the request also proves it holds the
+  password (below).
+
+When one of these lands on a user whose email isn't verified, core claims the user in **one
+database transaction**. It changes the user's security stamp, marks the email verified, and
+deletes every account (the password and every OAuth link), every session, the user's
+verification and reset links, and whatever each plugin registered with
+[`on_claim`](../reference/01-plugin-authoring.md#claiming-a-user): passkeys, API keys, the
+two-factor enrollment (TOTP secret, backup codes, so trusted-device cookies stop matching)
+and a sign-in waiting at the two-factor step. If any of it fails, nothing is committed and the
+request fails, so the next proof claims the user again. The `UserClaimed` event is sent after
+the commit, for notifications only.
+
+**The security stamp.** `user.security_stamp` is a random number, never sent to clients,
+that every claim changes. A sign-in reads it with the user before checking the password, code
+or passkey, and the session is only kept if the stamp is still the same once it exists
+(a locking check that waits for a claim in progress). The same holds for a pending two-factor
+sign-in, an OAuth callback, and links to reset a password or verify an email, which carry the
+stamp and the address they were sent to. So a sign-in that started before a claim can't finish
+after it, and a reset or verification link dies when the user is claimed or changes email.
+
+**Verification links.** A verification link proves the mailbox, but not that the person who
+opens it set the password. When the request also carries the user's session, or the signed
+`pending_verification` cookie that sign-up (and a sign-in refused with `EMAIL_NOT_VERIFIED`)
+leaves in the browser that knew the password, the email is just marked verified. Otherwise
+the link claims the user: the password is deleted with everything else, and the owner signs
+in with a magic link or code, or sets a password with a reset. Without this, someone who signed
+up with your address first would sign in to your account with their password as soon as you
+verified it.
+
+**Stricter than Better Auth.** Better Auth 1.7.28 marks the email verified on these paths and
+keeps everything else: the first registrant's password (verify-email), their passkeys, API
+keys, two-factor and OAuth links (reset-password, verify-email), and a sign-in that is in
+flight. fastauth's claim covers all of them. What an app notices:
+
+- Opening a verification link in another browser than the one that signed up, while signed
+  out, deletes the password. The owner then uses a magic link, an email code, or a reset.
+- `/reset-password` on an unverified user verifies the email, deletes the user's other
+  accounts, passkeys, API keys and two-factor, and signs them out everywhere, even with
+  `revoke_sessions_on_password_reset(false)`.
+- A sign-in that was checking the password while the user was claimed answers 401
+  `UNAUTHORIZED` instead of a session.
+
+**Not covered.** JWTs issued before a claim stay valid until they expire (15 minutes by
+default), and organization memberships and invitations of the claimed user are kept.
+
 ## OAuth
 
 - `state` and PKCE (S256) on every provider, including ones that don't require PKCE.
@@ -218,13 +274,11 @@ OTP's `send-verification-otp` and `request-password-reset`. They also take the s
 - A token response's `expires_in` and `refresh_token_expires_in` are clamped to 10 years,
   and negative values are ignored, so a broken or hostile token endpoint can't crash the
   callback.
-- Linking to a user whose email was never verified closes the pre-registration attack (someone
-  signs up with your email and a password before you first sign in with Google). In one
-  transaction, the user's `credential` account is deleted, all of the user's sessions are
-  revoked, the email is marked verified, and the social account is linked. The person who
-  proved the email through the provider ends up as the only one who can sign in. A legitimate
-  owner who never verified their email loses their password and can set a new one with a
-  password reset.
+- Linking to a user whose email was never verified claims it ([Claiming an email](#claiming-an-email)):
+  the social account is linked in the same transaction that deletes the user's other accounts,
+  sessions and plugin credentials, so the person who proved the email through the provider is
+  the only one who can sign in. A legitimate owner who never verified their email loses their
+  password and can set a new one with a password reset.
 
 ## Bearer tokens and JWTs
 

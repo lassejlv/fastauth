@@ -111,13 +111,18 @@ a user with `emailVerified: true`. Extra body keys are user fields, checked like
 [sign-up](../../get-started/03-configuration.md#user-fields): an unknown or non-`input` field answers `400 INVALID_FIELD`.
 
 **Claiming unverified users.** A code proves who owns the email. When a sign-in or
-password-reset code lands on a user whose email isn't verified, every account (password
-and OAuth links), session and [passkey](03-passkey.md#claimed-users) that user had is
-deleted first and the email is marked verified, so whoever registered the address first
-keeps no access. Better Auth does the same for sign-in, except for passkeys. Password reset then creates a fresh password.
+password-reset code lands on a user whose email isn't verified, core
+[claims the user](../../concepts/03-security.md#claiming-an-email) in one transaction: every
+account (password and OAuth links), session, [passkey](03-passkey.md#claimed-users), API key
+and two-factor enrollment that user had is deleted and the email is marked verified, so
+whoever registered the address first keeps no access. Better Auth does the same for sign-in,
+except for passkeys, API keys and two-factor. Password reset then creates a fresh password.
 
 **Verifying an email.** `/email-otp/verify-email` sets `emailVerified` and emits
-`EmailVerified`. `token` is `null` unless `auto_sign_in_after_verification` is on.
+`EmailVerified` when the request also proves it holds the password: it carries the user's
+session, or the cookie sign-up left in that browser. Otherwise the code claims the user like a
+sign-in code does, and the password is deleted ([why](../../concepts/03-security.md#claiming-an-email)).
+Better Auth only sets `emailVerified`. `token` is `null` unless `auto_sign_in_after_verification` is on.
 
 **Resetting a password.** `check-verification-otp` lets a form check the code before asking
 for the new password; it keeps the code. `reset-password` uses it up, sets the password,

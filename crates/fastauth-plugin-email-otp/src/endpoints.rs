@@ -4,7 +4,7 @@ use fastauth_core::adapter::DbError;
 use fastauth_core::events::{EmailVerified, PasswordChanged, UserUpdated};
 use fastauth_core::mail::{AuthEmail, PluginEmail};
 use fastauth_core::plugin_prelude::*;
-use fastauth_core::routes::{normalize_email, user_input_fields};
+use fastauth_core::routes::normalize_email;
 use serde_json::{Map, Value as Json};
 
 use crate::otp::{self, OnMatch};
@@ -222,18 +222,7 @@ impl<D: Adapter> Endpoint<D> for VerifyEmailOtp {
             .find_user_by_email(&email)
             .await?
             .ok_or_else(user_not_found)?;
-        ctx.db()
-            .update::<User>(User::ID.eq(&user.id))
-            .set(User::EMAIL_VERIFIED, true)
-            .exec()
-            .await?;
-        ctx.emit(EmailVerified {
-            user_id: user.id.clone(),
-        });
-        let user = internal
-            .find_user_by_id(&user.id)
-            .await?
-            .ok_or_else(|| AuthError::internal("user deleted while verifying its email"))?;
+        let user = internal.prove_email(user).await?;
         let json = user.to_json();
         if !ctx
             .config()
@@ -307,7 +296,7 @@ impl<D: Adapter> Endpoint<D> for SignInEmailOtp {
         otp::verify(&ctx, &self.0, &identifier, &input.otp, OnMatch::Consume).await?;
         let internal = ctx.internal();
         let user = match internal.find_user_by_email(&email).await? {
-            Some(user) => internal.claim_unverified_user(user).await?,
+            Some(user) => internal.claim_user(user, None).await?,
             None if self.0.disable_sign_up => return Err(EmailOtpError::InvalidOtp.into()),
             None => {
                 let new_user = NewUser {
@@ -315,7 +304,9 @@ impl<D: Adapter> Endpoint<D> for SignInEmailOtp {
                     name: input.name.unwrap_or_default(),
                     image: input.image,
                     email_verified: true,
-                    extra: user_input_fields(&ctx, &input.extra, true)?,
+                    extra: internal
+                        .user_fields(&input.extra, UserInput::SignUp)
+                        .await?,
                 };
                 internal.create_user(new_user, None).await?
             }
@@ -364,7 +355,7 @@ impl<D: Adapter> Endpoint<D> for ResetPasswordOtp {
             .find_user_by_email(&email)
             .await?
             .ok_or_else(user_not_found)?;
-        let user = internal.claim_unverified_user(user).await?;
+        let user = internal.claim_user(user, None).await?;
         internal.set_password(&user.id, &input.password).await?;
         if ctx
             .config()

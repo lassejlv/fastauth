@@ -79,10 +79,12 @@ pub struct EmailVerified {
     pub user_id: Id,
 }
 
-/// Emitted when proof of an email (a magic link, an email code, a verified social profile)
-/// claimed a user whose email wasn't verified: the accounts and sessions it collected before
-/// the proof are gone. Plugins that keep sign-in credentials of their own, such as passkeys,
-/// delete them on this event, so whoever registered the address first keeps no way in.
+/// Emitted after proof of an email (a magic link, an email code, a reset or verification
+/// link, a verified social profile) claimed a user whose email wasn't verified: the accounts,
+/// sessions and plugin credentials it collected before the proof are gone. For notifications
+/// only; plugins delete their credentials with
+/// [`PluginBuilder::on_claim`](crate::plugin::PluginBuilder::on_claim), inside the claim's
+/// transaction, because events are dropped when the request then fails.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserClaimed {
     pub user_id: Id,

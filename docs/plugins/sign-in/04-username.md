@@ -80,6 +80,11 @@ refuses a name another user has. Sending your own username back (in any case) is
 **Server-side users.** `auth.api().create_user(..)` with `username` in `fields` is checked
 and normalized like a sign-up.
 
+The checks run wherever a client writes user fields, so an [email OTP](02-email-otp.md)
+sign-in that creates the user checks `username` too. With `immutable_username`, sending
+`"username": null` to clear a name is refused like any other change. Better Auth lets
+email-OTP sign-up skip the checks and lets `null` clear an immutable name.
+
 ### Errors
 
 | Code | Status | When |
