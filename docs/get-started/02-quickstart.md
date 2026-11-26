@@ -141,6 +141,25 @@ socket address is the proxy's, so tell fastauth which header holds the client's 
 })
 ```
 
+On actix-web, the same server mounts `auth.scope()` and takes the session from
+`fastauth::actix` ([actix-web](../integrations/03-actix.md)), and actix passes the peer address
+itself:
+
+```rust
+use actix_web::{App, HttpServer, web};
+use fastauth::actix::{AuthScope, Session};
+
+HttpServer::new(move || {
+    App::new()
+        .app_data(web::Data::new(auth.clone()))
+        .service(auth.scope())
+        .route("/me", web::get().to(me))   // me(session: Session<AppAuth>) -> HttpResponse
+})
+.bind(("0.0.0.0", 3000))?
+.run()
+.await?;
+```
+
 ## 6. Try it
 
 ```bash

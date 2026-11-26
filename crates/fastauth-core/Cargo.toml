@@ -15,12 +15,15 @@ workspace = true
 
 [features]
 axum = ["dep:axum-core"]
+## `AuthError` as an actix-web `ResponseError` and `ApiResponse` as a `Responder`.
+actix = ["dep:actix-web"]
 ## `#[derive(Fields)]`, `#[derive(Model)]` and `#[derive(AuthError)]`, re-exported next to their traits.
 macros = ["dep:fastauth-macros"]
 # The adapter conformance suite: `testing::run_adapter_conformance`.
 testing = []
 
 [dependencies]
+actix-web = { version = "4.20.0", default-features = false, optional = true }
 axum-core = { version = "0.5.6", optional = true }
 argon2 = { version = "0.6.0", features = ["getrandom"] }
 base64 = "0.23.1"

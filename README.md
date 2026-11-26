@@ -104,6 +104,7 @@ apps on SQLite and in memory.
 | [`fastauth`](https://crates.io/crates/fastauth) | The crate apps depend on: re-exports everything below behind features |
 | [`fastauth-core`](https://crates.io/crates/fastauth-core) | Builder, compile-checked plugin list, sessions, crypto, routing, email and password, verification, reset |
 | [`fastauth-axum`](https://crates.io/crates/fastauth-axum) | `auth.router()`, `Session` / `FreshSession` extractors, the session layer |
+| [`fastauth-actix`](https://crates.io/crates/fastauth-actix) | The same for actix-web: `auth.scope()`, the extractors, the session middleware (0.5) |
 | [`fastauth-sqlx`](https://crates.io/crates/fastauth-sqlx) | Postgres and SQLite adapter, migrations, shared transactions (`.in_tx`) |
 | [`fastauth-macros`](https://crates.io/crates/fastauth-macros) | `#[derive(Fields, Model, AuthError)]` |
 | [`fastauth-oauth`](https://crates.io/crates/fastauth-oauth) | The `Social` plugin: GitHub and Google |
@@ -126,7 +127,7 @@ The HTTP API is compatible with Better Auth's TypeScript client (tested against
 Svelte clients work against a fastauth server.
 
 Not built yet: other plugins, teams in organizations,
-actix-web, Redis and MySQL. [Overview](docs/get-started/01-overview.md#planned) lists what's planned.
+Redis and MySQL. [Overview](docs/get-started/01-overview.md#planned) lists what's planned.
 
 ## Docs
 
@@ -154,6 +155,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 | Page | What it covers |
 |---|---|
 | [HTTP and axum](docs/integrations/01-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
+| [actix-web](docs/integrations/03-actix.md) | The auth scope, extractors and session middleware for actix-web 4 |
 | [Better Auth client](docs/integrations/02-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
 
 ### Plugins
