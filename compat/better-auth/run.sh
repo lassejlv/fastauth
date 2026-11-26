@@ -2,7 +2,8 @@
 # Runs Better Auth's TypeScript client against the axum_sqlite example, or with SERVER=actix
 # against actix_sqlite (the same app on actix-web): builds the example, starts it on
 # localhost:$PORT (3000 unless set) with a fresh database, runs compat.ts, and stops the server.
-# Needs cargo and bun. Exits non-zero when any check fails.
+# Needs cargo and bun. Exits non-zero when any check fails. With DATABASE_URL set to an empty
+# MySQL database (mysql://...), the axum server runs on MySQL.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +16,10 @@ case "$kind" in
   actix) features="actix,$features" ;;
   *) echo "SERVER must be axum or actix, not $kind" >&2; exit 1 ;;
 esac
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  [[ "$kind" == axum ]] || { echo "DATABASE_URL (MySQL) needs SERVER=axum" >&2; exit 1; }
+  features="$features,mysql"
+fi
 example="${kind}_sqlite"
 work="$(mktemp -d)"
 server=""

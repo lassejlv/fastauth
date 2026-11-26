@@ -1,5 +1,5 @@
-//! The sqlx adapter for [fastauth](https://github.com/lassejlv/fastauth): Postgres and SQLite,
-//! with migrations. See `docs/concepts/02-database.md`.
+//! The sqlx adapter for [fastauth](https://github.com/lassejlv/fastauth): Postgres, SQLite and
+//! MySQL, with migrations. See `docs/concepts/02-database.md`.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,6 +13,8 @@
 //! ```
 
 mod driver;
+#[cfg(feature = "mysql")]
+mod mysql;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod render;
@@ -24,7 +26,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use fastauth_core::adapter::{
-    Adapter, DbError, DbResult, Delete, Filter, Insert, Queries, Select, SessionWithUser,
+    Adapter, DbError, DbResult, Delete, Filter, Insert, Op, Queries, Select, SessionWithUser,
     Transaction, Update,
 };
 use fastauth_core::migrate::{LiveSchema, MigrationPlan, index_name};
@@ -36,6 +38,8 @@ use tokio::sync::{Mutex, MutexGuard};
 
 pub use sqlx;
 pub use sqlx::Pool;
+#[cfg(feature = "mysql")]
+pub use sqlx::{MySql, MySqlPool};
 #[cfg(feature = "postgres")]
 pub use sqlx::{PgPool, Postgres};
 #[cfg(feature = "sqlite")]
@@ -45,14 +49,15 @@ use crate::driver::stored_type;
 use crate::render::{Names, Sql, Statement};
 pub use crate::tx::{InTx, SharedTx};
 
-/// A database this crate supports: [`Postgres`] or [`Sqlite`], each behind the feature of
-/// the same name. Sealed.
+/// A database this crate supports: [`Postgres`], [`Sqlite`] or [`MySql`], each behind the
+/// feature of the same name (`postgres`, `sqlite`, `mysql`). Sealed.
 pub trait Dialect: driver::Driver {}
 
 impl<DB: driver::Driver> Dialect for DB {}
 
 /// The fastauth adapter over a sqlx pool. `Sqlx::new(pool)` infers the database from the
-/// pool: a `PgPool` gives `Sqlx<Postgres>`, a `SqlitePool` gives `Sqlx<Sqlite>`.
+/// pool: a `PgPool` gives `Sqlx<Postgres>`, a `SqlitePool` gives `Sqlx<Sqlite>`, a
+/// `MySqlPool` gives `Sqlx<MySql>`.
 ///
 /// Query text is rendered once per query shape and cached; values are always bind
 /// parameters. Clones share the pool and the cache.
@@ -176,6 +181,16 @@ impl Sqlx<Postgres> {
     }
 }
 
+#[cfg(feature = "mysql")]
+impl Sqlx<MySql> {
+    /// The MySQL database for fastauth's tables (MySQL's schemas are databases). Default:
+    /// the connection's database. The migrator creates it if it doesn't exist.
+    pub fn schema(self, schema: impl Into<String>) -> Self {
+        let schema = schema.into();
+        self.with_names(|names| names.schema = Some(schema))
+    }
+}
+
 /// A transaction from [`Adapter::begin`]: a new one on a pool connection, or a savepoint
 /// when the adapter is bound to an app transaction. Dropping it without `commit` rolls back.
 pub struct SqlxTx<DB: Dialect> {
@@ -260,11 +275,45 @@ async fn execute<DB: Dialect>(
 
 async fn insert<DB: Dialect>(conn: &mut DB::Connection, sql: &Sql, q: Insert<'_>) -> DbResult<Row> {
     let table = q.table;
+    if !DB::RETURNING {
+        return insert_and_read_back::<DB>(conn, sql, q).await;
+    }
     let rows = fetch::<DB>(conn, sql, sql.insert::<DB>(q), table).await?;
     let row = rows
         .first()
         .ok_or_else(|| DbError::Schema(format!("insert into `{}` returned no row", table.name)))?;
     decode::<DB>(table, row, 0)
+}
+
+/// An insert where the database has no `RETURNING`: the row is read back by primary key, so
+/// it comes back as stored (timestamps at the column's precision, JSON normalized).
+async fn insert_and_read_back<DB: Dialect>(
+    conn: &mut DB::Connection,
+    sql: &Sql,
+    q: Insert<'_>,
+) -> DbResult<Row> {
+    let table = q.table;
+    let Some(key) = table.columns.iter().position(|column| column.primary_key) else {
+        let values = q.values.clone();
+        execute::<DB>(conn, sql, sql.insert::<DB>(q), table).await?;
+        return Ok(Row::new(table.clone(), values));
+    };
+    let value = q.values[key].clone();
+    execute::<DB>(conn, sql, sql.insert::<DB>(q), table).await?;
+    let select = Select {
+        table,
+        filter: Filter::Cmp {
+            column: key,
+            op: Op::Eq,
+            value,
+        },
+        order: Vec::new(),
+        limit: None,
+        offset: None,
+    };
+    find_one::<DB>(conn, sql, select)
+        .await?
+        .ok_or_else(|| DbError::Schema(format!("the row inserted into `{}` is gone", table.name)))
 }
 
 async fn find_many<DB: Dialect>(

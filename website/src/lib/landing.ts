@@ -38,7 +38,7 @@ export const crates = [
   ["fastauth", "The crate apps depend on: re-exports everything below behind features"],
   ["fastauth-core", "Builder, compile-checked plugin list, sessions, crypto, routing, email and password, verification, reset"],
   ["fastauth-axum", "auth.router(), Session / FreshSession extractors, the session layer"],
-  ["fastauth-sqlx", "Postgres and SQLite adapter, migrations, shared transactions (.in_tx)"],
+  ["fastauth-sqlx", "Postgres, SQLite and MySQL adapter, migrations, shared transactions (.in_tx)"],
   ["fastauth-macros", "#[derive(Fields, Model, AuthError)]"],
   ["fastauth-oauth", "The Social plugin: GitHub and Google"],
   ["fastauth-plugin-two-factor", "TOTP, email codes, backup codes, trusted devices"],

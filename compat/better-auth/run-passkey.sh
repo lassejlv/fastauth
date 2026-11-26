@@ -4,7 +4,8 @@
 # Builds the example and the browser bundle, starts the server on localhost:$PORT (3000 unless
 # set) with a fresh in-memory database, runs passkey.ts and stops the server. Needs cargo, bun
 # and Chrome or Chromium (CHROME_PATH, else google-chrome, chromium or chromium-browser on
-# PATH). Exits non-zero when any check fails.
+# PATH). Exits non-zero when any check fails. With DATABASE_URL set to an empty MySQL database
+# (mysql://...), the server runs on MySQL.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

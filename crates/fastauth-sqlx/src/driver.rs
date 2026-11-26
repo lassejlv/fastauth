@@ -57,6 +57,16 @@ pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
 }
 
 pub trait Driver: Database {
+    /// The character identifiers are quoted with.
+    const QUOTE: char;
+    /// Whether `INSERT .. RETURNING` works. Without it, an insert reads its row back by
+    /// primary key.
+    const RETURNING: bool;
+    /// Whether PRIMARY KEY, UNIQUE and REFERENCES go in the column definition. MySQL parses
+    /// an inline REFERENCES and ignores it, so it gets table constraints instead.
+    const INLINE_CONSTRAINTS: bool;
+    /// Appended to `CREATE TABLE (..)`.
+    const TABLE_OPTIONS: &'static str;
     /// The case-sensitive pattern-match operator for text filters, and what follows its
     /// parameter.
     const TEXT_MATCH: (&'static str, &'static str);
@@ -70,10 +80,15 @@ pub trait Driver: Database {
     fn escape_pattern(text: &str) -> String;
     /// An identifier as the database stores it (Postgres truncates to 63 bytes).
     fn ident(name: String) -> String;
-    fn sql_type(ty: ColumnType) -> &'static str;
+    /// `keyed`: the column is an id, a key or indexed, so its type must be indexable.
+    fn sql_type(ty: ColumnType, keyed: bool) -> &'static str;
     fn bool_literal(value: bool) -> &'static str;
     /// The DEFAULT for `DefaultValue::Now`, in `CREATE TABLE` or in `ADD COLUMN`.
     fn now_default(adding: bool) -> String;
+    /// A rendered default as it follows `DEFAULT`.
+    fn default_expr(value: String) -> String {
+        value
+    }
 
     fn fetch_all(
         conn: &mut Self::Connection,

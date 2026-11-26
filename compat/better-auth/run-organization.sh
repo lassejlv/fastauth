@@ -2,6 +2,7 @@
 # Runs Better Auth's organizationClient against the organization plugin's compat_server example:
 # builds the example, starts it on localhost:$PORT (3000 unless set) with a fresh database, runs
 # organization.ts, and stops the server. Needs cargo and bun. Exits non-zero when any check fails.
+# With DATABASE_URL set to an empty MySQL database (mysql://...), the server runs on MySQL.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

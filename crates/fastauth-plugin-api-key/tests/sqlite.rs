@@ -1,34 +1,58 @@
-//! The same counters on a real database: SQLite through the sqlx adapter, several
-//! connections to one file.
+//! The same counters on real databases: SQLite through the sqlx adapter, several
+//! connections to one file, and, with `MYSQL_DATABASE_URL` set, MySQL.
 
+use fastauth_core::adapter::Adapter;
 use fastauth_core::crypto::{Argon2id, Secret};
 use fastauth_core::prelude::*;
+use fastauth_core::value::Id;
 use fastauth_plugin_api_key::{ApiKeys, ApiKeysExt, CreateApiKeyInput};
-use fastauth_sqlx::{Sqlite, SqlitePool, Sqlx};
+use fastauth_sqlx::sqlx::{AssertSqlSafe, Executor};
+use fastauth_sqlx::{MySqlPool, SqlitePool, Sqlx};
 
-type AppAuth = Auth<Sqlx<Sqlite>, (), plugins![ApiKeys]>;
-
-async fn auth() -> (AppAuth, std::path::PathBuf) {
-    let path = std::env::temp_dir().join(format!("fastauth-api-key-{}.db", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let pool = SqlitePool::connect(&format!("sqlite://{}?mode=rwc", path.display()))
-        .await
-        .expect("SQLite file");
-    let auth: AppAuth = FastAuth::builder()
+async fn auth<D: Adapter>(db: D) -> Auth<D, (), plugins![ApiKeys]> {
+    let auth: Auth<D, (), plugins![ApiKeys]> = FastAuth::builder()
         .secret(Secret::from_bytes(vec![42u8; 32]))
         .base_url("http://localhost:3000")
-        .database(Sqlx::new(pool))
+        .database(db)
         .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
         .plugin(ApiKeys::new())
         .build()
         .expect("valid config");
     auth.migrator().run().await.expect("migrations");
-    (auth, path)
+    auth
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn concurrent_verifies_on_sqlite() {
-    let (auth, path) = auth().await;
+    let path = std::env::temp_dir().join(format!("fastauth-api-key-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let pool = SqlitePool::connect(&format!("sqlite://{}?mode=rwc", path.display()))
+        .await
+        .expect("SQLite file");
+    concurrent_verifies(auth(Sqlx::new(pool)).await).await;
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn concurrent_verifies_on_mysql() {
+    let Ok(url) = std::env::var("MYSQL_DATABASE_URL") else {
+        eprintln!("MYSQL_DATABASE_URL is not set; skipping the MySQL test");
+        return;
+    };
+    let pool = MySqlPool::connect(&url)
+        .await
+        .expect("connect to MYSQL_DATABASE_URL");
+    let database = format!(
+        "fastauth_api_key_{}",
+        Id::new_v7().as_str().replace('-', "")
+    );
+    concurrent_verifies(auth(Sqlx::new(pool.clone()).schema(database.clone())).await).await;
+    pool.execute(AssertSqlSafe(format!("DROP DATABASE `{database}`")))
+        .await
+        .expect("drop the test database");
+}
+
+async fn concurrent_verifies<D: Adapter>(auth: Auth<D, (), plugins![ApiKeys]>) {
     let user = auth
         .api()
         .create_user(fastauth_core::routes::CreateUserInput {
@@ -119,5 +143,4 @@ async fn concurrent_verifies_on_sqlite() {
         .unwrap();
     assert_eq!(key.remaining, Some(1));
     assert_eq!(key.request_count, 2);
-    let _ = std::fs::remove_file(path);
 }

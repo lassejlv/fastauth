@@ -21,7 +21,7 @@ cargo add fastauth --features oauth,two-factor
 cargo install fastauth-cli   # `fastauth secret` for FASTAUTH_SECRET
 ```
 
-Default features are `axum`, `postgres` and `macros`. Use `sqlite` instead of (or as well as)
+Default features are `axum`, `postgres` and `macros`. Use `sqlite` or `mysql` instead of (or as well as)
 `postgres`, and add `oauth` for GitHub and Google sign-in, `two-factor` for TOTP, email codes and
 backup codes, `organization`, `admin`, `api-key`, `magic-link`, `email-otp`, `bearer`, `jwt`,
 `passkey`, `username`, `anonymous` and `multi-session` for those plugins, and `cli` for the migration commands. Requires Rust 1.94 or newer.
@@ -105,7 +105,7 @@ apps on SQLite and in memory.
 | [`fastauth-core`](https://crates.io/crates/fastauth-core) | Builder, compile-checked plugin list, sessions, crypto, routing, email and password, verification, reset |
 | [`fastauth-axum`](https://crates.io/crates/fastauth-axum) | `auth.router()`, `Session` / `FreshSession` extractors, the session layer |
 | [`fastauth-actix`](https://crates.io/crates/fastauth-actix) | The same for actix-web: `auth.scope()`, the extractors, the session middleware (0.5) |
-| [`fastauth-sqlx`](https://crates.io/crates/fastauth-sqlx) | Postgres and SQLite adapter, migrations, shared transactions (`.in_tx`) |
+| [`fastauth-sqlx`](https://crates.io/crates/fastauth-sqlx) | Postgres, SQLite and MySQL adapter, migrations, shared transactions (`.in_tx`) |
 | [`fastauth-macros`](https://crates.io/crates/fastauth-macros) | `#[derive(Fields, Model, AuthError)]` |
 | [`fastauth-oauth`](https://crates.io/crates/fastauth-oauth) | The `Social` plugin: GitHub and Google |
 | [`fastauth-plugin-two-factor`](https://crates.io/crates/fastauth-plugin-two-factor) | TOTP, email codes, backup codes, trusted devices |
@@ -127,7 +127,7 @@ The HTTP API is compatible with Better Auth's TypeScript client (tested against
 Svelte clients work against a fastauth server.
 
 Not built yet: other plugins, teams in organizations,
-Redis and MySQL. [Overview](docs/get-started/01-overview.md#planned) lists what's planned.
+Redis. [Overview](docs/get-started/01-overview.md#planned) lists what's planned.
 
 ## Docs
 

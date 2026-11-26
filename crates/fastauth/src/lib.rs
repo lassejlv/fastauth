@@ -7,7 +7,8 @@
 //! |---|---|
 //! | `axum` (default) | [`fastauth::axum`](crate::axum): `auth.router()`, the `Session` extractors, the session layer |
 //! | `actix` | [`fastauth::actix`](crate::actix): `auth.scope()`, the `Session` extractors, the session middleware for actix-web |
-//! | `postgres` (default), `sqlite` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
+//! | `postgres` (default), `sqlite`, `mysql` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
+//! | `mysql-tls` | `mysql`, plus TLS for database connections (sqlx's rustls backend), which MySQL 8's default login needs |
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
 //! | `two-factor` | [`fastauth::plugins::two_factor`](mod@crate::plugins): TOTP, email OTP, backup codes |
@@ -34,8 +35,10 @@ pub mod prelude {
     #[cfg(feature = "axum")]
     pub use fastauth_axum::{AuthRouter, FreshSession, Session};
     pub use fastauth_core::prelude::*;
-    #[cfg(any(feature = "postgres", feature = "sqlite"))]
+    #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
     pub use fastauth_sqlx::{InTx, SharedTx, Sqlx};
+    #[cfg(feature = "mysql")]
+    pub use fastauth_sqlx::{MySql, MySqlPool};
     #[cfg(feature = "postgres")]
     pub use fastauth_sqlx::{PgPool, Postgres};
     #[cfg(feature = "sqlite")]
@@ -52,8 +55,8 @@ pub use fastauth_axum as axum;
 #[cfg(feature = "actix")]
 pub use fastauth_actix as actix;
 
-/// The sqlx adapter for Postgres and SQLite.
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+/// The sqlx adapter for Postgres, SQLite and MySQL.
+#[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub use fastauth_sqlx as sqlx;
 
 /// Social sign-in: `.plugin(Social::new().provider(Github::new(id, secret)))`.
