@@ -2,7 +2,7 @@
 
 use fastauth_core::crypto::base64url;
 use fastauth_core::plugin_prelude::*;
-use fastauth_core::routes::Status;
+use fastauth_core::routes::{Status, normalize_email};
 use serde_json::{Map, Value as Json};
 use webauthn_rs::prelude::{
     Credential, PublicKeyCredential, RegisterPublicKeyCredential, Uuid, WebauthnError,
@@ -16,7 +16,7 @@ use crate::ceremony::{
     self, CHALLENGE_COOKIE, CHALLENGE_TTL, Challenge, IDENTIFIER, MULTI_DEVICE, SINGLE_DEVICE,
 };
 use crate::model::PasskeyRow;
-use crate::{Passkey, PasskeyAdded, PasskeyDeleted, PasskeyError};
+use crate::{Passkey, PasskeyAdded, PasskeyDeleted, PasskeyError, PasskeySignUp, PasskeyUser};
 
 /// A passkey as clients see it: Better Auth's row, camelCase, `credentialID` included.
 #[derive(Clone, Debug, Serialize)]
@@ -94,6 +94,29 @@ async fn user_passkeys<D: Adapter, A>(
         .await?)
 }
 
+/// The session registering a passkey: one younger than `fresh_age`, read again from the
+/// database (`Ctx::sensitive_session`), so API-key and impersonation sessions can't register
+/// passkeys. `None` when signed out, which only passkey-first sign-up accepts.
+async fn registering_session<D: Adapter>(
+    ctx: &Ctx<D, MaybeAuthenticated>,
+) -> Result<Option<SessionView>, AuthError> {
+    match ctx.session() {
+        None => Ok(None),
+        Some(session) if session.ephemeral || !ctx.config().is_fresh(&session.session) => {
+            Err(AuthError::not_fresh())
+        }
+        Some(_) => ctx.sensitive_session().await.map(Some),
+    }
+}
+
+/// Whom a registration adds the passkey to.
+enum Registrant {
+    /// The signed-in user.
+    User(Id),
+    /// A user passkey-first sign-up creates.
+    SignUp(PasskeyUser),
+}
+
 /// Query of `/passkey/generate-register-options`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,56 +128,74 @@ pub struct GenerateRegisterOptionsInput {
     /// The account name the authenticator shows. Default: the user's email.
     #[serde(default)]
     pub name: Option<String>,
-    /// Better Auth's passkey-first registration context. Accepted and ignored: fastauth
-    /// registers passkeys for signed-in users only.
+    /// Passkey-first sign-up's `context`, handed to the [`Passkey::sign_up`] resolver.
+    /// Ignored for signed-in users.
     #[serde(default)]
     pub context: Option<String>,
 }
 
 /// `GET /passkey/generate-register-options`: the `PublicKeyCredentialCreationOptions` to
-/// pass to `navigator.credentials.create()`. Needs a fresh session, read again from the
-/// database (`Ctx::sensitive_session`), so API-key and impersonation sessions can't
-/// register passkeys. The user's passkeys are excluded, so an authenticator can't register
-/// twice.
+/// pass to `navigator.credentials.create()`. Needs a fresh session that may mint
+/// credentials (see `registering_session`): `401` without one, `403 SESSION_NOT_FRESH`
+/// with an old or ephemeral one. The user's passkeys are excluded, so an authenticator can't
+/// register twice. Signed out, with [`Passkey::sign_up`] on, its resolver names the user
+/// the passkey will create.
 pub struct GenerateRegisterOptions(pub(crate) Arc<Passkey>);
 
 impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
     const METHOD: Method = Method::GET;
     const PATH: &'static str = "/passkey/generate-register-options";
-    type Access = Fresh;
+    type Access = MaybeAuthenticated;
     type Input = GenerateRegisterOptionsInput;
     type Output = PublicKeyCredentialCreationOptions;
 
     async fn call(
         &self,
-        ctx: Ctx<D, Fresh>,
+        ctx: Ctx<D, MaybeAuthenticated>,
         input: GenerateRegisterOptionsInput,
     ) -> Result<PublicKeyCredentialCreationOptions, AuthError> {
-        let session = ctx.sensitive_session().await?;
-        let user = &session.user;
-        let rp = self.0.relying_party(ctx.config())?;
-        let existing = user_passkeys(&ctx, &user.id).await?;
-        let exclude = existing
-            .iter()
-            .map(|row| {
-                Ok(PublicKeyCredentialDescriptor {
-                    type_: "public-key".into(),
-                    id: ceremony::credential_id(row)?,
-                    transports: ceremony::transports(row.transports.as_deref()),
+        let (account, exclude, pending) = match registering_session(&ctx).await? {
+            Some(session) => {
+                let user = session.user;
+                let exclude = user_passkeys(&ctx, &user.id)
+                    .await?
+                    .iter()
+                    .map(|row| {
+                        Ok(PublicKeyCredentialDescriptor {
+                            type_: "public-key".into(),
+                            id: ceremony::credential_id(row)?,
+                            transports: ceremony::transports(row.transports.as_deref()),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, AuthError>>()?;
+                let account = if user.email.is_empty() {
+                    user.id.to_string()
+                } else {
+                    user.email.clone()
+                };
+                (account, exclude, Registrant::User(user.id.clone()))
+            }
+            None => {
+                let resolve = self.0.sign_up.as_ref().ok_or(AuthError::unauthorized())?;
+                let user = resolve(PasskeySignUp {
+                    context: input.context,
+                    name: input.name.clone(),
                 })
-            })
-            .collect::<Result<Vec<_>, AuthError>>()?;
-        let account = if user.email.is_empty() {
-            user.id.as_str()
-        } else {
-            &user.email
+                .await?;
+                let user = PasskeyUser {
+                    email: normalize_email(&user.email)?,
+                    ..user
+                };
+                (user.email.clone(), Vec::new(), Registrant::SignUp(user))
+            }
         };
+        let rp = self.0.relying_party(ctx.config())?;
         let user_name = input.name.as_deref().filter(|n| !n.is_empty());
         let (mut options, state) = rp
             .start_passkey_registration(
                 Uuid::new_v4(),
-                user_name.unwrap_or(account),
-                account,
+                user_name.unwrap_or(&account),
+                &account,
                 Some(exclude.iter().map(|d| d.id.clone()).collect()),
             )
             .map_err(AuthError::internal)?;
@@ -165,14 +206,14 @@ impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
             selection.require_resident_key = false;
             selection.authenticator_attachment = input.authenticator_attachment;
         }
-        store_challenge(
-            &ctx,
-            &Challenge::Registration {
-                user_id: user.id.to_string(),
+        let challenge = match pending {
+            Registrant::SignUp(user) => Challenge::SignUp { user, state },
+            Registrant::User(user_id) => Challenge::Registration {
+                user_id: user_id.to_string(),
                 state,
             },
-        )
-        .await?;
+        };
+        store_challenge(&ctx, &challenge).await?;
         Ok(options.clone())
     }
 }
@@ -191,7 +232,8 @@ pub struct VerifyRegistrationInput {
     pub create_session: Option<bool>,
 }
 
-/// The new passkey; with `createSession`, also the new session and the user.
+/// The new passkey; with `createSession`, also the new session and the user, or for a
+/// passkey-first sign-up a sign-in gate's answer (`{"twoFactorRedirect": true}`) instead.
 #[derive(Debug, Serialize)]
 pub struct RegisterOutput {
     #[serde(flatten)]
@@ -200,34 +242,48 @@ pub struct RegisterOutput {
     pub session: Option<Map<String, Json>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<Map<String, Json>>,
+    #[serde(flatten)]
+    pub challenge: Option<Map<String, Json>>,
 }
 
 /// `POST /passkey/verify-registration`: verifies the authenticator's attestation against the
-/// challenge from `generate-register-options` and stores the passkey. Needs a fresh session,
-/// the same user's, read again from the database like `generate-register-options`.
+/// challenge from `generate-register-options` and stores the passkey. Needs the session
+/// `generate-register-options` needed, the same user's. A passkey-first sign-up's
+/// challenge only verifies signed out, and creates its user here.
 pub struct VerifyRegistration(pub(crate) Arc<Passkey>);
 
 impl<D: Adapter> Endpoint<D> for VerifyRegistration {
     const METHOD: Method = Method::POST;
     const PATH: &'static str = "/passkey/verify-registration";
-    type Access = Fresh;
+    type Access = MaybeAuthenticated;
     type Input = VerifyRegistrationInput;
     type Output = RegisterOutput;
 
     async fn call(
         &self,
-        ctx: Ctx<D, Fresh>,
+        ctx: Ctx<D, MaybeAuthenticated>,
         input: VerifyRegistrationInput,
     ) -> Result<RegisterOutput, AuthError> {
-        let session = ctx.sensitive_session().await?;
-        let rp = self.0.relying_party(ctx.config())?;
-        let Challenge::Registration { user_id, state } = take_challenge(&ctx).await? else {
-            return Err(PasskeyError::ChallengeNotFound.into());
-        };
-        let user_id = Id::from(user_id);
-        if user_id != session.user.id {
-            return Err(PasskeyError::NotAllowed.into());
+        let session = registering_session(&ctx).await?;
+        if session.is_none() && self.0.sign_up.is_none() {
+            return Err(AuthError::unauthorized());
         }
+        let rp = self.0.relying_party(ctx.config())?;
+        let (registrant, state) = match (take_challenge(&ctx).await?, session) {
+            (Challenge::Registration { user_id, state }, Some(session)) => {
+                let user_id = Id::from(user_id);
+                if user_id != session.user.id {
+                    return Err(PasskeyError::NotAllowed.into());
+                }
+                (Registrant::User(user_id), state)
+            }
+            (Challenge::SignUp { user, state }, None) => (Registrant::SignUp(user), state),
+            (Challenge::Registration { .. }, None) => return Err(AuthError::unauthorized()),
+            (Challenge::SignUp { .. }, Some(_)) => return Err(PasskeyError::NotAllowed.into()),
+            (Challenge::Authentication { .. }, _) => {
+                return Err(PasskeyError::ChallengeNotFound.into());
+            }
+        };
         let failed = PasskeyError::FailedToVerifyRegistration;
         let transports = input.response["response"]["transports"]
             .as_array()
@@ -255,6 +311,24 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
         {
             return Err(failed.into());
         }
+        let (user_id, new_user) = match registrant {
+            Registrant::User(user_id) => (user_id, None),
+            Registrant::SignUp(user) => {
+                let user = ctx
+                    .internal()
+                    .create_user(
+                        NewUser {
+                            email: user.email,
+                            name: user.name,
+                            email_verified: user.email_verified,
+                            ..NewUser::default()
+                        },
+                        None,
+                    )
+                    .await?;
+                (user.id.clone(), Some(user))
+            }
+        };
         let row = PasskeyRow {
             id: ctx.new_id()?,
             name: input
@@ -276,21 +350,32 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
             created_at: ctx.now(),
             aaguid: Some(attested.aaguid),
         };
-        ctx.db().insert(&row).await?;
+        if let Err(err) = ctx.db().insert(&row).await {
+            if new_user.is_some() {
+                ctx.db().delete::<User>(User::ID.eq(&user_id)).await?;
+            }
+            return Err(err.into());
+        }
         ctx.emit(PasskeyAdded {
             user_id: user_id.clone(),
             passkey_id: row.id.clone(),
         });
-        let (session, user) = if input.create_session == Some(true) {
-            let session = ctx.internal().create_session(&user_id, true).await?;
-            (Some(session.to_json()), Some(session.user.to_json()))
-        } else {
-            (None, None)
+        let (session, challenge) = match (input.create_session == Some(true), new_user) {
+            (false, _) => (None, None),
+            (true, None) => (
+                Some(ctx.internal().create_session(&user_id, true).await?),
+                None,
+            ),
+            (true, Some(user)) => match ctx.internal().sign_in(user, Passkey::ID, true).await? {
+                SignInResult::SignedIn(session) => (Some(*session), None),
+                SignInResult::Challenge(body) => (None, body.as_object().cloned()),
+            },
         };
         Ok(RegisterOutput {
             passkey: row.into(),
-            session,
-            user,
+            user: session.as_ref().map(|s| s.user.to_json()),
+            session: session.map(|s| s.to_json()),
+            challenge,
         })
     }
 }

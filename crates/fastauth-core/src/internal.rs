@@ -10,7 +10,9 @@ use crate::adapter::{Adapter, DbError, Transaction};
 use crate::crypto::{Hash, random_token};
 use crate::endpoint::{Ctx, Gate, SignInAttempt};
 use crate::error::{AuthError, codes};
-use crate::events::{AccountLinked, EmailVerified, SessionCreated, SessionRevoked, UserCreated};
+use crate::events::{
+    AccountLinked, EmailVerified, SessionCreated, SessionRevoked, UserClaimed, UserCreated,
+};
 use crate::mail::{AuthEmail, VerifyEmail};
 use crate::model::Model;
 use crate::models::{Account, Session, User, Verification};
@@ -460,7 +462,8 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
 
     /// Makes the person who just proved control of an email the only owner of its unverified
     /// user: deletes every account (password and OAuth links) and session the user collected
-    /// before the proof, then marks the email verified. Email-primary sign-ins (magic links,
+    /// before the proof, then marks the email verified and emits [`UserClaimed`], on which
+    /// plugins drop credentials of their own (passkeys). Email-primary sign-ins (magic links,
     /// email codes) call this when they land on a user whose email isn't verified, so whoever
     /// registered that address first keeps no access. A verified user comes back unchanged.
     pub async fn claim_unverified_user(&self, user: UserView) -> Result<UserView, AuthError> {
@@ -479,6 +482,9 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .exec()
             .await?;
         self.ctx.emit(EmailVerified {
+            user_id: user.id.clone(),
+        });
+        self.ctx.emit(UserClaimed {
             user_id: user.id.clone(),
         });
         self.find_user_by_id(&user.id)

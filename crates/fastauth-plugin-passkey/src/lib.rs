@@ -33,19 +33,26 @@
 //! ```
 //!
 //! A signed-in user adds a passkey with `generate-register-options` then
-//! `verify-registration`; anyone signs in with `generate-authenticate-options` then
+//! `verify-registration`; with [`Passkey::sign_up`], a signed-out visitor does the same and
+//! the passkey creates their user. Anyone signs in with `generate-authenticate-options` then
 //! `verify-authentication`. Each `generate-*` call stores its challenge server-side for five
 //! minutes, in the `verification` table, and names it in a signed `{prefix}.passkey` cookie;
 //! the matching `verify-*` call consumes it, so each challenge works once. Signing in runs the
 //! other plugins' sign-in gates with method `"passkey"`, and checks and advances the
-//! credential's signature counter.
+//! credential's signature counter. A user claimed by proof of their email
+//! ([`UserClaimed`](fastauth_core::events::UserClaimed)) loses the passkeys registered before
+//! the proof.
 
 mod ceremony;
 mod endpoints;
 mod error;
 mod model;
 
+use std::future::Future;
+use std::pin::Pin;
+
 use fastauth_core::config::CoreConfig;
+use fastauth_core::events::UserClaimed;
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::{ApiResponse, routes::Status};
 
@@ -65,11 +72,54 @@ pub use webauthn_rs;
 /// and ceremonies may come from `base_url`'s origin or any exact (wildcard-free) trusted
 /// origin. Passkeys always require user verification (a PIN or biometric), as webauthn-rs
 /// does for passkeys.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Passkey {
     rp_id: Option<String>,
     rp_name: Option<String>,
     origins: Vec<String>,
+    sign_up: Option<SignUpResolver>,
+}
+
+type SignUpResolver = Arc<
+    dyn Fn(PasskeySignUp) -> Pin<Box<dyn Future<Output = Result<PasskeyUser, AuthError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+impl std::fmt::Debug for Passkey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Passkey")
+            .field("rp_id", &self.rp_id)
+            .field("rp_name", &self.rp_name)
+            .field("origins", &self.origins)
+            .field("sign_up", &self.sign_up.is_some())
+            .finish()
+    }
+}
+
+/// A signed-out registration asking for a user: what [`Passkey::sign_up`]'s resolver gets.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct PasskeySignUp {
+    /// The `context` query parameter of `generate-register-options` (Better Auth's
+    /// `addPasskey({ context })`), as the client sent it. Anything the app chooses, such as
+    /// a signed token from its own sign-up form. Untrusted input.
+    pub context: Option<String>,
+    /// The `name` query parameter: the account name the authenticator will show.
+    pub name: Option<String>,
+}
+
+/// The user a passkey-first registration creates.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasskeyUser {
+    /// Must be a valid email no user has yet; `verify-registration` answers
+    /// `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` when it's taken by then.
+    pub email: String,
+    pub name: String,
+    /// Whether the app has proven the email belongs to this visitor (default `false`).
+    /// An unverified user is claimed by whoever later proves the email with a magic link,
+    /// an email code or a social account, and that deletes this passkey.
+    pub email_verified: bool,
 }
 
 impl Passkey {
@@ -94,6 +144,36 @@ impl Passkey {
     /// origin. Setting any replaces the default (`base_url` plus exact trusted origins).
     pub fn origin(mut self, origin: impl Into<String>) -> Self {
         self.origins.push(origin.into());
+        self
+    }
+
+    /// Passkey-first sign-up, off by default: a signed-out visitor may register a passkey,
+    /// and registering it creates their user. `resolve` runs in
+    /// `generate-register-options` and decides who that user is, typically from the
+    /// `context` the client passed; an error it returns is the route's answer. The user is
+    /// only created once `verify-registration` has checked the attestation, and with
+    /// `createSession: true` it signs in through the sign-in gates (method `"passkey"`).
+    ///
+    /// Better Auth's `registration: { requireSession: false, resolveUser }`. Signed-in
+    /// users still register as before: a fresh session that may mint credentials.
+    ///
+    /// ```
+    /// use fastauth_core::prelude::*;
+    /// use fastauth_plugin_passkey::{Passkey, PasskeyUser};
+    ///
+    /// let passkey = Passkey::new().sign_up(|request| async move {
+    ///     let email = request.context.ok_or_else(|| {
+    ///         AuthError::bad_request("INVALID_CONTEXT", "pass the email as context")
+    ///     })?;
+    ///     Ok(PasskeyUser { name: request.name.unwrap_or_default(), email, ..PasskeyUser::default() })
+    /// });
+    /// ```
+    pub fn sign_up<F, Fut>(mut self, resolve: F) -> Self
+    where
+        F: Fn(PasskeySignUp) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<PasskeyUser, AuthError>> + Send + 'static,
+    {
+        self.sign_up = Some(Arc::new(move |request| Box::pin(resolve(request))));
         self
     }
 
@@ -126,7 +206,13 @@ impl Plugin for Passkey {
             .endpoint(ListUserPasskeys)
             .endpoint(DeletePasskey)
             .endpoint(UpdatePasskey)
-            .errors::<PasskeyError>();
+            .errors::<PasskeyError>()
+            .on::<UserClaimed, _, _>(|claimed, ctx| async move {
+                ctx.db()
+                    .delete::<PasskeyRow>(PasskeyRow::USER_ID.eq(&claimed.user_id))
+                    .await?;
+                Ok(())
+            });
     }
 }
 

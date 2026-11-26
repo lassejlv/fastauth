@@ -39,9 +39,10 @@ pub fn build(pool: PgPool) -> Result<AppAuth, BuildError> {
 }
 ```
 
-`Passkey` depends on no other plugin. Users need some other way in first (email and
-password, a magic link, social sign-in) to add their first passkey, because registering
-needs a session.
+`Passkey` depends on no other plugin. By default users need some other way in first (email
+and password, a magic link, social sign-in) to add their first passkey, because registering
+needs a session. [Passkey-first sign-up](#passkey-first-sign-up) lets a signed-out visitor
+register a passkey and become a user with it.
 
 WebAuthn only runs in a secure context: `https://`, or `http://localhost` in development.
 
@@ -87,6 +88,7 @@ only indexes it), so one credential can't belong to two users.
 | `rp_id(s)` | `base_url`'s host | The relying party ID passkeys are bound to. A parent domain (`acme.dk`) shares passkeys with its subdomains |
 | `rp_name(s)` | the app name | The name authenticators show for the site |
 | `origin(s)` | see below | An origin ceremonies may come from. Call once per origin |
+| `sign_up(resolver)` | off | [Passkey-first sign-up](#passkey-first-sign-up): signed-out registration creates the user `resolver` names |
 
 These are Better Auth's `rpID`, `rpName` and `origin`. Without `origin`, ceremonies may
 come from `base_url`'s origin or any trusted origin listed exactly (entries with `*` or
@@ -115,8 +117,8 @@ Under your `base_path` (`/api/auth` by default):
 
 | Method | Path | Better Auth client | Access | Answers |
 |---|---|---|---|---|
-| `GET` | `/passkey/generate-register-options` | `passkey.addPasskey()` | fresh session | `PublicKeyCredentialCreationOptionsJSON` |
-| `POST` | `/passkey/verify-registration` | `passkey.addPasskey()` | fresh session | the new passkey |
+| `GET` | `/passkey/generate-register-options` | `passkey.addPasskey()` | fresh session, or none with `sign_up` | `PublicKeyCredentialCreationOptionsJSON` |
+| `POST` | `/passkey/verify-registration` | `passkey.addPasskey()` | fresh session, or none with `sign_up` | the new passkey |
 | `GET` | `/passkey/generate-authenticate-options` | `signIn.passkey()` | public | `PublicKeyCredentialRequestOptionsJSON` |
 | `POST` | `/passkey/verify-authentication` | `signIn.passkey()` | public | `{ session, user }` |
 | `GET` | `/passkey/list-user-passkeys` | `passkey.listUserPasskeys()` | session | the user's passkeys |
@@ -134,7 +136,8 @@ reads the session again from the database, skipping the cookie cache, as Better 
 
 `generate-register-options` takes three optional query parameters: `authenticatorAttachment`
 (`platform` or `cross-platform`), `name` (the account name the authenticator shows;
-default the user's email) and `context` (accepted and ignored, see [Not built](#not-built)).
+default the user's email) and `context` (for [passkey-first sign-up](#passkey-first-sign-up);
+ignored for signed-in users).
 It excludes the user's existing passkeys, so an authenticator can't register twice.
 
 `verify-registration` takes `{ response, name?, createSession? }`, where `response` is the
@@ -159,6 +162,63 @@ It excludes the user's existing passkeys, so an authenticator can't register twi
 
 With `createSession: true` it also starts a new session for the user (no sign-in gates run:
 the user is already signed in) and adds `session` and `user`.
+
+### Passkey-first sign-up
+
+`sign_up` lets a signed-out visitor register a passkey, and registering it creates their user.
+It's off by default. Your resolver decides who the new user is, usually from the `context`
+the client passes to `addPasskey`:
+
+```rust
+use fastauth::plugins::passkey::{Passkey, PasskeyUser};
+use fastauth::prelude::*;
+
+let passkey = Passkey::new().sign_up(|request| async move {
+    let email = request
+        .context
+        .ok_or_else(|| AuthError::bad_request("EMAIL_REQUIRED", "pass the email as context"))?;
+    Ok(PasskeyUser { name: request.name.unwrap_or_default(), email, email_verified: false })
+});
+```
+
+```ts
+await authClient.passkey.addPasskey({ context: "ada@acme.dk", name: "Laptop", createSession: true });
+```
+
+The resolver gets a `PasskeySignUp` with the `context` and `name` query parameters, as the
+client sent them, and returns a `PasskeyUser`: `email`, `name` and `email_verified`. An error
+it returns is the route's answer, so it can turn visitors away. `context` is untrusted input:
+anyone can call the route with any value, so pass something you can check (a signed token
+from your sign-up form, say) when it matters who may sign up.
+
+The flow:
+
+1. `generate-register-options` with no session calls the resolver, checks the email
+   (`400 INVALID_EMAIL`) and stores the user with the challenge. Nothing is created yet.
+2. `verify-registration` checks the attestation, then creates the user and the passkey. When
+   the email belongs to a user by then, it answers `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`
+   and creates nothing: sign-up never adds a passkey to an existing user.
+3. With `createSession: true` the new user signs in through every sign-in gate, with method
+   `"passkey"`. A gate that denies answers its error; the user and passkey stay, without a
+   session. A gate that challenges adds its JSON (`twoFactorRedirect`) instead of `session`
+   and `user`. Without `createSession`, the user signs in with the passkey afterwards.
+
+Signed-in requests keep the usual rules, with sign-up on or not: the passkey goes to the
+session's user and `context` is ignored. An old, API-key or impersonation session still
+gets `403`: it never falls back to sign-up. A challenge stays with the kind of registration
+that started it, so a sign-up challenge finished signed in answers
+`401 YOU_ARE_NOT_ALLOWED_TO_REGISTER_THIS_PASSKEY`, and a signed-in challenge finished signed
+out answers `401 UNAUTHORIZED`.
+
+**Unverified emails.** Leave `email_verified` false unless your app has proven the visitor
+owns the address. An unverified user is claimed by whoever later proves the email with a
+magic link, an email code or a verified social account: core deletes the accounts and
+sessions from before the proof and emits `UserClaimed`, and the passkey plugin deletes that
+user's passkeys on it. So someone who signs up with another person's email keeps no way in.
+
+This is Better Auth's `registration: { requireSession: false, resolveUser }`. Better Auth
+leaves creating the user to an `afterVerification` callback; fastauth creates it from what the
+resolver returned.
 
 ### Signing in
 
@@ -198,12 +258,20 @@ that challenges answers its JSON instead of `{ session, user }`: with
 `/two-factor/verify-totp` finishes the sign-in, still as method `"passkey"`. Better Auth's
 own `verify-authentication` skips this and creates the session directly.
 
+### Claimed users
+
+When proof of an email claims a user whose email wasn't verified (a magic link, an email
+code, a verified social account; see [Email OTP](02-email-otp.md)), core emits `UserClaimed`
+and the plugin deletes every passkey that user had. They were registered before anyone proved
+the address, so they don't count as the owner's.
+
 ### Errors
 
 | Status | Code | When |
 |---|---|---|
 | 400 | `CHALLENGE_NOT_FOUND` | No challenge cookie, or the challenge expired, was used, or belongs to the other ceremony |
-| 401 | `YOU_ARE_NOT_ALLOWED_TO_REGISTER_THIS_PASSKEY` | The registration challenge was issued to another user; renaming someone else's passkey |
+| 401 | `YOU_ARE_NOT_ALLOWED_TO_REGISTER_THIS_PASSKEY` | The registration challenge was issued to another user, or is a sign-up challenge finished signed in; renaming someone else's passkey |
+| 422 | `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` | Passkey-first sign-up for an email that has a user |
 | 400 | `FAILED_TO_VERIFY_REGISTRATION` | The attestation doesn't verify (wrong origin or RP ID, no user verification, an excluded or already registered credential) |
 | 401 | `PASSKEY_NOT_FOUND` | No passkey has the credential that signed in |
 | 404 | `PASSKEY_NOT_FOUND` | Updating or deleting an id that doesn't exist |
@@ -256,14 +324,14 @@ await authClient.passkey.deletePasskey({ id: passkeys[0].id });
 `compat/better-auth/run-passkey.sh` checks this against Better Auth 1.7.28's `passkeyClient`
 in headless Chrome, with Chrome's virtual authenticator answering WebAuthn: adding passkeys
 (with and without `createSession`), the excluded second registration, discoverable sign-in
-signed out, sign-in signed in, the counter, renaming, deleting, and signing in with a deleted
-passkey. It needs cargo, bun and Chrome or Chromium (`CHROME_PATH`), and takes `PORT`.
+signed out, sign-in signed in, the counter, renaming, deleting, signing in with a deleted
+passkey, and passkey-first sign-up (`addPasskey({ context, createSession: true })` signed out,
+a taken email, no context). Its server turns sign-up on with the email taken from `context`. It needs cargo, bun and Chrome or Chromium (`CHROME_PATH`), and takes `PORT`.
 
 ## Not built
 
-- Passkey-first sign-up: Better Auth's `registration.requireSession: false` with
-  `resolveUser`, `afterVerification` and the `context` parameter. Registering always needs a
-  fresh session.
+- Better Auth's `registration.afterVerification` callback: passkey-first sign-up creates the
+  user from what the `sign_up` resolver returned, and the passkey always goes to that user.
 - `authenticatorSelection` and `advanced.webAuthnChallengeCookie`: user verification is always
   required, the resident key is always preferred, and the cookie is always `{prefix}.passkey`.
 - Registration and authentication `extensions`, and `authentication.afterVerification`.

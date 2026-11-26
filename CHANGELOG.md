@@ -8,6 +8,25 @@
   MIT OR Apache-2.0 and keep that license; every crate's `license` field is now `MIT` and each
   package ships the MIT text as `LICENSE`.
 
+### Plugins
+
+- **Passkey-first sign-up.** `Passkey::sign_up(resolver)`, off by default, lets a signed-out
+  visitor register a passkey and become a user with it: Better Auth's
+  `registration: { requireSession: false, resolveUser }` with `addPasskey({ context })`. The
+  user is created only after the attestation verifies, never gets a passkey added when the
+  email is taken (`422`), and `createSession` signs in through the sign-in gates. Signed-in
+  registration still needs a fresh session that may mint credentials.
+- **Passkeys are revoked when a user is claimed.** When a magic link, an email code or a
+  verified social account claims a user whose email wasn't verified, that user's passkeys are
+  deleted along with their accounts and sessions. Before, a passkey added to the unverified
+  user kept working for whoever registered the address first.
+
+### Core
+
+- New event `UserClaimed { user_id }`, emitted when proof of an email claims an unverified
+  user (`Internal::claim_unverified_user` and social sign-in), so plugins can drop
+  credentials of their own.
+
 ### Docs and tooling
 
 - The docs are grouped into folders that match the docs site: `docs/get-started`,

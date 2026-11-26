@@ -36,7 +36,12 @@ Full page: `docs/plugins/sign-in/03-passkey.md`.
 - Options: `rp_id` (the base URL's host), `rp_name` (the app name), `origin` (repeatable;
   default the base URL's origin plus exact trusted origins).
 - WebAuthn needs a secure context: https, or http://localhost.
-- Adding a passkey needs a fresh session (`fresh_age`, 1 day): users need another way in first.
+- Adding a passkey needs a fresh session (`fresh_age`, 1 day), unless passkey-first sign-up is
+  on: `Passkey::new().sign_up(|request| async move { Ok(PasskeyUser { email, name,
+  email_verified: false }) })` creates the user from `request.context` (the client's
+  `addPasskey({ context })`) once the attestation verifies; a taken email answers 422.
+- A user claimed by proof of their email (magic link, email code, social) loses their passkeys
+  (`UserClaimed` event).
 - Routes under `/api/auth/passkey/`: `generate-register-options`, `verify-registration`,
   `generate-authenticate-options`, `verify-authentication` (public; runs the sign-in gates with
   method `"passkey"`), `list-user-passkeys`, `update-passkey`, `delete-passkey`.
@@ -44,5 +49,5 @@ Full page: `docs/plugins/sign-in/03-passkey.md`.
   (they need a browser).
 - Events: `PasskeyAdded`, `PasskeyDeleted`.
 - Always: user verification required, resident key preferred, attestation `none`. Not built:
-  passkey-first sign-up, extensions, EdDSA-only authenticators.
+  `registration.afterVerification`, extensions, EdDSA-only authenticators.
 - Client: `passkeyClient()` from `@better-auth/passkey/client`.

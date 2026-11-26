@@ -1,5 +1,6 @@
 //! The server `compat/better-auth/run-passkey.sh` points Better Auth's `passkeyClient` at: email
 //! and password plus the passkey plugin, in memory, on localhost:$PORT (3000 unless set).
+//! Passkey-first sign-up is on, taking the new user's email from `addPasskey`'s `context`.
 //!
 //! ```bash
 //! cargo run -p fastauth-plugin-passkey --example compat_server
@@ -10,7 +11,7 @@ use std::net::SocketAddr;
 use axum::Router;
 use fastauth_axum::AuthRouter;
 use fastauth_core::prelude::*;
-use fastauth_plugin_passkey::Passkey;
+use fastauth_plugin_passkey::{Passkey, PasskeyUser};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +23,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .database(MemoryAdapter::new())
         .email_password(EmailPassword::default())
         .rate_limit(RateLimit::disabled())
-        .plugin(Passkey::new())
+        .plugin(Passkey::new().sign_up(|request| async move {
+            let email = request.context.ok_or_else(|| {
+                AuthError::bad_request("EMAIL_REQUIRED", "pass the new user's email as context")
+            })?;
+            Ok(PasskeyUser {
+                name: request.name.unwrap_or_default(),
+                email,
+                email_verified: false,
+            })
+        }))
         .build()?;
     let app = Router::new()
         .merge(auth.router())
