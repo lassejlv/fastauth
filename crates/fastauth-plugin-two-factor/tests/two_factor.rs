@@ -546,6 +546,32 @@ async fn verify_endpoints_allow_five_attempts_a_minute() {
 }
 
 #[tokio::test]
+async fn password_confirming_routes_are_rate_limited_like_sign_in() {
+    let (auth, _) = build(TwoFactor::new(), RateLimit::default());
+    let mut client = Client::new(auth);
+    client.sign_up(EMAIL, PASSWORD).await;
+    for path in [
+        "/two-factor/enable",
+        "/two-factor/disable",
+        "/two-factor/get-totp-uri",
+        "/two-factor/generate-backup-codes",
+    ] {
+        let mut statuses = Vec::new();
+        for _ in 0..4 {
+            let res = client.post(path, json!({ "password": "guess" })).await;
+            statuses.push(res.status);
+        }
+        assert!(
+            statuses[..3]
+                .iter()
+                .all(|s| *s != StatusCode::TOO_MANY_REQUESTS),
+            "{path}: {statuses:?}"
+        );
+        assert_eq!(statuses[3], StatusCode::TOO_MANY_REQUESTS, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn server_api_enables_verifies_and_disables() {
     let (auth, _) = build(TwoFactor::new(), RateLimit::disabled());
     let mut client = Client::new(auth.clone());

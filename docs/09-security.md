@@ -72,6 +72,11 @@ browsers. On top of that, every non-`GET` request that carries a session cookie 
   email, so sign-up can't be used to discover accounts either. Without it, sign-up answers
   422 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`, as Better Auth does.
 - Length: 8 to 128 by default. The maximum bounds the work per request.
+- A password reset signs the user out everywhere by default
+  (`revoke_sessions_on_password_reset`, also used by email OTP's reset), because a reset is
+  how an owner recovers from a compromise and must end the attacker's sessions too. Better
+  Auth leaves them signed in unless `revokeSessionsOnPasswordReset` is set;
+  `.revoke_sessions_on_password_reset(false)` gets that behaviour back.
 - `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. Verifying scrypt hashes
   imported from a Better Auth database is [planned](01-overview.md#planned).
 
@@ -81,6 +86,25 @@ Email verification, password reset and two-factor OTP values are random, single 
 short-lived (default 1 hour, 15 minutes for OTP), and stored hashed in `verification`.
 Codes are compared in constant time (`subtle`). OTPs allow 5 attempts before the code is
 burned.
+
+## Account enumeration
+
+Routes that take an email and must not reveal whether it has an account answer the same
+way either way: `/request-password-reset` (and `/forget-password`),
+`/send-verification-email`, `/sign-up/email` with `require_email_verification`, and email
+OTP's `send-verification-otp` and `request-password-reset`. They also take the same time:
+
+- The email is sent in the background (tokio's blocking pool), so the response never waits
+  for the mailer. A real SMTP or HTTP mail API call takes 100 ms or more, enough to tell a
+  known email from an unknown one in a single request if the route waited for it, as it
+  did before 0.4. Like Better Auth's `runInBackgroundOrAwait`, except that fastauth always
+  sends in the background. A send that fails is logged with `tracing::error!`, since the
+  client already has its answer; emails still in flight when the process exits are lost.
+- The branch that sends nothing does the database work of the branch that does: a
+  verification-table lookup for an unknown email on reset and verification, as Better Auth
+  does, and email OTP issues and discards a code.
+
+`LogMailer` and `MemoryMailer` do no I/O, so they still send before the response.
 
 ## OAuth
 
@@ -106,11 +130,30 @@ burned.
 ## Rate limiting
 
 On by default: 100 requests per 10 seconds per IP and path, and 3 per 10 seconds on
-`/sign-in/*`, `/sign-up/*`, `/forget-password`, `/request-password-reset` and
-`/send-verification-email`. Two-factor adds 5 a minute on `/two-factor/verify-*`. The
+`/sign-in/*`, `/sign-up/*`, `/forget-password`, `/request-password-reset`,
+`/send-verification-email` and `/change-password`. Two-factor adds 5 a minute on
+`/two-factor/verify-*`, and 3 per 10 seconds on the routes that confirm the password
+(`/two-factor/enable`, `/disable`, `/get-totp-uri`, `/generate-backup-codes`), so a stolen
+session can't guess the password faster than sign-in allows. The
 limiter is GCRA (one timestamp per key, no sliding-window bookkeeping) in a sharded
 in-memory map, so each process counts on its own; a shared store is
 [planned](01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
+
+**The client IP** decides whose limit a request counts against, so it must be one the
+client can't choose ([Configuration](03-configuration.md#rate-limits)):
+
+- `ClientIp::Socket` (the default) needs the integration to pass the socket address; in
+  axum, serve with `into_make_service_with_connect_info::<SocketAddr>()`.
+- Behind a proxy, `ClientIp::Header` for a header holding one address that the proxy
+  overwrites, or `ClientIp::TrustedProxies { header, proxies }` for `x-forwarded-for`, which
+  takes the `proxies`-th address from the right. **Never `ClientIp::Header("x-forwarded-for")`**:
+  its first value is whatever the client sent. A header value that isn't a valid IP counts
+  as no IP, so a client can't invent one.
+- A request without a client IP is logged once (`tracing::warn!`). It is limited per account
+  when its JSON body names one (`email` or `username`), and otherwise shares one bucket with
+  every other request without an IP. Better Auth puts all of them in one shared bucket, where
+  three wrong passwords from anyone lock everyone out of sign-in; fastauth keeps the limit on
+  each account instead, so only guesses at the same account count against it.
 
 ## What fastauth doesn't do for you
 

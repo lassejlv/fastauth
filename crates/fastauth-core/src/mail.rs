@@ -1,5 +1,6 @@
 //! Auth emails. A `Mailer` turns each typed email into a message.
 
+use std::any::TypeId;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -81,6 +82,10 @@ pub(crate) trait DynMailer: Send + Sync {
         &self,
         email: AuthEmail,
     ) -> Pin<Box<dyn Future<Output = Result<(), MailError>> + Send + '_>>;
+
+    /// Whether this is one of the built-in mailers that do no I/O (`MemoryMailer`,
+    /// `LogMailer`), so sending inline costs nothing and reveals nothing.
+    fn in_process(&self) -> bool;
 }
 
 impl<M: Mailer> DynMailer for M {
@@ -90,6 +95,38 @@ impl<M: Mailer> DynMailer for M {
     ) -> Pin<Box<dyn Future<Output = Result<(), MailError>> + Send + '_>> {
         Box::pin(Mailer::send(self, email))
     }
+
+    fn in_process(&self) -> bool {
+        let id = TypeId::of::<M>();
+        id == TypeId::of::<MemoryMailer>() || id == TypeId::of::<LogMailer>()
+    }
+}
+
+/// Sends `email` without making the request wait for the mailer, so a route answers in the
+/// same time whether or not it sent anything. The send runs on tokio's blocking pool, which
+/// keeps a mailer that blocks off the async workers. A failed send is logged, since there's
+/// no request left to answer.
+///
+/// `MemoryMailer` and `LogMailer` send inline: they take no time, and tests can read
+/// `MemoryMailer` as soon as the response arrives.
+pub(crate) async fn send_in_background(mailer: Arc<dyn DynMailer>, email: AuthEmail) {
+    let kind = match &email {
+        AuthEmail::VerifyEmail(_) => "verify-email",
+        AuthEmail::ResetPassword(_) => "reset-password",
+        AuthEmail::Plugin(e) => e.kind,
+    };
+    if mailer.in_process() {
+        if let Err(err) = mailer.send(email).await {
+            tracing::error!(kind, error = %err, "fastauth could not send an email");
+        }
+        return;
+    }
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        if let Err(err) = runtime.block_on(mailer.send(email)) {
+            tracing::error!(kind, error = %err, "fastauth could not send an email");
+        }
+    });
 }
 
 /// Logs emails instead of sending them. For development.
