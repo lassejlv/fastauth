@@ -21,9 +21,10 @@ cargo +nightly fuzz run json_body -- -max_total_time=300
 | `email_normalize` | `routes::normalize_email` | no panic; accepted emails are at most 254 bytes, have a local part and a dotted domain, and normalize to themselves |
 | `callback_url` | `CoreConfig::is_safe_redirect` | whatever it accepts resolves (WHATWG URL parsing, as browsers do) to the app's origin or a trusted origin |
 
-`callback_url` fails on 0.3.0: `/\t/evil.example` passes the check and a browser opens it as
-`http://evil.example/`. That is finding CORE-1 of the FAST-31 security review; the target is
-the regression check for its fix.
+`callback_url` failed on 0.3.0: `/\t/evil.example` passed the check and a browser opened it
+as `http://evil.example/`. That was finding CORE-1 of the FAST-31 security review; the target
+is the regression check for its fix, and the inputs it found are replayed by
+`crates/fastauth-core/tests/security_fast31_redirect.rs`.
 
 Crashes land in `fuzz/artifacts/<target>/`; replay one with
 `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`. To keep going past a known
