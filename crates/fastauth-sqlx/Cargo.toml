@@ -33,10 +33,20 @@ tokio = { version = "1.54.1", features = ["sync"] }
 name = "mysql"
 required-features = ["mysql"]
 
+[[test]]
+name = "properties_ids"
+required-features = ["mysql"]
+
+[[test]]
+name = "security_fast46"
+required-features = ["mysql"]
+
 [dev-dependencies]
 bytes = "1.12.2"
 fastauth-core = { path = "../fastauth-core", features = ["testing"] }
 http = "1.5.0"
+proptest = "1.12.0"
 serde_json = "1.0.154"
 sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
+uuid = "1.26.1"
