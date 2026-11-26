@@ -619,6 +619,29 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         mailer.send(email).await.map_err(AuthError::internal)
     }
 
+    /// Sends `email` without waiting for the mailer, so the route answers in the same time
+    /// whether or not it sent anything. Use it where sending depends on whether an account
+    /// exists. A failed send is logged (`tracing::error!`), not returned.
+    pub async fn send_email_in_background(&self, email: AuthEmail) -> Result<(), AuthError> {
+        let Some(mailer) = self.ctx.mailer() else {
+            return Err(AuthError::internal(
+                "an email needs sending but no mailer is configured",
+            ));
+        };
+        crate::mail::send_in_background(mailer.clone(), email).await;
+        Ok(())
+    }
+
+    /// The database work of creating and looking up a verification token, for the branch
+    /// of a route that sends nothing, so both branches take about as long.
+    pub async fn simulate_verification(&self) -> Result<(), AuthError> {
+        let token = random_token();
+        self.find_verification(&token).await?;
+        Ok(())
+    }
+
+    /// Creates a verification token and emails the link in the background (see
+    /// `send_email_in_background`).
     pub async fn send_verification_email(
         &self,
         user: &UserView,
@@ -635,7 +658,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         if let Some(callback) = callback_url {
             url.push_str(&format!("&callbackURL={}", url_encode(callback)));
         }
-        self.send_email(AuthEmail::VerifyEmail(VerifyEmail {
+        self.send_email_in_background(AuthEmail::VerifyEmail(VerifyEmail {
             to: user.email.clone(),
             name: user.name.clone(),
             url,

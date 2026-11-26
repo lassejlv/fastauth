@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Security
+
+- **CORE-2**: without a client IP, the strict sign-in/sign-up/reset limits no longer put every
+  client in one bucket, where three wrong passwords from anyone locked everyone out. Requests
+  without an IP are limited per account named in the JSON body (`email` or `username`), the
+  first one logs a warning, and the README, quickstart and `admin_server` example now serve
+  with `into_make_service_with_connect_info::<SocketAddr>()`.
+- **CORE-3**: password reset, verification, sign-up (with `require_email_verification`) and
+  email OTP send their emails in the background and do the same database work for unknown
+  emails, so response time no longer reveals which emails have accounts.
+- **CORE-4**: a password reset (core and email OTP) revokes every session of the user by
+  default.
+- **CORE-5**: `/change-password` and two-factor's `/enable`, `/disable`, `/get-totp-uri` and
+  `/generate-backup-codes` are under the strict limit (3 per 10 seconds).
+- **CORE-7**: `ClientIp::Header` accepts only a value that is a single valid IP, and the new
+  `ClientIp::TrustedProxies { header, proxies }` reads `x-forwarded-for` from the right. The
+  docs say never to use `ClientIp::Header` with `x-forwarded-for`.
+
+### Behaviour changes
+
+- `EmailPassword::revoke_sessions_on_password_reset` defaults to `true` (was `false`), for
+  `/reset-password` and `/email-otp/reset-password`. Better Auth defaults to `false`; set
+  `.revoke_sessions_on_password_reset(false)` to keep sessions.
+- Emails from those routes are sent after the response. A mailer error is logged with
+  `tracing::error!` instead of answering 500. `LogMailer` and `MemoryMailer` still send
+  before the response.
+- `ClientIp::Header` no longer takes the first of several comma-separated values; such a
+  value counts as no IP.
+- `ClientIp` has a new variant, so an exhaustive `match` on it needs an arm for
+  `TrustedProxies`.
+
 ### New plugins
 
 - **fastauth-plugin-username** (feature `username`, `fastauth::plugins::username`): `username`
@@ -42,6 +73,10 @@ All additive; no public trait changed.
   it) and `Internal::set_session_cookies` (make a token the request's session).
 - Read-only getters for plugins: `EmailPassword::requires_email_verification()`,
   `EmailPassword::max_password_len()` and `SessionConfig::lifetime()`.
+- `Internal::send_email_in_background` (send without waiting for the mailer, logging a
+  failure) and `Internal::simulate_verification` (the database work of a verification
+  lookup, for the branch that sends nothing). `Internal::send_verification_email` now sends
+  in the background.
 
 ## 0.3.0 (2026-11-26)
 
