@@ -523,6 +523,48 @@ impl<D: Adapter, A> Ctx<D, A> {
         )
         .await
     }
+
+    /// The request's session as the database holds it now, for authorization decisions:
+    /// admin and organization roles and permissions, and endpoints that revoke sessions. A
+    /// session the cookie cache answered is read again and the session gates run on the
+    /// stored row, so a revoked session is refused and a changed role or a ban counts at once.
+    /// Unlike [`sensitive_session`](Self::sensitive_session) it runs the gates with
+    /// [`SessionUse::Request`], so impersonation and resolver sessions (API keys) pass as
+    /// they do on any request. 401 without a session.
+    pub async fn authoritative_session(&self) -> Result<SessionView, AuthError> {
+        crate::session::authoritative(
+            &self.shared,
+            self.within.as_ref(),
+            &self.request,
+            &self.effects,
+            self.session.as_deref(),
+        )
+        .await
+    }
+
+    /// Whether the browser's session cookie is meant to last only for the browser session:
+    /// the session this response sets came from a `rememberMe: false` sign-in or, when the
+    /// response sets none, the request carries the cookie of one.
+    pub fn dont_remember(&self) -> bool {
+        let config = &self.shared.config;
+        let flag = config.cookie_name(crate::session::DONT_REMEMBER);
+        let token = config.cookie_name(crate::session::SESSION_TOKEN);
+        let effects = self.effects.lock().unwrap();
+        let sets = |name: &str| {
+            effects
+                .cookies
+                .iter()
+                .any(|c| c.name == name && c.max_age != Some(Duration::ZERO))
+        };
+        if sets(&flag) {
+            return true;
+        }
+        if sets(&token) {
+            return false;
+        }
+        drop(effects);
+        self.signed_cookie(crate::session::DONT_REMEMBER).is_some()
+    }
 }
 
 impl<D: Adapter> Ctx<D, MaybeAuthenticated> {
