@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+### Security
+
+- **CORE-2**: without a client IP, the strict sign-in/sign-up/reset limits no longer put every
+  client in one bucket, where three wrong passwords from anyone locked everyone out. Requests
+  without an IP are limited per account named in the JSON body (`email` or `username`), the
+  first one logs a warning, and the README, quickstart and `admin_server` example now serve
+  with `into_make_service_with_connect_info::<SocketAddr>()`.
+- **CORE-3**: password reset, verification, sign-up (with `require_email_verification`) and
+  email OTP send their emails in the background and do the same database work for unknown
+  emails, so response time no longer reveals which emails have accounts.
+- **CORE-4**: a password reset (core and email OTP) revokes every session of the user by
+  default.
+- **CORE-5**: `/change-password` and two-factor's `/enable`, `/disable`, `/get-totp-uri` and
+  `/generate-backup-codes` are under the strict limit (3 per 10 seconds).
+- **CORE-7**: `ClientIp::Header` accepts only a value that is a single valid IP, and the new
+  `ClientIp::TrustedProxies { header, proxies }` reads `x-forwarded-for` from the right. The
+  docs say never to use `ClientIp::Header` with `x-forwarded-for`.
+- **AUTHZ-1** (high): a banned user's API key no longer authenticates. The admin plugin's ban
+  check is a session gate, so it applies to every session (API key, bearer, cookie cache),
+  and banning disables the user's API keys.
+- **AUTHZ-2**: an API key's session is never fresh, so it can't register a passkey or pass
+  `FreshSession`.
+- **AUTHZ-3**: an API key's session can't create keys or update them (so it can't lift its own
+  expiry or limits).
+- **AUTHZ-4**: admins without `user:impersonate-admins` can't set another admin's password,
+  email, role or ban, remove them or revoke their sessions (`403 YOU_CANNOT_MANAGE_ADMINS`).
+- **AUTHZ-5**: `/api-key/create` and `/api-key/update` read the session from the database, so a
+  revoked session in the cookie cache can't mint a key.
+- **AUTHZ-6**: session refresh no longer extends an impersonation session past
+  `impersonation_session_duration`.
+- **AUTHZ-7**: impersonation sessions can't create or update API keys, register passkeys, link
+  social accounts or change two-factor (`403 NOT_ALLOWED_WHILE_IMPERSONATING`).
+- **AUTHZ-8**: two owners leaving (or removing or demoting each other) at once can no longer
+  leave an organization without an owner.
+- **AUTHZ-9**: accepting, rejecting or viewing an invitation needs a verified email by default.
+- **AUTHZ-10**: documented that API-key `permissions` don't limit a key's session, on
+  `ApiKeys::sessions` and in docs/14; key sessions can no longer mint credentials.
+- **AUTHZ-11**: `/organization/remove-member` answers `MEMBER_NOT_FOUND` for another
+  organization's member before any role check, so it no longer reveals who owns it.
+- **AUTHZ-12**: `/organization/cancel-invitation` only cancels pending invitations.
+- **CORE-6**: passkey registration, two-factor enable/disable, `/link-social` and API-key
+  create/update use `Ctx::sensitive_session()`, which skips the cookie cache.
+
+### Behaviour changes
+
+- `EmailPassword::revoke_sessions_on_password_reset` defaults to `true` (was `false`), for
+  `/reset-password` and `/email-otp/reset-password`. Better Auth defaults to `false`; set
+  `.revoke_sessions_on_password_reset(false)` to keep sessions.
+- Emails from those routes are sent after the response. A mailer error is logged with
+  `tracing::error!` instead of answering 500. `LogMailer` and `MemoryMailer` still send
+  before the response.
+- `ClientIp::Header` no longer takes the first of several comma-separated values; such a
+  value counts as no IP.
+- `ClientIp` has a new variant, so an exhaustive `match` on it needs an arm for
+  `TrustedProxies`.
+- **Organization:** `require_email_verification_on_invitation` now defaults to `true`. Users
+  must verify their email before they can view, accept or reject an invitation. Set it to
+  `false` to keep 0.3 behaviour (Better Auth's default for its random ids).
+- **Sessions:** a session is extended by the refresh only when it was created with the full
+  `expires_in`. After raising `expires_in`, existing sessions expire on their old date.
+- **API keys:** a key's session gets `403 SESSION_NOT_FRESH` from `Fresh` endpoints and
+  `FreshSession`, and `401` from key create/update, passkey registration, `/link-social` and
+  two-factor enable/disable.
+- **Admin:** a banned user's requests answer `403 BANNED_USER` whatever the session came
+  from; acting on another admin needs `user:impersonate-admins`.
+
 ### New plugins
 
 - **fastauth-plugin-username** (feature `username`, `fastauth::plugins::username`): `username`
@@ -51,49 +117,10 @@ All additive; no public trait changed.
   with `SessionUse::Sensitive`. For endpoints that create or change a credential.
 - `Internal::ephemeral_session(&user_id)`: the request-only session `Resolved::User` builds,
   after the session gates.
-
-### Security
-
-Fixes from the 0.3.0 security review (FAST-31).
-
-- AUTHZ-1 (high): a banned user's API key no longer authenticates. The admin plugin's ban
-  check is a session gate, so it applies to every session (API key, bearer, cookie cache),
-  and banning disables the user's API keys.
-- AUTHZ-2: an API key's session is never fresh, so it can't register a passkey or pass
-  `FreshSession`.
-- AUTHZ-3: an API key's session can't create keys or update them (so it can't lift its own
-  expiry or limits).
-- AUTHZ-4: admins without `user:impersonate-admins` can't set another admin's password,
-  email, role or ban, remove them or revoke their sessions (`403 YOU_CANNOT_MANAGE_ADMINS`).
-- AUTHZ-5: `/api-key/create` and `/api-key/update` read the session from the database, so a
-  revoked session in the cookie cache can't mint a key.
-- AUTHZ-6: session refresh no longer extends an impersonation session past
-  `impersonation_session_duration`.
-- AUTHZ-7: impersonation sessions can't create or update API keys, register passkeys, link
-  social accounts or change two-factor (`403 NOT_ALLOWED_WHILE_IMPERSONATING`).
-- AUTHZ-8: two owners leaving (or removing or demoting each other) at once can no longer
-  leave an organization without an owner.
-- AUTHZ-9: accepting, rejecting or viewing an invitation needs a verified email by default.
-- AUTHZ-10: documented that API-key `permissions` don't limit a key's session, on
-  `ApiKeys::sessions` and in docs/14; key sessions can no longer mint credentials.
-- AUTHZ-11: `/organization/remove-member` answers `MEMBER_NOT_FOUND` for another
-  organization's member before any role check, so it no longer reveals who owns it.
-- AUTHZ-12: `/organization/cancel-invitation` only cancels pending invitations.
-- CORE-6: passkey registration, two-factor enable/disable, `/link-social` and API-key
-  create/update use `Ctx::sensitive_session()`, which skips the cookie cache.
-
-### Behaviour changes
-
-- **Organization:** `require_email_verification_on_invitation` now defaults to `true`. Users
-  must verify their email before they can view, accept or reject an invitation. Set it to
-  `false` to keep 0.3 behaviour (Better Auth's default for its random ids).
-- **Sessions:** a session is extended by the refresh only when it was created with the full
-  `expires_in`. After raising `expires_in`, existing sessions expire on their old date.
-- **API keys:** a key's session gets `403 SESSION_NOT_FRESH` from `Fresh` endpoints and
-  `FreshSession`, and `401` from key create/update, passkey registration, `/link-social` and
-  two-factor enable/disable.
-- **Admin:** a banned user's requests answer `403 BANNED_USER` whatever the session came
-  from; acting on another admin needs `user:impersonate-admins`.
+- `Internal::send_email_in_background` (send without waiting for the mailer, logging a
+  failure) and `Internal::simulate_verification` (the database work of a verification
+  lookup, for the branch that sends nothing). `Internal::send_verification_email` now sends
+  in the background.
 
 ## 0.3.0 (2026-11-26)
 

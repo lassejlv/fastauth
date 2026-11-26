@@ -307,6 +307,9 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
         {
             problems.push("require_email_verification needs a mailer: call .mailer(..)".into());
         }
+        if matches!(self.client_ip, ClientIp::TrustedProxies { proxies: 0, .. }) {
+            problems.push("ClientIp::TrustedProxies needs at least one proxy".into());
+        }
 
         let mut registry = Registry::<D>::new();
         crate::models::register(&mut registry.schema);
@@ -521,22 +524,14 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
             .into_response();
         }
 
-        let ip = match &config.client_ip {
-            ClientIp::Socket => parts
-                .extensions
-                .get::<ClientAddr>()
-                .map(|a| a.0.to_string()),
-            ClientIp::Header(name) => parts
-                .headers
-                .get(name.as_str())
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
-                .map(|v| v.trim().to_owned()),
+        let ip = config.client_ip.resolve(&parts).map(|ip| ip.to_string());
+        let allowed = match &ip {
+            Some(ip) => shared.rate_limiter.check(ip, path),
+            None => shared
+                .rate_limiter
+                .check_without_ip(&config.client_ip, path, &body),
         };
-        if !shared
-            .rate_limiter
-            .check(ip.as_deref().unwrap_or("unknown"), path)
-        {
+        if !allowed {
             return AuthError::too_many_requests().into_response();
         }
 

@@ -50,7 +50,7 @@ async fn send_code<D: Adapter, A>(
     };
     let minutes = plugin.expires_in.whole_minutes().max(1);
     internal
-        .send_email(AuthEmail::Plugin(PluginEmail {
+        .send_email_in_background(AuthEmail::Plugin(PluginEmail {
             kind: kind.email_kind(),
             to: user.map_or_else(|| email.to_owned(), |u| u.email.clone()),
             subject,

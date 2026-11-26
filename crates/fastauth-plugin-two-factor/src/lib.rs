@@ -169,6 +169,7 @@ impl Plugin for TwoFactor {
     }
 
     fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+        let password_check = Limit::per(Duration::seconds(10), 3);
         app.endpoint(Enable(self.clone()))
             .endpoint(Disable)
             .endpoint(GetTotpUri(self.clone()))
@@ -178,6 +179,10 @@ impl Plugin for TwoFactor {
             .endpoint(GenerateBackupCodes(self.clone()))
             .endpoint(VerifyBackupCode(self.clone()))
             .rate_limit("/two-factor/verify-*", Limit::per(Duration::minutes(1), 5))
+            .rate_limit("/two-factor/enable", password_check)
+            .rate_limit("/two-factor/disable", password_check)
+            .rate_limit("/two-factor/get-totp-uri", password_check)
+            .rate_limit("/two-factor/generate-backup-codes", password_check)
             .errors::<TwoFactorError>();
         let plugin = self.clone();
         app.sign_in_gate(move |ctx, attempt| {

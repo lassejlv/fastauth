@@ -28,6 +28,8 @@ backup codes, `organization`, `admin`, `api-key`, `magic-link`, `email-otp`, `be
 ## Example
 
 ```rust
+use std::net::SocketAddr;
+
 use axum::routing::get;
 use axum::{Json, Router};
 use fastauth::plugins::two_factor::TwoFactor;
@@ -83,7 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(auth);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+    // Rate limits are per client IP, read from the socket address passed along here.
+    // Behind a proxy, also set `.client_ip(..)`: see docs/03-configuration.md#rate-limits.
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 ```

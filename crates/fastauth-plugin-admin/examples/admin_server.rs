@@ -8,6 +8,8 @@
 //! It listens on `PORT` (default 3000). Sign in as `admin@acme.dk` / `correct horse battery` for an admin session; `/admin-only` answers
 //! only admins. `compat/better-auth/run-admin.sh` drives it with the TypeScript client.
 
+use std::net::SocketAddr;
+
 use axum::Router;
 use axum::routing::get;
 use fastauth_axum::AuthRouter;
@@ -47,6 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(auth);
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
     println!("listening on http://localhost:{port}");
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
