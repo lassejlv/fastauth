@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### License
+
+- fastauth is now licensed under MIT only. Earlier releases, 0.4.0 included, were dual-licensed
+  MIT OR Apache-2.0 and keep that license; every crate's `license` field is now `MIT` and each
+  package ships the MIT text as `LICENSE`.
+
 ### Docs and tooling
 
 - The docs are grouped into folders that match the docs site: `docs/get-started`,
