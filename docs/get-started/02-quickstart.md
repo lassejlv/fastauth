@@ -202,3 +202,10 @@ Next: [Configuration](03-configuration.md) for everything the builder takes,
 
 Before production, go through the [Production checklist](../reference/04-production-checklist.md):
 an https `base_url`, the client IP behind your proxy, the secret, the mailer and database TLS.
+
+## Example app
+
+For everything wired together, see the
+[fullstack example](https://github.com/lassejlv/fastauth/tree/main/examples/fullstack): axum and
+Postgres with email verification, GitHub, two-factor, passkeys, organizations, admin and API keys,
+migrations through the CLI, a React client on Better Auth's client, and a Playwright suite.
