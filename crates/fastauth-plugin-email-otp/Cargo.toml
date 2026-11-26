@@ -1,0 +1,29 @@
+[package]
+name = "fastauth-plugin-email-otp"
+description = "Email one-time codes for fastauth: sign-in, email verification and password reset, wire-compatible with Better Auth's emailOTP plugin."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+fastauth-core = { version = "0.2.0", path = "../fastauth-core" }
+hmac = "0.13.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.0"
+
+[dev-dependencies]
+axum = "0.8.9"
+bytes = "1.12.2"
+fastauth-axum = { path = "../fastauth-axum" }
+fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
+http = "1.5.0"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }

@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### New plugins
+
+- **fastauth-plugin-magic-link** (feature `magic-link`, `fastauth::plugins::magic_link`):
+  `POST /sign-in/magic-link` emails a single-use link through the app's mailer, and
+  `GET /magic-link/verify` signs the user in, creating them on first use unless
+  `.disable_sign_up(true)`. Redirects to `callbackURL`, `newUserCallbackURL` or
+  `errorCallbackURL?error=..` as Better Auth does; links expire after 5 minutes by default
+  and only the token's SHA-256 is stored. `MagicLinkExt` for server calls. Wire-compatible
+  with `magicLinkClient` (`compat/better-auth/run-magic-link.sh`).
+  ([docs/15](docs/15-magic-link.md))
+- **fastauth-plugin-email-otp** (feature `email-otp`, `fastauth::plugins::email_otp`):
+  one-time codes by email for sign-in (with sign-up), email verification and password reset:
+  `/email-otp/send-verification-otp`, `/sign-in/email-otp`, `/email-otp/verify-email`,
+  `/email-otp/check-verification-otp`, `/email-otp/request-password-reset` (and
+  `/forget-password/email-otp`) and `/email-otp/reset-password`. `otp_length`, `expires_in`
+  and `allowed_attempts`; codes are stored as a keyed HMAC, compared in constant time, and
+  attempts are claimed atomically before comparing. `EmailOtpExt` for server calls.
+  Wire-compatible with `emailOTPClient` (`compat/better-auth/run-email-otp.sh`).
+  ([docs/16](docs/16-email-otp.md))
+- Both plugins claim an unverified user when a link or code proves the email: the user's
+  earlier accounts and sessions are deleted and the email is marked verified, as Better Auth
+  does.
+
+### Core
+
+- `Internal::claim_unverified_user`, the claim above, for plugins with email-primary
+  sign-in.
+- `routes::normalize_email` and `routes::user_input_fields` are public, so plugins validate
+  emails and user fields exactly like sign-up.
+- `EmailPassword::revokes_sessions_on_password_reset()` and
+  `EmailVerification::auto_signs_in_after_verification()` read those settings.
+
 ## 0.2.0 (2026-11-26)
 
 ### New plugins

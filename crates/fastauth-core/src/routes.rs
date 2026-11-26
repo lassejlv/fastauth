@@ -61,7 +61,9 @@ fn with_query(url: &str, key: &str, value: &str) -> String {
     format!("{url}{sep}{key}={}", url_encode(value))
 }
 
-fn normalize_email(email: &str) -> Result<String, AuthError> {
+/// Trims and lowercases an email, answering 400 `INVALID_EMAIL` when it isn't one. Every
+/// email route normalizes this way, so plugins that take an email should too.
+pub fn normalize_email(email: &str) -> Result<String, AuthError> {
     let email = email.trim().to_lowercase();
     let valid = email.len() <= 254
         && email.split_once('@').is_some_and(|(local, domain)| {
@@ -76,8 +78,10 @@ fn normalize_email(email: &str) -> Result<String, AuthError> {
     Ok(email)
 }
 
-/// Turns extra JSON body keys into user columns. Only `input` columns are accepted.
-fn user_input_fields<D: Adapter, A>(
+/// Turns extra JSON body keys into user columns, as sign-up does. Only app and plugin `input`
+/// columns are accepted; with `require_all`, every required one without a default must be
+/// there. Answers 400 `INVALID_FIELD` otherwise.
+pub fn user_input_fields<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     extra: &Map<String, Json>,
     require_all: bool,
