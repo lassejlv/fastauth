@@ -17,8 +17,16 @@ let app = Router::new()
   it extractors still work, but sliding expiry only reaches the browser on auth routes. A
   cookie your handler sets wins over the layer's.
 - Serve with `app.into_make_service_with_connect_info::<SocketAddr>()`. The default
-  `ClientIp::Socket` reads the socket address from there; behind a proxy that overwrites a
-  header, set `.client_ip(ClientIp::Header(..))` on the builder instead ([below](#session-cookie-and-origin-settings)).
+  `ClientIp::Socket` reads the socket address from there, and rate limits key on it. With
+  plain `axum::serve(listener, app)` there is no client IP, and rate limits fall back to one
+  bucket per account named in the body, or one bucket for everyone.
+- Behind proxies, set `.client_ip(..)` on the builder instead
+  ([below](#session-cookie-and-origin-settings)). Use `ClientIp::Header(name)` only for a header
+  your proxy overwrites with exactly one address (`fly-client-ip`, `cf-connecting-ip`). For
+  `x-forwarded-for`, which every proxy appends to, use
+  `ClientIp::TrustedProxies { header: "x-forwarded-for".into(), proxies: 1 }`, where
+  `proxies` counts the proxies in front of the app. Never use
+  `ClientIp::Header("x-forwarded-for")`: a client could pick its own IP and dodge every limit.
 - `router` and `session_layer` are methods of the `AuthRouter` trait, in
   `fastauth::prelude`.
 

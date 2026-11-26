@@ -6,7 +6,7 @@ import NavSheet from "../components/NavSheet.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import { codeFrame, copyButton, highlightInline, highlightLines, rustcLines } from "../lib/code";
 import { getNav } from "../lib/nav";
-import { CRATES_IO, DOCS_RS, GITHUB } from "../lib/site";
+import { CRATES_IO, DOCS_RS, GITHUB, version } from "../lib/site";
 
 const { groups } = await getNav();
 
@@ -69,6 +69,8 @@ const client = [
   ["Same as Better Auth", "Paths, JSON shapes, error codes"],
   ["Endpoints", "Core and every first-party plugin"],
 ];
+
+const release = version().split(".").slice(0, 2).join(".");
 
 const crates = [
   ["fastauth", "The crate apps depend on: re-exports everything below behind features"],
@@ -211,7 +213,7 @@ const clientHtml = codeFrame("TypeScript", await highlightLines(clientCode, "ts"
 
     <section class="band" aria-labelledby="crates-title">
       <div class="container">
-        <h2 id="crates-title">What's in 0.3</h2>
+        <h2 id="crates-title">What's in {release}</h2>
         <dl class="crates">
           {
             crates.map(([name, what]) => (

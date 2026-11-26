@@ -170,4 +170,18 @@ using the compile-checked extension traits.
    and public `routes::normalize_email` and `routes::user_input_fields`. Nothing breaks for 0.2
    apps.
 
+## Released: 0.4.0 (2026-11-26)
+
+1. The [username](../plugins/sign-in/04-username.md), [anonymous](../plugins/sign-in/05-anonymous.md) and
+   [multi-session](../plugins/access/03-multi-session.md) plugins, each tested against Better Auth's client.
+2. Fixes for the 28 findings of the security review of 0.3.0, including both highs: the open
+   redirect that allowed password-reset account takeover, and banned users keeping access
+   through API keys. All versions before 0.4.0 are affected.
+3. Session gates (`PluginBuilder::session_gate`) and `Ctx::sensitive_session()`, so sessions
+   that didn't come from a sign-in (API keys, impersonation) can't mint credentials.
+4. Safer defaults: a password reset revokes the user's sessions, and invitations need a
+   verified email. `ClientIp::TrustedProxies` reads the client IP from `x-forwarded-for`.
+5. Breaking for exhaustive matches only: `ClientIp` and `AdminError` gained variants. No
+   public trait changed.
+
 The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.
