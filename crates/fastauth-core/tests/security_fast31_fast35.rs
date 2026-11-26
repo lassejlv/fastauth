@@ -222,7 +222,12 @@ async fn sec_email_routes_take_the_same_time_for_known_and_unknown_emails() {
         })
         .collect();
     println!("delivered once the mailer answered: {delivered:?}");
-    let count = |kind: &str, to: &str| delivered.iter().filter(|d| d.0 == kind && d.1 == to).count();
+    let count = |kind: &str, to: &str| {
+        delivered
+            .iter()
+            .filter(|d| d.0 == kind && d.1 == to)
+            .count()
+    };
     assert_eq!(count("reset", "known@acme.dk"), 1, "{delivered:?}");
     assert!(count("verify", "known@acme.dk") >= 2, "{delivered:?}");
     assert_eq!(count("verify", "fresh@acme.dk"), 1, "{delivered:?}");

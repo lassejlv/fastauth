@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- **ATO-9:** admin `create-user` needs `user:set-email` to set `emailVerified`, and `create-user` and `update-user` refuse columns another plugin owns unless clients may set them (`twoFactorEnabled` among them), so a delegated `user:update` role can't turn off another user's two-factor.
+- **ATO-11:** email addresses must be one plain address (Better Auth's `z.email()` rules), so address lists, whitespace, control characters and a second `@` answer `400 INVALID_EMAIL` instead of reaching the mailer.
+- **CFG-2:** every response from the auth routes carries `Cache-Control: no-store` unless the endpoint set its own, `/get-session` included.
+- **CFG-3:** `.build()` refuses a secret with less than about 120 bits of estimated entropy when `base_url` isn't local.
+- **CFG-4:** `.build()` refuses a `base_url` with credentials, a query or a fragment, and an `http://` `base_url` on a host that isn't local.
+- **CFG-5:** `Debug` of `VerifyEmail`, `ResetPassword`, `PluginEmail` and `SessionView` redacts links, tokens, codes and the email body.
+- **CRYPTO-1:** a secret that is no longer first in `.secrets([..])` stops verifying the cookie cache, trusted-device cookies and other self-contained signed cookies; it still verifies session tokens and decrypts.
+- **DOS-1:** IPv6 clients are rate limited per /64 by default (`RateLimit::ipv6_prefix`), as in Better Auth.
+- **DOS-2:** the rate limiter keys accounts by a keyed hash instead of the raw body value and keeps at most 100,000 keys (`RateLimit::max_keys`), evicting expired keys first.
+- **DOS-3:** expired verification rows are deleted before a new one is stored.
+- **DOS-4:** background emails run at most 8 at once per process, with up to 10,000 queued and a 60-second timeout, so a slow mailer can't starve password hashing on the blocking pool.
+- **DOS-5:** `/admin/list-users` answers at most 100 users when the request gives no `limit`, as in Better Auth.
+- **DOS-6:** routes with a rate-limit rule of their own also limit each account the body names to 30 requests per 10 minutes, whatever the client IP (`RateLimit::account_limit`).
+- **DOS-7:** an organization can have at most 100 pending invitations by default (`Organization::invitation_limit`); past it `invite-member` answers `403 INVITATION_LIMIT_REACHED`.
+- **DOS-8:** without a client IP, a request is limited on its `username` as well as its `email`, so a junk `email` doesn't give username guesses a fresh bucket.
+
+### Behaviour changes
+
+- `.build()` fails on a production `base_url` that is `http://`, on a weak secret, and always on a `base_url` with credentials, a query or a fragment. A localhost or loopback `base_url` only logs warnings, and `Builder::allow_insecure_config(true)` does the same for any host; it's meant for development, CI and private staging. See the new [Production checklist](docs/reference/04-production-checklist.md).
+- A request without a client IP is logged with `tracing::error!` instead of `warn!` when `base_url` isn't local.
+- Rate limits are stricter: IPv6 clients share one bucket per /64, and sign-in, sign-up, password reset and the plugins' mail and code routes also count 30 requests per 10 minutes per account.
+- After a secret rotation, cookie caches signed with the old secret are ignored (the next request reads the database), trusted devices ask for the second factor again, and sign-ins in flight that hold a short-lived signed cookie (OAuth state, passkey challenge, pending two-factor) start over. Sessions stay signed in. A plugin that keeps a session token in its own signed cookie should read it with the new `Ctx::signed_token_cookie`; `Ctx::signed_cookie` and `Keys::verify` now accept only the current secret.
+- Emails that `normalize_email` used to accept with spaces, quotes, non-ASCII characters or several addresses now answer `400 INVALID_EMAIL`.
+- Emails are dropped and logged when 10,000 are already waiting for the mailer, and a send is abandoned after 60 seconds.
+- Admin roles without `user:set-email` can no longer set `emailVerified` on `create-user`, and columns another plugin owns (such as `twoFactorEnabled`) answer `400 INVALID_FIELD` on `create-user` and `update-user`. `list-users` without `limit` returns at most 100 users.
+- An organization with 100 pending invitations can't invite anyone new until one is accepted, rejected, canceled or expires.
+
+### Core changes (additive)
+
+- `Builder::allow_insecure_config`, `Secret::entropy_bits` and `Secret::MIN_ENTROPY_BITS`, `Keys::verify_token`, `Ctx::signed_token_cookie`, and `RateLimit::ipv6_prefix`, `account_limit` and `max_keys`. No public trait changed.
+
 ## 0.5.0 (2026-11-26)
 
 ### Highlights

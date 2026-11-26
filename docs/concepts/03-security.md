@@ -308,8 +308,8 @@ in-memory map, so each process counts on its own; a shared store is
   off. Better Auth has no per-account limit, so fastauth is stricter here.
 - **Memory is bounded.** The limiter keeps at most `RateLimit::max_keys(n)` keys (100,000
   by default). Each shard drops its expired keys every 1024 checks and when it's full, and
-  if it's still full, the half of its keys closest to expiry. Account names are kept as a keyed 64-bit
-  hash, never the value from the body, so a long `email` costs no memory.
+  if it's still full, the half of its keys closest to expiry. Account names are kept as a
+  keyed 64-bit hash, never the value from the body, so a long `email` costs no memory.
 
 **The client IP** decides whose limit a request counts against, so it must be one the
 client can't choose ([Configuration](../get-started/03-configuration.md#rate-limits)):
