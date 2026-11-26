@@ -24,6 +24,12 @@ axum = [
     "fastauth-plugin-organization?/axum",
     "fastauth-plugin-admin?/axum",
 ]
+actix = [
+    "dep:fastauth-actix",
+    "fastauth-core/actix",
+    "fastauth-plugin-organization?/actix",
+    "fastauth-plugin-admin?/actix",
+]
 macros = ["fastauth-core/macros"]
 postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
@@ -47,6 +53,7 @@ cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.10", features = ["derive", "env"], optional = true }
 dotenvy = { version = "0.15.7", optional = true }
+fastauth-actix = { version = "0.4.0", path = "../fastauth-actix", optional = true }
 fastauth-axum = { version = "0.4.0", path = "../fastauth-axum", optional = true }
 fastauth-core = { version = "0.4.0", path = "../fastauth-core" }
 fastauth-oauth = { version = "0.4.0", path = "../fastauth-oauth", default-features = false, optional = true }
@@ -66,6 +73,7 @@ fastauth-sqlx = { version = "0.4.0", path = "../fastauth-sqlx", default-features
 time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
 
 [dev-dependencies]
+actix-web = { version = "4.20.0", default-features = false, features = ["macros"] }
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
 sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
@@ -80,6 +88,10 @@ required-features = ["axum"]
 [[example]]
 name = "axum_sqlite"
 required-features = ["axum", "sqlite", "macros", "two-factor", "organization", "admin", "api-key"]
+
+[[example]]
+name = "actix_sqlite"
+required-features = ["actix", "sqlite", "macros", "two-factor", "organization", "admin", "api-key"]
 
 [[example]]
 name = "cli_sqlite"

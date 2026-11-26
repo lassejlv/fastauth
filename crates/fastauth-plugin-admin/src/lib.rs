@@ -37,14 +37,19 @@
 //! (`403 NOT_ALLOWED_WHILE_IMPERSONATING`). Admins without `user:impersonate-admins` can't
 //! act on another admin's account (`403 YOU_CANNOT_MANAGE_ADMINS`).
 //!
-//! With the `axum` feature, [`RequireRole`] guards your own routes by role.
+//! With the `axum` feature, `RequireRole` guards your own routes by role; with the `actix`
+//! feature, [`actix::RequireRole`](crate::actix) does the same in actix-web.
 
 mod access;
+#[cfg(feature = "actix")]
+pub mod actix;
 #[cfg(feature = "axum")]
 mod axum;
 mod endpoints;
 mod error;
 mod model;
+#[cfg(any(feature = "axum", feature = "actix"))]
+mod roles;
 
 use std::collections::BTreeMap;
 
@@ -56,7 +61,7 @@ use serde_json::{Map, Value as Json};
 
 pub use access::{Permissions, STATEMENTS};
 #[cfg(feature = "axum")]
-pub use axum::{RequireRole, Role, role};
+pub use axum::RequireRole;
 pub use endpoints::{
     BanUser, BanUserInput, CreateUser, CreateUserInput, GetUser, GetUserQuery, HasPermission,
     HasPermissionInput, ImpersonateUser, ListUserSessions, ListUsers, ListUsersQuery,
@@ -67,6 +72,8 @@ pub use endpoints::{
 };
 pub use error::AdminError;
 pub use model::{AdminSession, AdminUser};
+#[cfg(any(feature = "axum", feature = "actix"))]
+pub use roles::{Role, role};
 
 const DEFAULT_BANNED_MESSAGE: &str = "You have been banned from this application. Please contact support if you believe this is an error.";
 

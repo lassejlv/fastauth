@@ -37,6 +37,7 @@ fastauth-core                  Auth, builder, Plugin/Endpoint/Adapter traits, se
 fastauth-macros                #[derive(Fields)], #[derive(Model)], #[derive(AuthError)]
 fastauth-sqlx                  Adapter for sqlx: Postgres, SQLite and MySQL; migrations; shared transactions
 fastauth-axum                  Router, Session extractors, session layer
+fastauth-actix                 actix-web: auth scope, Session extractors, session middleware
 fastauth-oauth                 Social plugin: OAuth providers (GitHub, Google), the outgoing HttpClient
 fastauth-plugin-two-factor     TOTP, email codes, backup codes, trusted devices
 fastauth-plugin-organization   organizations, members, invitations, roles and permissions
@@ -71,6 +72,7 @@ fastauth = { version = "0.4", default-features = false, features = [
 | Flag | Pulls in |
 |---|---|
 | `axum` | `fastauth-axum`, as `fastauth::axum`; also the axum extractors of the organization and admin plugins |
+| `actix` | `fastauth-actix`, as `fastauth::actix`; also the actix-web extractors of the organization and admin plugins |
 | `postgres`, `sqlite`, `mysql` | `fastauth-sqlx` with that sqlx driver, as `fastauth::sqlx`; `Sqlx` and the pool types join the prelude ([MySQL](../concepts/02-database.md#mysql)) |
 | `macros` | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | `fastauth-oauth` (with the reqwest client), as `fastauth::social` |
@@ -112,6 +114,7 @@ argon2id is always on; it isn't a feature.
 | Page | What it covers |
 |---|---|
 | [HTTP and axum](../integrations/01-http.md) | axum, `tower`, the outgoing HTTP client, writing an integration |
+| [actix-web](../integrations/03-actix.md) | The auth scope, extractors and session middleware for actix-web 4 |
 | [Better Auth client](../integrations/02-better-auth-client.md) | Using `better-auth/client` with fastauth, the tested versions, known gaps |
 
 ### Plugins
@@ -175,7 +178,7 @@ None of this exists yet. Don't write code against it; it may change shape before
   `organization_limit`.
 - **Social:** Apple, Discord, Microsoft, GitLab and other providers, and a generic OIDC
   provider with `id_token` verification against the provider's JWKS.
-- **Integrations and storage:** actix-web, Redis secondary
+- **Integrations and storage:** Redis secondary
   storage for sessions and rate-limit counters (rate limits are per process today).
 - **Tooling:** importing Better Auth scrypt password hashes, re-encrypting columns after a
   secret rotation, an OpenAPI document of the registered endpoints, a `TestAuth` test

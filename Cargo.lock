@@ -3,6 +3,178 @@
 version = 4
 
 [[package]]
+name = "actix-codec"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c13df95297bcf9014dc89162b0cc69431e192e34e3b419612fc124cfcd45dbf"
+dependencies = [
+ "bitflags",
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "actix-http"
+version = "3.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef789744a2e6e678dd2dee90b2aecc084022709378f28d9d0eee6d7d299e36b8"
+dependencies = [
+ "actix-codec",
+ "actix-service",
+ "actix-utils",
+ "bitflags",
+ "bytes",
+ "bytestring",
+ "derive_more",
+ "encoding_rs",
+ "foldhash",
+ "futures-core",
+ "http 0.2.12",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "language-tags",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "smallvec",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "actix-macros"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "367f814ad4afbac74f07df5001214da65f65e185c90ef56c4dd8df23f8695b9b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "actix-router"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "125f4331c1f10734a96c038bc7503dff22d8ccd5f82b214e6696728561ef1149"
+dependencies = [
+ "bytestring",
+ "cfg-if",
+ "http 0.2.12",
+ "regex-lite",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "actix-rt"
+version = "2.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07c6d0b470c2b069868a1dc26ad646516e7d19dbf6f9563997c4a563faff6674"
+dependencies = [
+ "futures-core",
+ "tokio",
+]
+
+[[package]]
+name = "actix-server"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e296908c4d6f3a191e6b9873dbdfec8023350a89129d2b470f61d17233931ee"
+dependencies = [
+ "actix-rt",
+ "actix-service",
+ "futures-core",
+ "futures-util",
+ "mio",
+ "socket2",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "actix-service"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e46f36bf0e5af44bdc4bdb36fbbd421aa98c79a9bce724e1edeb3894e10dc7f"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "actix-utils"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0128396dd7313f697ad05b21b1a7be7d4cbb81888704f55996e4a27db196bb4d"
+dependencies = [
+ "local-waker",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "actix-web"
+version = "4.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "618475ea8d22e5ad6e8aefaf9f56253b6ad856a7522716bea0b48bbb772341ff"
+dependencies = [
+ "actix-codec",
+ "actix-http",
+ "actix-macros",
+ "actix-router",
+ "actix-rt",
+ "actix-server",
+ "actix-service",
+ "actix-utils",
+ "actix-web-codegen",
+ "bytes",
+ "bytestring",
+ "cfg-if",
+ "derive_more",
+ "encoding_rs",
+ "foldhash",
+ "futures-core",
+ "futures-util",
+ "impl-more",
+ "itoa",
+ "language-tags",
+ "log",
+ "mime",
+ "once_cell",
+ "pin-project-lite",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "smallvec",
+ "socket2",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "actix-web-codegen"
+version = "4.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4357272ed7e7ed928f2e6bbb4e422257d0bd4e36f80477faa2f794984b16e386"
+dependencies = [
+ "actix-router",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
 name = "aead"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -225,7 +397,7 @@ dependencies = [
  "bytes",
  "form_urlencoded",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "hyper",
@@ -256,7 +428,7 @@ checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
 dependencies = [
  "bytes",
  "futures-core",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "mime",
@@ -371,6 +543,15 @@ name = "bytes"
 version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
+
+[[package]]
+name = "bytestring"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07acef387a61fe24ed2ee3924f1fe89ac9f4b862dfd72b110109133158d7f9f8"
+dependencies = [
+ "bytes",
+]
 
 [[package]]
 name = "cbc"
@@ -530,6 +711,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
+name = "convert_case"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -544,6 +734,12 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
 name = "cpubits"
@@ -797,6 +993,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn 2.0.119",
+ "unicode-xid",
+]
+
+[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -885,6 +1104,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89253175e704ab869b04f9db224d38630e0211a53841a79181deae0889e169f5"
+dependencies = [
+ "cfg-if",
+ "core_detect",
+ "multiversion_no_op",
+ "rustversion",
+ "scopeguard",
+ "simdutf8",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -924,10 +1157,12 @@ dependencies = [
 name = "fastauth"
 version = "0.4.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "axum",
  "clap",
  "dotenvy",
+ "fastauth-actix",
  "fastauth-axum",
  "fastauth-core",
  "fastauth-oauth",
@@ -945,11 +1180,27 @@ dependencies = [
  "fastauth-plugin-username",
  "fastauth-sqlx",
  "serde",
- "sqlx",
  "tempfile",
  "time",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "fastauth-actix"
+version = "0.4.0"
+dependencies = [
+ "actix-http",
+ "actix-web",
+ "bytes",
+ "fastauth-core",
+ "fastauth-plugin-api-key",
+ "fastauth-plugin-bearer",
+ "fastauth-plugin-two-factor",
+ "http 1.5.0",
+ "reqwest",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -959,7 +1210,7 @@ dependencies = [
  "axum",
  "bytes",
  "fastauth-core",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "serde_json",
@@ -981,6 +1232,7 @@ dependencies = [
 name = "fastauth-core"
 version = "0.4.0"
 dependencies = [
+ "actix-web",
  "argon2",
  "axum-core",
  "base64 0.23.1",
@@ -991,7 +1243,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf",
  "hmac",
- "http",
+ "http 1.5.0",
  "matchit 0.9.2",
  "serde",
  "serde_json",
@@ -1029,7 +1281,7 @@ version = "0.4.0"
 dependencies = [
  "bytes",
  "fastauth-core",
- "http",
+ "http 1.5.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -1046,17 +1298,17 @@ dependencies = [
 name = "fastauth-plugin-admin"
 version = "0.4.0"
 dependencies = [
+ "actix-web",
  "axum",
  "bytes",
+ "fastauth-actix",
  "fastauth-axum",
  "fastauth-core",
  "fastauth-oauth",
  "fastauth-plugin-two-factor",
- "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "time",
  "tokio",
  "tower",
@@ -1072,10 +1324,9 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "tokio",
  "tracing",
 ]
@@ -1089,11 +1340,10 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "http-body-util",
  "serde",
  "serde_json",
- "sqlx",
  "time",
  "tokio",
  "tower",
@@ -1108,10 +1358,9 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "percent-encoding",
  "serde_json",
- "sqlx",
  "tokio",
  "tower",
 ]
@@ -1126,11 +1375,10 @@ dependencies = [
  "fastauth-core",
  "fastauth-sqlx",
  "hmac",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
  "sha2",
- "sqlx",
  "tokio",
 ]
 
@@ -1145,12 +1393,11 @@ dependencies = [
  "fastauth-core",
  "fastauth-plugin-bearer",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "jsonwebtoken",
  "pem",
  "serde",
  "serde_json",
- "sqlx",
  "time",
  "tokio",
 ]
@@ -1164,10 +1411,9 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "tokio",
  "url",
 ]
@@ -1181,10 +1427,9 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "tokio",
 ]
 
@@ -1192,15 +1437,16 @@ dependencies = [
 name = "fastauth-plugin-organization"
 version = "0.4.0"
 dependencies = [
+ "actix-web",
  "axum",
  "bytes",
+ "fastauth-actix",
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "time",
  "tokio",
  "tower",
@@ -1218,11 +1464,10 @@ dependencies = [
  "fastauth-core",
  "fastauth-plugin-two-factor",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_cbor_2",
  "serde_json",
- "sqlx",
  "time",
  "tokio",
  "webauthn-rs",
@@ -1237,12 +1482,11 @@ dependencies = [
  "fastauth-core",
  "fastauth-sqlx",
  "hmac",
- "http",
+ "http 1.5.0",
  "percent-encoding",
  "serde",
  "serde_json",
  "sha1",
- "sqlx",
  "tokio",
 ]
 
@@ -1255,10 +1499,9 @@ dependencies = [
  "fastauth-axum",
  "fastauth-core",
  "fastauth-sqlx",
- "http",
+ "http 1.5.0",
  "serde",
  "serde_json",
- "sqlx",
  "tokio",
 ]
 
@@ -1268,7 +1511,7 @@ version = "0.4.0"
 dependencies = [
  "bytes",
  "fastauth-core",
- "http",
+ "http 1.5.0",
  "serde_json",
  "sqlx",
  "sqlx-core",
@@ -1493,7 +1736,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http",
+ "http 1.5.0",
  "indexmap 2.14.2",
  "slab",
  "tokio",
@@ -1576,6 +1819,17 @@ dependencies = [
 
 [[package]]
 name = "http"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
+dependencies = [
+ "bytes",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
+name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
@@ -1591,7 +1845,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c"
 dependencies = [
  "bytes",
- "http",
+ "http 1.5.0",
 ]
 
 [[package]]
@@ -1602,7 +1856,7 @@ checksum = "23169fe34a5fbcdd3f3862e78fb9b6fccd5f02a6dc6f732547005d45631ce71c"
 dependencies = [
  "bytes",
  "futures-core",
- "http",
+ "http 1.5.0",
  "http-body",
  "pin-project-lite",
 ]
@@ -1642,7 +1896,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2",
- "http",
+ "http 1.5.0",
  "http-body",
  "httparse",
  "httpdate",
@@ -1659,7 +1913,7 @@ version = "0.27.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa8e654703247911e29c23fbeaa261834bd9bb74efba2f9acddc37bfb127f53"
 dependencies = [
- "http",
+ "http 1.5.0",
  "hyper",
  "hyper-util",
  "rustls",
@@ -1678,7 +1932,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "httparse",
  "hyper",
@@ -1823,6 +2077,12 @@ dependencies = [
  "icu_normalizer",
  "icu_properties",
 ]
+
+[[package]]
+name = "impl-more"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d3a73c82a0b0747dba739b380c046a140b5ae747234bf701df3460282da7193"
 
 [[package]]
 name = "indexmap"
@@ -2077,6 +2337,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "language-tags"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,6 +2385,12 @@ name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
+
+[[package]]
+name = "local-waker"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88bab6b3971cb9cda8a370672a73e59a442b87552f005fb60ec07b67fa658f13"
 
 [[package]]
 name = "lock_api"
@@ -2194,9 +2466,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20521a903f02b0a573cd6840e9d0a5a0cc043d361fe924092cd70f8556cc9c4a"
 dependencies = [
  "libc",
+ "log",
  "wasi",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "multiversion_no_op"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "nom"
@@ -2716,6 +2995,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
+
+[[package]]
 name = "reqwest"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2725,7 +3010,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "h2",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "hyper",
@@ -3200,6 +3485,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "signature"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3388,8 +3683,6 @@ dependencies = [
  "generic-array",
  "log",
  "percent-encoding",
- "rand",
- "rsa",
  "serde",
  "sha1",
  "sha2",
@@ -3698,7 +3991,9 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -3826,7 +4121,7 @@ dependencies = [
  "bitflags",
  "bytes",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "pin-project-lite",
  "tower",
@@ -3958,6 +4253,18 @@ name = "unicode-properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993ad287eb20e8ba755312801cfe1413e0f25d604075863acaddca10b04c1833"
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "universal-hash"

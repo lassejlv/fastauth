@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### actix-web
+
+- New crate `fastauth-actix`, the facade's `actix` feature (`fastauth::actix`): actix-web 4
+  with the same shape as `fastauth-axum`. `auth.scope()` mounts every auth route under
+  `base_path`, `Session`, `OptionalSession` and `FreshSession` extract the session with the
+  axum extractors' `401` and `403` answers, and `auth.session_middleware()` resolves it once
+  per request and writes refreshed cookies. The peer address feeds `ClientIp::Socket`. See
+  [actix-web](docs/integrations/03-actix.md).
+- The organization plugin's `OrgMember`, `ActiveMember` and `RequirePermission` work in
+  actix-web too (`actix` feature), and the admin plugin adds `actix::RequireRole`.
+- `fastauth-core` has an `actix` feature: `AuthError` is an actix `ResponseError` and
+  `ApiResponse` a `Responder`, like its `axum` feature does for axum.
+- `crates/fastauth/examples/actix_sqlite.rs` is the `axum_sqlite` example on actix-web, and
+  `SERVER=actix compat/better-auth/run.sh` runs the Better Auth client suite against it.
+
 ### MySQL
 
 - `fastauth-sqlx` supports MySQL 8 behind a new `mysql` feature (also on the `fastauth`

@@ -752,6 +752,17 @@ impl<T: Serialize> axum_core::response::IntoResponse for ApiResponse<T> {
     }
 }
 
+/// Lets an actix-web handler return a server API result as is: the JSON body plus the
+/// cookies the endpoint set, like the HTTP route would answer.
+#[cfg(feature = "actix")]
+impl<T: Serialize> actix_web::Responder for ApiResponse<T> {
+    type Body = actix_web::body::BoxBody;
+
+    fn respond_to(self, _: &actix_web::HttpRequest) -> actix_web::HttpResponse {
+        crate::error::to_actix(self.into_http())
+    }
+}
+
 impl<D: Adapter> Api<'_, D> {
     /// The configured adapter.
     pub fn adapter(&self) -> &D {

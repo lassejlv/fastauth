@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
-# Runs Better Auth's TypeScript client against the axum_sqlite example:
-# builds the example, starts it on localhost:$PORT (3000 unless set) with a fresh database, runs
-# compat.ts, and stops the server. Needs cargo and bun. Exits non-zero when any check fails.
-# With DATABASE_URL set to an empty MySQL database (mysql://...), the server runs on MySQL.
+# Runs Better Auth's TypeScript client against the axum_sqlite example, or with SERVER=actix
+# against actix_sqlite (the same app on actix-web): builds the example, starts it on
+# localhost:$PORT (3000 unless set) with a fresh database, runs compat.ts, and stops the server.
+# Needs cargo and bun. Exits non-zero when any check fails. With DATABASE_URL set to an empty
+# MySQL database (mysql://...), the axum server runs on MySQL.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 port="${PORT:-3000}"
+kind="${SERVER:-axum}"
+features="sqlite,two-factor,organization,admin,api-key"
+case "$kind" in
+  axum) ;;
+  actix) features="actix,$features" ;;
+  *) echo "SERVER must be axum or actix, not $kind" >&2; exit 1 ;;
+esac
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  [[ "$kind" == axum ]] || { echo "DATABASE_URL (MySQL) needs SERVER=axum" >&2; exit 1; }
+  features="$features,mysql"
+fi
+example="${kind}_sqlite"
 work="$(mktemp -d)"
 server=""
 
@@ -22,12 +35,9 @@ if curl -s -o /dev/null "http://127.0.0.1:$port"; then
   exit 1
 fi
 
-features=sqlite,two-factor,organization,admin,api-key
-if [[ -n "${DATABASE_URL:-}" ]]; then features="$features,mysql"; fi
-
-echo "building the axum_sqlite example"
-cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example axum_sqlite --features "$features"
-bin="$root/target/debug/examples/axum_sqlite"
+echo "building the $example example"
+cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example "$example" --features "$features"
+bin="$root/target/debug/examples/$example"
 
 echo "installing the client"
 (cd "$here" && bun install --frozen-lockfile)

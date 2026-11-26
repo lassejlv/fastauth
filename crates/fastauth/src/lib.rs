@@ -6,6 +6,7 @@
 //! | Feature | Adds |
 //! |---|---|
 //! | `axum` (default) | [`fastauth::axum`](crate::axum): `auth.router()`, the `Session` extractors, the session layer |
+//! | `actix` | [`fastauth::actix`](crate::actix): `auth.scope()`, the `Session` extractors, the session middleware for actix-web |
 //! | `postgres` (default), `sqlite`, `mysql` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
@@ -23,7 +24,8 @@
 //! | `multi-session` | [`fastauth::plugins::multi_session`](mod@crate::plugins): several signed-in accounts per browser |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
-//! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
+//! `crates/fastauth/examples/axum_sqlite.rs` is a complete app; `actix_sqlite.rs` is the same
+//! app on actix-web.
 
 pub use fastauth_core::*;
 
@@ -46,6 +48,11 @@ pub mod prelude {
 /// the session layer.
 #[cfg(feature = "axum")]
 pub use fastauth_axum as axum;
+
+/// The actix-web integration: `AuthScope`, the `Session` and `FreshSession` extractors, and
+/// the session middleware. Not in the prelude, whose `Session` is axum's; import from here.
+#[cfg(feature = "actix")]
+pub use fastauth_actix as actix;
 
 /// The sqlx adapter for Postgres, SQLite and MySQL.
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]

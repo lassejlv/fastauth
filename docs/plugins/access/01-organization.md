@@ -17,8 +17,8 @@ fastauth = { version = "0.4", features = ["organization"] }
 
 or `cargo add fastauth --features organization`. Everything lives in
 `fastauth::plugins::organization`. The extractors also need the `axum` feature, which is on
-by default. (Without the facade, depend on `fastauth-plugin-organization` and enable its
-`axum` feature.)
+by default, or `actix` for actix-web. (Without the facade, depend on
+`fastauth-plugin-organization` and enable its `axum` or `actix` feature.)
 
 Register the plugin and list it in your auth alias, in registration order
 ([Plugins](../README.md#using-plugins)):
@@ -298,7 +298,9 @@ server-only calls have their own types to hook: `AddMember` (input `NewMember`) 
 ## Axum extractors
 
 Three extractors resolve the signed-in user's membership. Each derefs to `Member`, and
-`into_inner()` gives it to you by value.
+`into_inner()` gives it to you by value. They are the same types in axum and actix-web; the
+example below is axum, and [actix-web](../../integrations/03-actix.md#plugin-extractors) shows
+the actix routes.
 
 | Extractor | Gives you |
 |---|---|

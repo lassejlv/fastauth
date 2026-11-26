@@ -1,0 +1,194 @@
+//! `actix::RequireRole` in actix-web: the same cases as `axum.rs`.
+#![cfg(feature = "actix")]
+
+mod common;
+
+use actix_web::test::{self, TestRequest};
+use actix_web::{App, web};
+use common::{Client, secret};
+use fastauth_core::crypto::Argon2id;
+use fastauth_core::prelude::*;
+use fastauth_plugin_admin::actix::RequireRole;
+use fastauth_plugin_admin::{Admin, AdminExt, Permissions, role};
+use http::StatusCode;
+
+type AppAuth = Auth<MemoryAdapter, (), plugins![Admin]>;
+
+role!(Support = "support");
+
+async fn admin_only(admin: RequireRole<AppAuth, role::Admin>) -> String {
+    admin.user.email.clone()
+}
+
+async fn support_only(support: RequireRole<AppAuth, Support>) -> String {
+    support.user.email.clone()
+}
+
+async fn status(auth: &AppAuth, path: &str, cookies: Option<String>) -> StatusCode {
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(auth.clone()))
+            .route("/admin", web::get().to(admin_only))
+            .route("/support", web::get().to(support_only)),
+    )
+    .await;
+    let mut request = TestRequest::get().uri(path);
+    if let Some(cookies) = cookies {
+        request = request.insert_header(("cookie", cookies));
+    }
+    let response = test::call_service(&app, request.to_request()).await;
+    StatusCode::from_u16(response.status().as_u16()).unwrap()
+}
+
+#[actix_web::test]
+async fn require_role_answers_401_403_or_lets_the_role_in() {
+    let db = MemoryAdapter::new();
+    let build = |admin: Admin| -> AppAuth {
+        FastAuth::builder()
+            .secret(secret())
+            .base_url("http://localhost:3000")
+            .database(db.clone())
+            .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+            .rate_limit(RateLimit::disabled())
+            .plugin(admin.role("support", Permissions::new().allow("user", ["list"])))
+            .build()
+            .unwrap()
+    };
+    let auth = build(Admin::new());
+    let mut bob = Client::new(auth.clone());
+    let id = Id::from(
+        bob.sign_up("bob@acme.dk", "correct horse").await.json["user"]["id"]
+            .as_str()
+            .unwrap(),
+    );
+
+    assert_eq!(
+        status(&auth, "/admin", None).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status(&auth, "/admin", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status(&auth, "/support", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+
+    auth.admin()
+        .set_role(&id, ["support", "user"])
+        .await
+        .unwrap();
+    assert_eq!(
+        status(&auth, "/support", bob.cookie_header()).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(&auth, "/admin", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+
+    auth.admin().set_role(&id, "admin").await.unwrap();
+    assert_eq!(
+        status(&auth, "/admin", bob.cookie_header()).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(&auth, "/support", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+
+    auth.admin().set_role(&id, "user").await.unwrap();
+    let listed = build(Admin::new().admin_user_ids([id.clone()]));
+    assert_eq!(
+        status(&listed, "/admin", bob.cookie_header()).await,
+        StatusCode::OK
+    );
+    let superadmins = build(
+        Admin::new()
+            .role("superadmin", Permissions::admin())
+            .admin_roles(["admin", "superadmin"]),
+    );
+    superadmins
+        .admin()
+        .set_role(&id, "superadmin")
+        .await
+        .unwrap();
+    assert_eq!(
+        status(&superadmins, "/admin", bob.cookie_header()).await,
+        StatusCode::OK
+    );
+}
+
+#[actix_web::test]
+async fn role_admin_follows_the_configured_admin_roles_and_user_ids() {
+    let db = MemoryAdapter::new();
+    let build = |admin: Admin| -> AppAuth {
+        FastAuth::builder()
+            .secret(secret())
+            .base_url("http://localhost:3000")
+            .database(db.clone())
+            .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+            .rate_limit(RateLimit::disabled())
+            .plugin(admin.role("superadmin", Permissions::admin()))
+            .build()
+            .unwrap()
+    };
+    let auth = build(Admin::new().admin_roles(["superadmin"]));
+    let mut root = Client::new(auth.clone());
+    let root_id = Id::from(
+        root.sign_up("root@acme.dk", "correct horse").await.json["user"]["id"]
+            .as_str()
+            .unwrap(),
+    );
+    let mut bob = Client::new(auth.clone());
+    let bob_id = Id::from(
+        bob.sign_up("bob@acme.dk", "correct horse").await.json["user"]["id"]
+            .as_str()
+            .unwrap(),
+    );
+
+    auth.admin().set_role(&root_id, "superadmin").await.unwrap();
+    assert_eq!(
+        status(&auth, "/admin", root.cookie_header()).await,
+        StatusCode::OK,
+        "a custom admin role is an admin"
+    );
+    auth.admin().set_role(&root_id, "admin").await.unwrap();
+    assert_eq!(
+        status(&auth, "/admin", root.cookie_header()).await,
+        StatusCode::FORBIDDEN,
+        "\"admin\" isn't an admin role in this configuration"
+    );
+
+    assert_eq!(
+        status(&auth, "/admin", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN
+    );
+    let listed = build(
+        Admin::new()
+            .admin_roles(["superadmin"])
+            .admin_user_ids([bob_id.clone()]),
+    );
+    assert_eq!(fields_role(&listed, &bob_id).await.as_deref(), Some("user"));
+    assert_eq!(
+        status(&listed, "/admin", bob.cookie_header()).await,
+        StatusCode::OK,
+        "admin_user_ids are admins whatever their role"
+    );
+    assert_eq!(
+        status(&listed, "/support", bob.cookie_header()).await,
+        StatusCode::FORBIDDEN,
+        "admin_user_ids hold admin roles, not every role"
+    );
+}
+
+async fn fields_role(auth: &AppAuth, id: &Id) -> Option<String> {
+    auth.admin()
+        .get_user(id)
+        .await
+        .unwrap()
+        .fields::<fastauth_plugin_admin::AdminUser>()
+        .unwrap()
+        .role
+}
