@@ -13,6 +13,8 @@
 //! | `organization` | [`fastauth::plugins::organization`](mod@crate::plugins): organizations, members, invitations, roles |
 //! | `admin` | [`fastauth::plugins::admin`](mod@crate::plugins): roles, bans, impersonation, user management |
 //! | `api-key` | [`fastauth::plugins::api_key`](mod@crate::plugins): per-user API keys |
+//! | `magic-link` | [`fastauth::plugins::magic_link`](mod@crate::plugins): sign-in links by email |
+//! | `email-otp` | [`fastauth::plugins::email_otp`](mod@crate::plugins): one-time codes by email for sign-in, verification and password reset |
 //! | `bearer` | [`fastauth::plugins::bearer`](mod@crate::plugins): `Authorization: Bearer` sessions and `set-auth-token` |
 //! | `jwt` | [`fastauth::plugins::jwt`](mod@crate::plugins): `/token`, `/jwks` and a verifier for resource servers |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
@@ -67,6 +69,14 @@ pub mod plugins {
     /// Per-user API keys: `.plugin(ApiKeys::new())`.
     #[cfg(feature = "api-key")]
     pub use fastauth_plugin_api_key as api_key;
+
+    /// Sign-in links by email: `.plugin(MagicLink::new())`.
+    #[cfg(feature = "magic-link")]
+    pub use fastauth_plugin_magic_link as magic_link;
+
+    /// One-time codes by email: `.plugin(EmailOtp::new())`.
+    #[cfg(feature = "email-otp")]
+    pub use fastauth_plugin_email_otp as email_otp;
 
     /// Bearer tokens instead of cookies: `.plugin(Bearer::new())`.
     #[cfg(feature = "bearer")]

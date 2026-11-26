@@ -10,7 +10,7 @@ use crate::adapter::{Adapter, DbError, Transaction};
 use crate::crypto::{Hash, random_token};
 use crate::endpoint::{Ctx, Gate, SignInAttempt};
 use crate::error::{AuthError, codes};
-use crate::events::{AccountLinked, SessionCreated, SessionRevoked, UserCreated};
+use crate::events::{AccountLinked, EmailVerified, SessionCreated, SessionRevoked, UserCreated};
 use crate::mail::{AuthEmail, VerifyEmail};
 use crate::model::Model;
 use crate::models::{Account, Session, User, Verification};
@@ -411,6 +411,34 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         Ok(SignInResult::SignedIn(Box::new(
             self.create_session(&user.id, remember_me).await?,
         )))
+    }
+
+    /// Makes the person who just proved control of an email the only owner of its unverified
+    /// user: deletes every account (password and OAuth links) and session the user collected
+    /// before the proof, then marks the email verified. Email-primary sign-ins (magic links,
+    /// email codes) call this when they land on a user whose email isn't verified, so whoever
+    /// registered that address first keeps no access. A verified user comes back unchanged.
+    pub async fn claim_unverified_user(&self, user: UserView) -> Result<UserView, AuthError> {
+        if user.email_verified {
+            return Ok(user);
+        }
+        self.ctx
+            .db()
+            .delete::<Account>(Account::USER_ID.eq(&user.id))
+            .await?;
+        self.revoke_user_sessions(&user.id, None).await?;
+        self.ctx
+            .db()
+            .update::<User>(User::ID.eq(&user.id))
+            .set(User::EMAIL_VERIFIED, true)
+            .exec()
+            .await?;
+        self.ctx.emit(EmailVerified {
+            user_id: user.id.clone(),
+        });
+        self.find_user_by_id(&user.id)
+            .await?
+            .ok_or_else(|| AuthError::internal("user deleted while claiming it"))
     }
 
     pub async fn revoke_session(&self, user_id: &Id, session_id: &Id) -> Result<bool, AuthError> {
