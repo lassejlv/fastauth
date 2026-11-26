@@ -152,6 +152,15 @@ With the session cookie cache on ([Sessions](../../concepts/01-sessions.md)), th
 caller's active organization also drop the cache cookie, so the next request sees the new
 value.
 
+Every route that changes something (creating, updating or deleting an organization, setting
+the active one, inviting, accepting, rejecting or cancelling an invitation, removing a member,
+changing a role, leaving) and `/organization/has-permission` check the caller's role against
+the session as the database holds it, not the cache cookie
+([Security](../../concepts/03-security.md#sessions-that-arent-a-sign-in)). So a revoked session gets `401` at
+once, and a member whose role was lowered can't use the old role until the cache expires.
+Read-only lists still answer from the cache. Better Auth answers these checks from the cookie
+cache.
+
 ## Invitations and email
 
 `invite-member` stores a pending invitation that expires after `invitation_ttl`, then

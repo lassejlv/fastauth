@@ -347,10 +347,13 @@ The plugin adds no extractors of its own. What changes:
   `session.view().ephemeral` is `true`, `session.session.id` is `"ephemeral"`, and
   `/sign-out` has nothing to revoke. It is never fresh: `FreshSession` and `Fresh` endpoints
   answer `403 SESSION_NOT_FRESH`.
-- **It can't mint credentials.** Creating or updating a key, registering a passkey, linking
-  a social account and turning two-factor on or off need a stored session and answer
-  `401 UNAUTHORIZED` to a key's session, so a limited key can't create an unlimited one or
-  lift its own expiry. Better Auth lets a key's session create and update keys.
+- **It can't mint credentials.** Creating, updating or deleting a key, registering, renaming
+  or deleting a passkey, linking or unlinking a social account, changing the password,
+  turning two-factor on or off, reading the TOTP URI and generating backup codes need a
+  stored session and answer `401 UNAUTHORIZED` to a key's session, so a limited key can't
+  create an unlimited one, lift its own expiry, delete its owner's other keys or add a second
+  factor. Better Auth lets a key's session create, update and delete keys and generate backup
+  codes.
 - **Bans apply.** The core session gates run on it, so a banned owner's key answers
   `403 BANNED_USER` ([Admin](../access/02-admin.md#bans)), and banning disables the owner's keys.
 - **Claims delete keys.** When a magic link, an email code or a verified social account
@@ -501,7 +504,8 @@ Known gaps:
 - A request with both a session cookie and a key uses the cookie; Better Auth uses the key.
 - `/api-key/create` and `/api-key/update` read the caller's session from the database, as
   Better Auth does, and also refuse a key's own session and an impersonation session, which
-  Better Auth allows.
+  Better Auth allows. `/api-key/delete` does the same; Better Auth answers it from the cookie
+  cache and accepts any session.
 - Better Auth deletes every expired key each time a key signs a request in. fastauth only
   deletes the key being used, so call `delete_all_expired()` yourself.
 
