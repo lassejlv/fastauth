@@ -168,6 +168,7 @@ pub(crate) struct OwnedGate<D> {
     pub owner: &'static str,
     pub gate: ErasedGate<D>,
 }
+pub(crate) type ErasedResponseHook<D> = Arc<dyn Fn(&Ctx<D>, &mut Response) + Send + Sync>;
 pub(crate) type ErasedEventHandler<D> = Arc<
     dyn Fn(Arc<dyn Any + Send + Sync>, Ctx<D>) -> BoxFuture<'static, Result<(), AuthError>>
         + Send
@@ -276,6 +277,7 @@ pub(crate) struct Shared<D> {
     pub hooks: HashMap<TypeId, EndpointHooks<D>>,
     pub gates: Vec<OwnedGate<D>>,
     pub resolvers: Vec<Arc<dyn ErasedResolver<D>>>,
+    pub response_hooks: Vec<ErasedResponseHook<D>>,
     pub events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub router: matchit::Router<MethodTable<D>>,
     pub rate_limiter: RateLimiter,
@@ -625,7 +627,7 @@ impl<D: Adapter, E: Endpoint<D>> ErasedEndpoint<D> for Erased<E> {
                 Ok(input) => input,
                 Err(err) => return err.into_response(),
             };
-            let mut executed = execute(shared, None, &self.0, request, input).await;
+            let mut executed = execute(shared, None, &self.0, request.clone(), input).await;
             if executed.result.is_ok() {
                 let events = std::mem::take(&mut executed.effects.events);
                 dispatch_events(shared, events).await;
@@ -636,7 +638,14 @@ impl<D: Adapter, E: Endpoint<D>> ErasedEndpoint<D> for Erased<E> {
                     .map_err(AuthError::internal),
                 Outcome::Response(response) => Ok(Outcome::Response(response)),
             });
-            into_response(&shared.config, result, executed.effects)
+            let mut response = into_response(&shared.config, result, executed.effects);
+            if !shared.response_hooks.is_empty() {
+                let ctx: Ctx<D> = Ctx::new(shared.clone(), None, request, None, Arc::default());
+                for hook in &shared.response_hooks {
+                    hook(&ctx, &mut response);
+                }
+            }
+            response
         })
     }
 }

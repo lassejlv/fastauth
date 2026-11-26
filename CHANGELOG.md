@@ -24,6 +24,19 @@
 - Both plugins claim an unverified user when a link or code proves the email: the user's
   earlier accounts and sessions are deleted and the email is marked verified, as Better Auth
   does.
+- **fastauth-plugin-bearer** (feature `bearer`, `fastauth::plugins::bearer`): sessions from
+  `Authorization: Bearer <token>` on every auth route, in server API calls and in the axum
+  extractors, signed or raw tokens (`require_signature` to refuse raw ones), and the
+  `set-auth-token` header on every response that sets the session cookie. Wire-compatible
+  with Better Auth's `bearer` plugin (`compat/better-auth/run-bearer.sh`).
+  ([docs/17](docs/17-bearer.md))
+- **fastauth-plugin-jwt** (feature `jwt`, `fastauth::plugins::jwt`): `GET /token`, `GET /jwks`,
+  the `set-auth-jwt` header on `/get-session`, a `jwks` table with private keys encrypted
+  with the app secret, EdDSA (default), ES256 and RS256 keys, issuer, audience, expiration
+  time, `define_payload`, scheduled and on-demand key rotation with a grace period,
+  `JwtExt` (`token`, `sign`, `verify`, `jwks`, `rotate`), and `JwksVerifier` for resource
+  servers. Built on `jsonwebtoken` and aws-lc-rs. Wire-compatible with Better Auth's
+  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md))
 
 ### Core
 
@@ -33,6 +46,8 @@
   emails and user fields exactly like sign-up.
 - `EmailPassword::revokes_sessions_on_password_reset()` and
   `EmailVerification::auto_signs_in_after_verification()` read those settings.
+- `PluginBuilder::on_response`: a hook over the HTTP response of every routed endpoint.
+- Sessions found by a resolver's `Resolved::Token` are refreshed like cookie sessions.
 
 ## 0.2.0 (2026-11-26)
 

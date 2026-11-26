@@ -15,6 +15,8 @@
 //! | `api-key` | [`fastauth::plugins::api_key`](mod@crate::plugins): per-user API keys |
 //! | `magic-link` | [`fastauth::plugins::magic_link`](mod@crate::plugins): sign-in links by email |
 //! | `email-otp` | [`fastauth::plugins::email_otp`](mod@crate::plugins): one-time codes by email for sign-in, verification and password reset |
+//! | `bearer` | [`fastauth::plugins::bearer`](mod@crate::plugins): `Authorization: Bearer` sessions and `set-auth-token` |
+//! | `jwt` | [`fastauth::plugins::jwt`](mod@crate::plugins): `/token`, `/jwks` and a verifier for resource servers |
 //! | `cli` | [`fastauth::cli`](crate::cli): `schema`, `status`, `generate` and `migrate` for your app's binary |
 //!
 //! `crates/fastauth/examples/axum_sqlite.rs` is a complete app.
@@ -75,6 +77,14 @@ pub mod plugins {
     /// One-time codes by email: `.plugin(EmailOtp::new())`.
     #[cfg(feature = "email-otp")]
     pub use fastauth_plugin_email_otp as email_otp;
+
+    /// Bearer tokens instead of cookies: `.plugin(Bearer::new())`.
+    #[cfg(feature = "bearer")]
+    pub use fastauth_plugin_bearer as bearer;
+
+    /// JWTs and a JWKS for other services: `.plugin(Jwt::new())`.
+    #[cfg(feature = "jwt")]
+    pub use fastauth_plugin_jwt as jwt;
 }
 
 /// Paths the derive macros expand to. Not public API.
