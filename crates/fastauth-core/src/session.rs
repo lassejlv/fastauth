@@ -50,6 +50,14 @@ impl UserView {
     pub fn to_json(&self) -> serde_json::Map<String, serde_json::Value> {
         self.row.to_client_json()
     }
+
+    /// The user's security stamp ([`User::SECURITY_STAMP`]) when this row was read. A row
+    /// without the column (an old cookie cache) reads as 0.
+    pub fn security_stamp(&self) -> i64 {
+        self.row
+            .get(User::SECURITY_STAMP.name())
+            .unwrap_or_default()
+    }
 }
 
 /// Serializes as the client JSON of the row, the `user` of `/get-session`.

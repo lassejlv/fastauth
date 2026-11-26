@@ -69,21 +69,25 @@ pub(crate) async fn prepare_new_user<D: Adapter, A>(
     Ok(())
 }
 
-/// `/update-user`: Better Auth's update-user hook and its user-update database hook.
+/// `/update-user`: Better Auth's update-user hook and its user-update database hook. With
+/// `immutable_username`, clearing a set username (`"username": null`) is a change too.
 pub(crate) async fn prepare_update<D: Adapter>(
     plugin: &Username,
     ctx: &HookCtx<D>,
     body: &mut Map<String, Json>,
 ) -> Result<(), AuthError> {
+    let session = ctx.session();
+    let current = session
+        .map(|s| s.user.fields::<UsernameUser>())
+        .transpose()
+        .map_err(AuthError::internal)?
+        .and_then(|fields| fields.username);
+    if body.get(USERNAME).is_some_and(Json::is_null) && plugin.immutable && current.is_some() {
+        return Err(UsernameError::UsernameIsImmutable.into());
+    }
     if let Some(username) = string(body, USERNAME).map(str::to_owned) {
         plugin.validate(&username)?;
         let normalized = plugin.normalize(&username);
-        let session = ctx.session();
-        let current = session
-            .map(|s| s.user.fields::<UsernameUser>())
-            .transpose()
-            .map_err(AuthError::internal)?
-            .and_then(|fields| fields.username);
         if plugin.immutable && current.as_ref().is_some_and(|c| *c != normalized) {
             return Err(UsernameError::UsernameIsImmutable.into());
         }

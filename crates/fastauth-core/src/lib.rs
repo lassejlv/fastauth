@@ -69,13 +69,14 @@ pub mod plugin_prelude {
 
     pub use crate::adapter::{Adapter, Order};
     pub use crate::crypto::{Hash, random_string, random_token};
+    pub use crate::endpoint::BoxFuture;
     pub use crate::endpoint::{
         After, Authenticated, Before, Ctx, Empty, Endpoint, Fresh, Gate, HookCtx,
         MaybeAuthenticated, Public, Resolved, SessionResolver, SessionUse, SignInAttempt,
     };
     pub use crate::error::{AuthError, ErrorCodes, codes};
     pub use crate::events::Event;
-    pub use crate::internal::{NewAccount, NewUser, SignInResult};
+    pub use crate::internal::{Claim, NewAccount, NewUser, SignInResult, UserInput};
     pub use crate::model::{Col, Fields, Model, OnTable};
     pub use crate::models::{Account, Session, User, Verification};
     pub use crate::plugin::{Plugin, PluginBuilder};

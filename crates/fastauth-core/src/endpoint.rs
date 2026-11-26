@@ -178,6 +178,21 @@ pub(crate) type ErasedSessionGate<D> = Arc<
         + Sync,
 >;
 pub(crate) type FixedExpiry = Arc<dyn Fn(&SessionView) -> bool + Send + Sync>;
+pub(crate) type ErasedUserInputHook<D> = Arc<
+    dyn Fn(
+            HookCtx<D>,
+            serde_json::Map<String, serde_json::Value>,
+            crate::internal::UserInput,
+        )
+            -> BoxFuture<'static, Result<serde_json::Map<String, serde_json::Value>, AuthError>>
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedClaimHook<D> = Arc<
+    dyn for<'a> Fn(crate::internal::Claim<'a, D>) -> BoxFuture<'a, Result<(), AuthError>>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedEventHandler<D> = Arc<
     dyn Fn(Arc<dyn Any + Send + Sync>, Ctx<D>) -> BoxFuture<'static, Result<(), AuthError>>
         + Send
@@ -300,6 +315,8 @@ pub(crate) struct Shared<D> {
     pub session_hooks: Vec<ErasedSessionHook<D>>,
     pub session_gates: Vec<ErasedSessionGate<D>>,
     pub fixed_expiry: Vec<FixedExpiry>,
+    pub claim_hooks: Vec<ErasedClaimHook<D>>,
+    pub user_input_hooks: Vec<ErasedUserInputHook<D>>,
     pub events: HashMap<TypeId, Vec<ErasedEventHandler<D>>>,
     pub router: matchit::Router<MethodTable<D>>,
     pub rate_limiter: RateLimiter,

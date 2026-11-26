@@ -2,16 +2,16 @@
 
 use std::sync::Arc;
 
-use fastauth_core::adapter::{Adapter, Order, Transaction};
+use fastauth_core::adapter::{Adapter, Order};
 use fastauth_core::crypto::{Hash, base64url, ct_eq, random_token};
 use fastauth_core::endpoint::{Authenticated, Ctx, Empty, Endpoint, Public};
 use fastauth_core::error::codes;
-use fastauth_core::events::{AccountLinked, EmailVerified, SessionRevoked, UserClaimed};
 use fastauth_core::internal::{NewAccount, NewUser, SignInResult};
 use fastauth_core::model::Model;
 use fastauth_core::models::{Account, Session, User};
 use fastauth_core::routes::Status;
 use fastauth_core::schema::ColumnType;
+use fastauth_core::session::UserView;
 use fastauth_core::value::{Id, Value};
 use fastauth_core::{AuthError, Duration};
 use http::{Method, StatusCode};
@@ -349,15 +349,24 @@ impl SocialCallback {
         let existing = internal.find_account(provider_id, &profile.id).await?;
 
         if let Some(user_id) = data.link_user_id {
-            self.check_link(ctx, &user_id, data.link_session_id.as_ref(), &profile)
+            // The user is read before the session that started the link is checked, so a
+            // claim after this read refuses the link (see `link_account_unless_claimed`) and a
+            // claim before it has already deleted that session.
+            let user = internal
+                .find_user_by_id(&user_id)
+                .await?
+                .ok_or_else(|| fail("unable_to_link_account"))?;
+            self.check_link(ctx, &user, data.link_session_id.as_ref(), &profile)
                 .await?;
             match existing {
                 Some(found) if found.user_id != user_id => {
                     return Err(fail("account_already_linked_to_different_user"));
                 }
-                Some(found) => update_tokens(ctx, &found.id, &account).await?,
+                Some(found) => {
+                    update_tokens(ctx, &found.id, &account).await?;
+                }
                 None => {
-                    internal.link_account(&user_id, account).await?;
+                    internal.link_account_unless_claimed(&user, account).await?;
                 }
             }
             return Ok(data.callback_url);
@@ -365,11 +374,15 @@ impl SocialCallback {
 
         let (user, created) = match existing {
             Some(found) => {
-                update_tokens(ctx, &found.id, &account).await?;
                 let user = internal
                     .find_user_by_id(&found.user_id)
                     .await?
                     .ok_or_else(|| AuthError::internal("account without a user"))?;
+                // Read after the user, so a claim that deleted the link after this point
+                // changed the stamp the sign-in checks, and one before it left no link here.
+                if update_tokens(ctx, &found.id, &account).await? == 0 {
+                    return Err(fail("account_not_linked"));
+                }
                 (user, false)
             }
             None => {
@@ -383,12 +396,7 @@ impl SocialCallback {
                         {
                             return Err(fail("account_not_linked"));
                         }
-                        if user.email_verified {
-                            internal.link_account(&user.id, account).await?;
-                        } else {
-                            claim_unverified_user(ctx, &user.id, account).await?;
-                        }
-                        (user, false)
+                        (internal.claim_user(user, Some(account)).await?, false)
                     }
                     None => {
                         if configured.disable_sign_up {
@@ -422,7 +430,7 @@ impl SocialCallback {
     async fn check_link<D: Adapter>(
         &self,
         ctx: &Ctx<D, Public>,
-        user_id: &Id,
+        user: &UserView,
         session_id: Option<&Id>,
         profile: &OAuthProfile,
     ) -> Result<(), Fail> {
@@ -435,18 +443,13 @@ impl SocialCallback {
                 .map_err(AuthError::from)?,
             None => None,
         };
-        let live = session.is_some_and(|s| &s.user_id == user_id && s.expires_at > ctx.now());
+        let live = session.is_some_and(|s| s.user_id == user.id && s.expires_at > ctx.now());
         if !live || self.0.account_linking == AccountLinking::Off || !profile.email_verified {
             return Err(fail("unable_to_link_account"));
         }
         if self.0.allow_different_emails {
             return Ok(());
         }
-        let user = ctx
-            .internal()
-            .find_user_by_id(user_id)
-            .await?
-            .ok_or_else(|| fail("unable_to_link_account"))?;
         let same_email = profile
             .email
             .as_deref()
@@ -565,74 +568,13 @@ fn new_account(provider_id: &str, profile: &OAuthProfile, tokens: OAuthTokens) -
     }
 }
 
-/// Links a verified social account to a user whose email was never verified. Whoever
-/// registered that email first may not own it, so in one transaction their password and
-/// sessions go, the email becomes verified, and the account is linked.
-async fn claim_unverified_user<D: Adapter>(
-    ctx: &Ctx<D, Public>,
-    user_id: &Id,
-    account: NewAccount,
-) -> Result<(), AuthError> {
-    let keys = ctx.keys();
-    let seal = |token: Option<String>| token.map(|t| keys.encrypt(t.as_bytes()));
-    let now = ctx.now();
-    let provider_id = account.provider_id.clone();
-    let row = Account {
-        id: ctx.new_id()?,
-        user_id: user_id.clone(),
-        provider_id: account.provider_id,
-        account_id: account.account_id.unwrap_or_else(|| user_id.to_string()),
-        password_hash: None,
-        access_token: seal(account.access_token),
-        refresh_token: seal(account.refresh_token),
-        id_token: account.id_token,
-        access_token_expires_at: account.access_token_expires_at,
-        refresh_token_expires_at: account.refresh_token_expires_at,
-        scope: account.scope,
-        created_at: now,
-        updated_at: now,
-    };
-    let tx = ctx.adapter().begin().await?;
-    let db = ctx.db_on(&tx);
-    db.delete::<Account>(
-        Account::USER_ID
-            .eq(user_id)
-            .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
-    )
-    .await?;
-    let revoked = db.delete::<Session>(Session::USER_ID.eq(user_id)).await?;
-    db.update::<User>(User::ID.eq(user_id))
-        .set(User::EMAIL_VERIFIED, true)
-        .exec()
-        .await?;
-    db.insert(&row).await?;
-    tx.commit().await?;
-    if revoked > 0 {
-        ctx.emit(SessionRevoked {
-            user_id: user_id.clone(),
-            session_id: None,
-        });
-    }
-    ctx.emit(EmailVerified {
-        user_id: user_id.clone(),
-    });
-    ctx.emit(UserClaimed {
-        user_id: user_id.clone(),
-    });
-    ctx.emit(AccountLinked {
-        user_id: user_id.clone(),
-        provider_id,
-    });
-    Ok(())
-}
-
 /// Stores fresh tokens on an existing account. A missing refresh or id token keeps the old one,
 /// since providers only send those on some sign-ins.
 async fn update_tokens<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     account_id: &Id,
     account: &NewAccount,
-) -> Result<(), AuthError> {
+) -> Result<u64, AuthError> {
     let keys = ctx.keys();
     let seal = |token: &String| Some(keys.encrypt(token.as_bytes()));
     let mut update = ctx
@@ -656,8 +598,7 @@ async fn update_tokens<D: Adapter, A>(
     if let Some(id_token) = &account.id_token {
         update = update.set(Account::ID_TOKEN, Some(id_token.clone()));
     }
-    update.exec().await?;
-    Ok(())
+    Ok(update.exec().await?)
 }
 
 // ---------------------------------------------------------------------------- accounts
