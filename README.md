@@ -98,6 +98,12 @@ If you remove `TwoFactor` from the builder, `session.user.plugin::<TwoFactor, _>
 stops compiling and tells you which plugin is missing. `crates/fastauth/examples/` has runnable
 apps on SQLite and in memory.
 
+## Example app
+
+[`examples/fullstack`](examples/fullstack) is a complete app: axum and Postgres with email
+verification, GitHub, two-factor, passkeys, organizations, admin and API keys, a React client
+on Better Auth's own client, and a Playwright suite that drives it end to end.
+
 ## Crates
 
 | Crate | What |
