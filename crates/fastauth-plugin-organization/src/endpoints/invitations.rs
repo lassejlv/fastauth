@@ -46,7 +46,7 @@ impl<D: Adapter> Endpoint<D> for InviteMember {
         ctx: Ctx<D, Authenticated>,
         input: InviteMemberInput,
     ) -> Result<Invitation, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let plugin = plugin(&ctx);
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::OrganizationNotFound)?;
@@ -204,7 +204,7 @@ async fn own_invitation<D: Adapter>(
             i.status == InvitationStatus::Pending && (!must_be_live || i.expires_at > ctx.now())
         })
         .ok_or(OrganizationError::InvitationNotFound)?;
-    let user = &ctx.session().user;
+    let user = &ctx.authoritative_session().await?.user;
     if !invitation.email.eq_ignore_ascii_case(&user.email) {
         return Err(OrganizationError::YouAreNotTheRecipientOfTheInvitation.into());
     }
@@ -234,7 +234,7 @@ impl<D: Adapter> Endpoint<D> for AcceptInvitation {
         input: InvitationIdInput,
     ) -> Result<InvitationResponse, AuthError> {
         let invitation = own_invitation(&ctx, &input.invitation_id, true).await?;
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         organization(&ctx, &invitation.organization_id).await?;
         if find_member(&ctx, &invitation.organization_id, &session.user.id)
             .await?
@@ -364,9 +364,13 @@ impl<D: Adapter> Endpoint<D> for CancelInvitation {
             .one()
             .await?
             .ok_or(OrganizationError::InvitationNotFound)?;
-        let member = find_member(&ctx, &invitation.organization_id, &ctx.session().user.id)
-            .await?
-            .ok_or(OrganizationError::MemberNotFound)?;
+        let member = find_member(
+            &ctx,
+            &invitation.organization_id,
+            &ctx.authoritative_session().await?.user.id,
+        )
+        .await?
+        .ok_or(OrganizationError::MemberNotFound)?;
         if !plugin(&ctx)
             .roles
             .allows(&member.role, &[("invitation", &["cancel"])])

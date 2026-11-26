@@ -130,6 +130,7 @@ async fn deleting_a_user_cascades_to_sessions() {
             Value::Bool(false),
             Value::Text("A".into()),
             Value::Null,
+            Value::Int(0),
             now.clone(),
             now.clone(),
         ],

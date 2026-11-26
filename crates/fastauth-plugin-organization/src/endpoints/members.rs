@@ -45,7 +45,7 @@ impl<D: Adapter> Endpoint<D> for RemoveMember {
         ctx: Ctx<D, Authenticated>,
         input: RemoveMemberInput,
     ) -> Result<RemoveMemberOutput, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::NoActiveOrganization)?;
         let caller = find_member(&ctx, &organization_id, &session.user.id)
@@ -137,7 +137,7 @@ impl<D: Adapter> Endpoint<D> for UpdateMemberRole {
         ctx: Ctx<D, Authenticated>,
         input: UpdateMemberRoleInput,
     ) -> Result<Member, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let plugin = plugin(&ctx);
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::NoActiveOrganization)?;
@@ -221,7 +221,7 @@ impl<D: Adapter> Endpoint<D> for LeaveOrganization {
         ctx: Ctx<D, Authenticated>,
         input: LeaveOrganizationInput,
     ) -> Result<Member, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = Id::from(input.organization_id);
         let member = find_member(&ctx, &organization_id, &session.user.id)
             .await?
@@ -395,7 +395,7 @@ impl<D: Adapter> Endpoint<D> for HasPermission {
         ctx: Ctx<D, Authenticated>,
         input: HasPermissionInput,
     ) -> Result<HasPermissionOutput, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::NoActiveOrganization)?;
         let member = find_member(&ctx, &organization_id, &session.user.id)

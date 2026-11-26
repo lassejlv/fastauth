@@ -380,7 +380,7 @@ impl<D: Adapter> Endpoint<D> for ClaimUser {
             .find_user_by_email(&input.email)
             .await?
             .ok_or_else(|| AuthError::internal("no such user"))?;
-        let user = internal.claim_unverified_user(user).await?;
+        let user = internal.claim_user(user, None).await?;
         internal.create_session(&user.id, true).await?;
         Ok(json!({ "status": true }))
     }

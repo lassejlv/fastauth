@@ -50,7 +50,9 @@ set-cookie: fastauth.session_token_multi-vb3...xw=Vb3...Xw.k9...Qs; Path=/; Max-
 
 Its name is the session cookie's name, `_multi-` and the session token in lowercase; its value
 is the token signed like the session cookie, and it lasts the session's lifetime. Better Auth
-names and signs it the same way (with its own prefix and secret).
+names and signs it the same way (with its own prefix and secret). After a `rememberMe: false`
+sign-in the device cookie has no `Max-Age`, like the session cookie, so closing the browser
+forgets the account.
 
 When the new session's user already has a remembered session in this browser, that older
 session is deleted and its cookie expired, so each account appears once. When the browser

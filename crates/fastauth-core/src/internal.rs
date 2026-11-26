@@ -1,21 +1,25 @@
 //! Core operations shared by core endpoints and plugins: users, accounts, sessions,
 //! sign-in with gates, verification values, email.
 
+use std::any::Any;
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 use http::StatusCode;
 use time::{Duration, OffsetDateTime};
 
-use crate::adapter::{Adapter, DbError, Transaction};
-use crate::crypto::{Hash, random_token};
+use crate::adapter::{Adapter, DbError, Transaction, Update};
+use crate::crypto::{Hash, random_bytes, random_token};
 use crate::endpoint::{Ctx, Gate, SignInAttempt};
 use crate::error::{AuthError, codes};
 use crate::events::{
     AccountLinked, EmailVerified, SessionCreated, SessionRevoked, UserClaimed, UserCreated,
 };
 use crate::mail::{AuthEmail, VerifyEmail};
-use crate::model::Model;
+use crate::model::{Col, Model, OnTable};
 use crate::models::{Account, Session, User, Verification};
+use crate::query::Db;
+use crate::schema::Schema;
 use crate::session::{
     SESSION_DATA, SessionView, UserView, clear_session_cookies, set_session_cookies,
 };
@@ -49,6 +53,39 @@ pub struct NewAccount {
     pub scope: Option<String>,
 }
 
+/// What [`Internal::create_session_with`] stores beyond a default session: a different expiry
+/// and plugin columns, written in the same insert.
+#[derive(Clone, Debug, Default)]
+pub struct NewSession {
+    expires_at: Option<OffsetDateTime>,
+    values: Vec<(&'static str, Value)>,
+}
+
+impl NewSession {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces the expiry `remember_me` and the session config give.
+    pub fn expires_at(mut self, expires_at: OffsetDateTime) -> Self {
+        self.expires_at = Some(expires_at);
+        self
+    }
+
+    /// Sets a plugin's or the app's session column.
+    pub fn set<O: OnTable<Table = Session>, T: ColumnValue>(
+        mut self,
+        column: Col<O, T>,
+        value: impl Into<T>,
+    ) -> Self {
+        self.values.push((column.name(), value.into().into_value()));
+        self
+    }
+}
+
+/// How long a `rememberMe: false` session lives at most, as in Better Auth.
+const DONT_REMEMBER_LIFETIME: Duration = Duration::days(1);
+
 impl NewAccount {
     pub fn credential(password_hash: String) -> Self {
         Self {
@@ -65,6 +102,17 @@ impl NewAccount {
             ..Self::default()
         }
     }
+}
+
+/// Which user write [`Internal::user_fields`] reads client input for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UserInput {
+    /// A client creating their own user: `/sign-up/email`, or an email code that signs up.
+    SignUp,
+    /// The server creating a user (`auth.api().create_user(..)`).
+    Create,
+    /// `/update-user`, for the signed-in user.
+    Update,
 }
 
 #[derive(Clone, Debug)]
@@ -99,8 +147,74 @@ fn account_linked(err: DbError) -> AuthError {
     }
 }
 
+/// The cookie that marks the browser which set or proved an unverified user's password.
+const PENDING_VERIFICATION: &str = "pending_verification";
+
+/// A fresh random security stamp.
+fn new_security_stamp() -> i64 {
+    i64::from_le_bytes(random_bytes::<8>())
+}
+
 pub(crate) fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// A sign-in or link that started before proof of the email claimed the user.
+fn claimed_meanwhile() -> AuthError {
+    AuthError::new(
+        StatusCode::UNAUTHORIZED,
+        codes::UNAUTHORIZED,
+        "the account changed while signing in; sign in again",
+    )
+}
+
+/// What a claim cleanup registered with
+/// [`PluginBuilder::on_claim`](crate::plugin::PluginBuilder::on_claim) gets: the claimed
+/// user and the claim's transaction. Every query on [`db`](Self::db) commits or rolls back
+/// with the claim.
+pub struct Claim<'a, D> {
+    user_id: &'a Id,
+    tx: &'a (dyn Any + Send + Sync),
+    schema: &'a Schema,
+    _adapter: PhantomData<fn() -> D>,
+}
+
+impl<'a, D: Adapter> Claim<'a, D> {
+    /// The user that was claimed. Its email is verified now.
+    pub fn user_id(&self) -> &'a Id {
+        self.user_id
+    }
+
+    /// Typed queries inside the claim's transaction.
+    pub fn db(&self) -> Db<'a, D::Tx> {
+        let tx = self
+            .tx
+            .downcast_ref::<D::Tx>()
+            .expect("a claim runs in its adapter's transaction");
+        Db::new(tx, self.schema)
+    }
+}
+
+impl<D> std::fmt::Debug for Claim<'_, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Claim")
+            .field("user_id", self.user_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The verification identifiers core keeps per user, which a claim retires.
+fn user_verification_identifiers(user_id: &Id) -> [String; 2] {
+    [
+        format!("email-verification:{user_id}"),
+        format!("reset-password:{user_id}"),
+    ]
+}
+
+/// What a token bound to a user carries: the user's security stamp and email when it was
+/// minted, so a claim or a change of email retires it.
+fn user_binding(user: &UserView) -> String {
+    format!("{}:{}", user.security_stamp(), user.email)
 }
 
 pub struct Internal<'a, D, A> {
@@ -225,6 +339,61 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         Account::decode(&row).map_err(AuthError::internal)
     }
 
+    /// Links an account like [`link_account`](Self::link_account), unless proof of the email
+    /// claimed the user after `user` was read: then the account is removed again and the call
+    /// answers 401. For links that a session or an earlier request started, such as linking
+    /// a social account, so a link the previous holder started can't land on a claimed user.
+    pub async fn link_account_unless_claimed(
+        &self,
+        user: &UserView,
+        account: NewAccount,
+    ) -> Result<Account, AuthError> {
+        let provider_id = account.provider_id.clone();
+        let row = self
+            .ctx
+            .db()
+            .insert_row::<Account>(self.account_values(&user.id, account)?)
+            .await
+            .map_err(account_linked)?;
+        let linked = Account::decode(&row).map_err(AuthError::internal)?;
+        if !self.stamp_holds(&user.id, user.security_stamp()).await? {
+            self.ctx
+                .db()
+                .delete::<Account>(Account::ID.eq(&linked.id))
+                .await?;
+            return Err(claimed_meanwhile());
+        }
+        self.ctx.emit(AccountLinked {
+            user_id: user.id.clone(),
+            provider_id,
+        });
+        Ok(linked)
+    }
+
+    /// Whether `user_id`'s security stamp still is `stamp`. A locking no-op write, so it waits
+    /// for a claim in progress and then sees its stamp: anything inserted before this check
+    /// and after a claim began is either deleted by the claim or refused here.
+    async fn stamp_holds(&self, user_id: &Id, stamp: i64) -> Result<bool, AuthError> {
+        let table = self.ctx.schema().expect(User::TABLE);
+        let filter = User::ID
+            .eq(user_id)
+            .and(User::SECURITY_STAMP.eq(stamp))
+            .resolve(table)?;
+        let column = table
+            .position(User::SECURITY_STAMP.name())
+            .ok_or_else(|| AuthError::internal("user.security_stamp missing"))?;
+        let matched = self
+            .ctx
+            .adapter()
+            .update(Update {
+                table,
+                filter,
+                set: vec![(column, Value::Int(stamp))],
+            })
+            .await?;
+        Ok(matched == 1)
+    }
+
     pub async fn find_account(
         &self,
         provider_id: &str,
@@ -241,6 +410,22 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .eq(user_id)
             .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL));
         Ok(self.ctx.db().find::<Account>(filter).one().await?)
+    }
+
+    /// The app and plugin columns in `extra` (a body's extra camelCase keys), after every
+    /// [`prepare_user_input`](crate::plugin::PluginBuilder::prepare_user_input) hook, parsed
+    /// like [`user_input_fields`](crate::routes::user_input_fields). Creating a user needs every
+    /// required column; an update doesn't.
+    pub async fn user_fields(
+        &self,
+        extra: &serde_json::Map<String, serde_json::Value>,
+        input: UserInput,
+    ) -> Result<Vec<(&'static str, Value)>, AuthError> {
+        let mut extra = extra.clone();
+        for hook in &self.ctx.shared.user_input_hooks {
+            extra = hook(self.ctx.retype(), extra, input).await?;
+        }
+        crate::routes::user_input_fields(self.ctx, &extra, input != UserInput::Update)
     }
 
     /// Checks a new password against the configured length limits and policy.
@@ -313,18 +498,57 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     /// low-level primitive: sign a user in with [`sign_in`](Self::sign_in), and finish a
     /// challenged sign-in with [`complete_sign_in`](Self::complete_sign_in). Finishing one
     /// with this would skip every other plugin's gates, so a banned user would get a session.
+    ///
+    /// A `remember_me: false` session lives one day at most and is never extended. The session
+    /// hooks run before the response gets the session: when one fails, the session is deleted
+    /// and the response sets none of its cookies.
     pub async fn create_session(
         &self,
         user_id: &Id,
         remember_me: bool,
     ) -> Result<SessionView, AuthError> {
+        self.create_session_with(user_id, remember_me, NewSession::default())
+            .await
+    }
+
+    /// [`create_session`](Self::create_session) with an expiry or plugin columns of its own,
+    /// stored in the one insert, so the session hooks and every later request see them.
+    pub async fn create_session_with(
+        &self,
+        user_id: &Id,
+        remember_me: bool,
+        options: NewSession,
+    ) -> Result<SessionView, AuthError> {
+        self.insert_session(user_id, None, remember_me, options)
+            .await
+    }
+
+    /// [`create_session_with`](Self::create_session_with), refused with 401 when proof of the
+    /// email claimed the user since `stamp` was read: the session is deleted again before
+    /// anyone sees its token.
+    async fn insert_session(
+        &self,
+        user_id: &Id,
+        stamp: Option<i64>,
+        remember_me: bool,
+        options: NewSession,
+    ) -> Result<SessionView, AuthError> {
         let now = self.ctx.now();
         let token = random_token();
+        let lifetime = match remember_me {
+            true => self.ctx.config().session.expires_in,
+            false => self
+                .ctx
+                .config()
+                .session
+                .expires_in
+                .min(DONT_REMEMBER_LIFETIME),
+        };
         let session = Session {
             id: self.ctx.new_id()?,
             token_hash: Hash::sha256(&token),
             user_id: user_id.clone(),
-            expires_at: now + self.ctx.config().session.expires_in,
+            expires_at: options.expires_at.unwrap_or(now + lifetime),
             ip_address: self.ctx.ip().map(str::to_owned),
             user_agent: self
                 .ctx
@@ -333,16 +557,33 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             created_at: now,
             updated_at: now,
         };
-        let row = self
-            .ctx
-            .db()
-            .insert_row::<Session>(session.encode())
-            .await?;
+        let mut values = session.encode();
+        values.extend(options.values);
+        let row = self.ctx.db().insert_row::<Session>(values).await?;
+        let session = Session::decode(&row).map_err(AuthError::internal)?;
+        if let Some(stamp) = stamp
+            && !self.stamp_holds(user_id, stamp).await?
+        {
+            self.ctx
+                .db()
+                .delete::<Session>(Session::ID.eq(&session.id))
+                .await?;
+            return Err(claimed_meanwhile());
+        }
         let user = self
             .find_user_by_id(user_id)
             .await?
             .ok_or_else(|| AuthError::internal("session for a missing user"))?;
+        let view = SessionView {
+            session,
+            row,
+            user,
+            token: Some(token.clone()),
+            ephemeral: false,
+            from_cache: false,
+        };
         let config = self.ctx.config();
+        let before = self.ctx.effects.lock().unwrap().cookies.clone();
         set_session_cookies(
             config,
             self.ctx.keys(),
@@ -350,23 +591,23 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             &token,
             remember_me,
         );
+        for hook in &self.ctx.shared.session_hooks {
+            if let Err(err) = hook(self.ctx.retype(), view.clone()).await {
+                self.ctx.effects.lock().unwrap().cookies = before;
+                self.ctx
+                    .db()
+                    .delete::<Session>(Session::ID.eq(&view.session.id))
+                    .await?;
+                return Err(err);
+            }
+        }
         self.ctx.set_cookie(crate::cookies::SetCookie::delete(
             config.cookie_name(SESSION_DATA),
         ));
         self.ctx.emit(SessionCreated {
-            session_id: session.id.clone(),
+            session_id: view.session.id.clone(),
             user_id: user_id.clone(),
         });
-        let view = SessionView {
-            session,
-            row,
-            user,
-            token: Some(token),
-            ephemeral: false,
-        };
-        for hook in &self.ctx.shared.session_hooks {
-            hook(self.ctx.retype(), view.clone()).await?;
-        }
         Ok(view)
     }
 
@@ -413,6 +654,11 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
 
     /// Runs every sign-in gate in registration order, then creates the session. The first
     /// gate that denies or challenges ends the sign-in without a session.
+    ///
+    /// Read `user` before checking the credential it signs in with: when proof of the email
+    /// claims the user after `user` was read, the sign-in answers 401 instead of a session
+    /// (the security stamp changed), so a password check in flight during a claim can't keep
+    /// the previous holder signed in.
     pub async fn sign_in(
         &self,
         user: UserView,
@@ -481,25 +727,158 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             }
         }
         Ok(SignInResult::SignedIn(Box::new(
-            self.create_session(&user.id, remember_me).await?,
+            self.insert_session(
+                &user.id,
+                Some(user.security_stamp()),
+                remember_me,
+                NewSession::default(),
+            )
+            .await?,
         )))
     }
 
-    /// Makes the person who just proved control of an email the only owner of its unverified
-    /// user: deletes every account (password and OAuth links) and session the user collected
-    /// before the proof, then marks the email verified and emits [`UserClaimed`], on which
-    /// plugins drop credentials of their own (passkeys). Email-primary sign-ins (magic links,
-    /// email codes) call this when they land on a user whose email isn't verified, so whoever
-    /// registered that address first keeps no access. A verified user comes back unchanged.
+    /// Makes whoever just proved control of `user`'s email its only owner. Every path that
+    /// proves an email calls this: a magic link, an email code, a password-reset link, a
+    /// verified social profile, and a verification link that came without the password (see
+    /// [`prove_email`](Self::prove_email)).
+    ///
+    /// For a user whose email isn't verified, one transaction changes the security stamp,
+    /// marks the email verified, deletes every account (password and OAuth links), session and
+    /// core token (verification and reset links) the user collected before the proof, runs
+    /// every plugin's [`on_claim`](crate::plugin::PluginBuilder::on_claim) cleanup (passkeys,
+    /// API keys, two-factor), and links `link`, the account the proof came with, if any.
+    /// A failing cleanup rolls the whole claim back and fails the call. Sign-ins and links
+    /// that started before the claim can't finish after it, because the stamp changed.
+    /// [`UserClaimed`] and [`EmailVerified`] are emitted after the commit, for
+    /// notifications only.
+    ///
+    /// A verified user comes back unchanged, with `link` linked: whoever proved the email
+    /// before already owns it.
+    pub async fn claim_user(
+        &self,
+        user: UserView,
+        link: Option<NewAccount>,
+    ) -> Result<UserView, AuthError> {
+        let linked_provider = link.as_ref().map(|account| account.provider_id.clone());
+        let link = link
+            .map(|account| self.account_values(&user.id, account))
+            .transpose()?;
+        if !user.email_verified {
+            let tx = self.ctx.adapter().begin().await?;
+            match self.claim_in(&tx, &user.id, link.clone()).await {
+                Ok(Some(revoked)) => {
+                    tx.commit().await?;
+                    if revoked > 0 {
+                        self.ctx.emit(SessionRevoked {
+                            user_id: user.id.clone(),
+                            session_id: None,
+                        });
+                    }
+                    self.ctx.emit(EmailVerified {
+                        user_id: user.id.clone(),
+                    });
+                    self.ctx.emit(UserClaimed {
+                        user_id: user.id.clone(),
+                    });
+                    if let Some(provider_id) = linked_provider {
+                        self.ctx.emit(AccountLinked {
+                            user_id: user.id.clone(),
+                            provider_id,
+                        });
+                    }
+                    return self
+                        .find_user_by_id(&user.id)
+                        .await?
+                        .ok_or_else(|| AuthError::internal("user deleted while claiming it"));
+                }
+                // Verified meanwhile, by a proof that claimed it first.
+                Ok(None) => tx.rollback().await?,
+                Err(err) => {
+                    let _ = tx.rollback().await;
+                    return Err(err);
+                }
+            }
+        }
+        if let Some(values) = link {
+            self.ctx
+                .db()
+                .insert_row::<Account>(values)
+                .await
+                .map_err(account_linked)?;
+            if let Some(provider_id) = linked_provider {
+                self.ctx.emit(AccountLinked {
+                    user_id: user.id.clone(),
+                    provider_id,
+                });
+            }
+        }
+        self.find_user_by_id(&user.id)
+            .await?
+            .ok_or_else(|| AuthError::internal("user deleted while claiming it"))
+    }
+
+    /// [`claim_user`](Self::claim_user) without an account to link, the 0.5 name.
+    #[deprecated(since = "0.5.1", note = "use `claim_user(user, None)`")]
     pub async fn claim_unverified_user(&self, user: UserView) -> Result<UserView, AuthError> {
+        self.claim_user(user, None).await
+    }
+
+    /// The claim's statements, in `tx`. The user row is written first, so a concurrent
+    /// [`stamp_holds`](Self::stamp_holds) waits for the claim. `None` when the user was
+    /// verified meanwhile; otherwise how many sessions were revoked.
+    async fn claim_in(
+        &self,
+        tx: &D::Tx,
+        user_id: &Id,
+        link: Option<Vec<(&'static str, Value)>>,
+    ) -> Result<Option<u64>, AuthError> {
+        let db = self.ctx.db_on(tx);
+        let claimed = db
+            .update::<User>(User::ID.eq(user_id).and(User::EMAIL_VERIFIED.eq(false)))
+            .set(User::SECURITY_STAMP, new_security_stamp())
+            .set(User::EMAIL_VERIFIED, true)
+            .exec()
+            .await?;
+        if claimed == 0 {
+            return Ok(None);
+        }
+        db.delete::<Account>(Account::USER_ID.eq(user_id)).await?;
+        let revoked = db.delete::<Session>(Session::USER_ID.eq(user_id)).await?;
+        db.delete::<Verification>(
+            Verification::IDENTIFIER.in_(user_verification_identifiers(user_id)),
+        )
+        .await?;
+        for cleanup in &self.ctx.shared.claim_hooks {
+            cleanup(Claim {
+                user_id,
+                tx,
+                schema: self.ctx.schema(),
+                _adapter: PhantomData,
+            })
+            .await?;
+        }
+        if let Some(values) = link {
+            db.insert_row::<Account>(values)
+                .await
+                .map_err(account_linked)?;
+        }
+        Ok(Some(revoked))
+    }
+
+    /// The request proved control of `user`'s email with a verification link or code. When
+    /// it also proves it holds the user's password (it carries the user's session, or the
+    /// signed cookie that sign-up or a refused unverified sign-in left in the browser that
+    /// knew the password), the email is marked verified and nothing else changes. Otherwise
+    /// whoever set the password may not own the mailbox, so the user is claimed
+    /// ([`claim_user`](Self::claim_user)): the password and everything else from before the
+    /// proof is gone, and the owner signs in by link or sets a password with a reset.
+    pub async fn prove_email(&self, user: UserView) -> Result<UserView, AuthError> {
         if user.email_verified {
             return Ok(user);
         }
-        self.ctx
-            .db()
-            .delete::<Account>(Account::USER_ID.eq(&user.id))
-            .await?;
-        self.revoke_user_sessions(&user.id, None).await?;
+        if !self.holds_credentials_of(&user).await? {
+            return self.claim_user(user, None).await;
+        }
         self.ctx
             .db()
             .update::<User>(User::ID.eq(&user.id))
@@ -509,12 +888,83 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         self.ctx.emit(EmailVerified {
             user_id: user.id.clone(),
         });
-        self.ctx.emit(UserClaimed {
-            user_id: user.id.clone(),
-        });
         self.find_user_by_id(&user.id)
             .await?
-            .ok_or_else(|| AuthError::internal("user deleted while claiming it"))
+            .ok_or_else(|| AuthError::internal("user deleted while verifying it"))
+    }
+
+    /// Whether this request comes from the browser that holds `user`'s credentials: it
+    /// carries a live session of the user, or the signed [`PENDING_VERIFICATION`] cookie
+    /// for the user's current security stamp.
+    async fn holds_credentials_of(&self, user: &UserView) -> Result<bool, AuthError> {
+        let binding = self.ctx.signed_cookie(PENDING_VERIFICATION);
+        if binding.is_some() {
+            self.ctx.delete_cookie(PENDING_VERIFICATION);
+        }
+        if binding.as_deref() == Some(user_binding(user).as_str()) {
+            return Ok(true);
+        }
+        let Some(token) = self.ctx.signed_cookie(crate::session::SESSION_TOKEN) else {
+            return Ok(false);
+        };
+        Ok(self
+            .find_session_by_token(&token)
+            .await?
+            .is_some_and(|session| !session.ephemeral && session.user.id == user.id))
+    }
+
+    /// Leaves the signed cookie [`prove_email`](Self::prove_email) accepts as proof that this
+    /// browser knows `user`'s password, for as long as a verification link lives. Sign-up and
+    /// a sign-in refused for an unverified email call this.
+    pub fn remember_password_holder(&self, user: &UserView) {
+        self.ctx.set_signed_cookie(
+            PENDING_VERIFICATION,
+            &user_binding(user),
+            Some(self.ctx.config().email_verification.ttl),
+        );
+    }
+
+    /// Stores a single-use token for `user` under `{purpose}:{user_id}`, bound to the user's
+    /// security stamp and email: [`consume_user_verification`](Self::consume_user_verification)
+    /// refuses it once a claim or a change of email happened since. For links mailed to the
+    /// user, such as email verification and password reset.
+    pub async fn create_user_verification(
+        &self,
+        purpose: &str,
+        user: &UserView,
+        ttl: Duration,
+    ) -> Result<String, AuthError> {
+        self.create_verification(
+            &format!("{purpose}:{}", user.id),
+            ttl,
+            Some(user_binding(user)),
+        )
+        .await
+    }
+
+    /// Consumes a token from [`create_user_verification`](Self::create_user_verification) for
+    /// `purpose` and answers its user. `None` when the token is unknown, expired, for another
+    /// purpose, or minted before the user was claimed or changed email.
+    pub async fn consume_user_verification(
+        &self,
+        purpose: &str,
+        token: &str,
+    ) -> Result<Option<UserView>, AuthError> {
+        let Some(verification) = self.consume_verification(token).await? else {
+            return Ok(None);
+        };
+        let Some(user_id) = verification
+            .identifier
+            .strip_prefix(purpose)
+            .and_then(|rest| rest.strip_prefix(':'))
+        else {
+            return Ok(None);
+        };
+        let Some(user) = self.find_user_by_id(&Id::from(user_id)).await? else {
+            return Ok(None);
+        };
+        let bound = verification.data.as_deref() == Some(user_binding(&user).as_str());
+        Ok(bound.then_some(user))
     }
 
     pub async fn revoke_session(&self, user_id: &Id, session_id: &Id) -> Result<bool, AuthError> {
@@ -695,7 +1145,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     ) -> Result<(), AuthError> {
         let ttl = self.ctx.config().email_verification.ttl;
         let token = self
-            .create_verification(&format!("email-verification:{}", user.id), ttl, None)
+            .create_user_verification("email-verification", user, ttl)
             .await?;
         let mut url = format!(
             "{}/verify-email?token={token}",

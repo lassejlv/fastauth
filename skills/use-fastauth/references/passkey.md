@@ -40,8 +40,8 @@ Full page: `docs/plugins/sign-in/03-passkey.md`.
   on: `Passkey::new().sign_up(|request| async move { Ok(PasskeyUser { email, name,
   email_verified: false }) })` creates the user from `request.context` (the client's
   `addPasskey({ context })`) once the attestation verifies; a taken email answers 422.
-- A user claimed by proof of their email (magic link, email code, social) loses their passkeys
-  (`UserClaimed` event).
+- A user claimed by proof of their email (magic link, email code, reset or verification link,
+  social) loses their passkeys, inside the claim's transaction (`on_claim`).
 - Routes under `/api/auth/passkey/`: `generate-register-options`, `verify-registration`,
   `generate-authenticate-options`, `verify-authentication` (public; runs the sign-in gates with
   method `"passkey"`), `list-user-passkeys`, `update-passkey`, `delete-passkey`.

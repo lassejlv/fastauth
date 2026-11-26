@@ -57,6 +57,9 @@ impl User {
     pub const EMAIL_VERIFIED: Col<User, bool> = Col::new("email_verified");
     pub const NAME: Col<User, String> = Col::new("name");
     pub const IMAGE: Col<User, Option<String>> = Col::new("image");
+    /// A random value that changes whenever proof of the email claims the user. A sign-in or
+    /// account link that started before a claim can't finish after it. Never sent to clients.
+    pub const SECURITY_STAMP: Col<User, i64> = Col::new("security_stamp");
     pub const CREATED_AT: Col<User, OffsetDateTime> = Col::new("created_at");
     pub const UPDATED_AT: Col<User, OffsetDateTime> = Col::new("updated_at");
 }
@@ -75,6 +78,9 @@ impl Model for User {
             ColumnDef::new("email_verified", T::Bool).default(DefaultValue::Bool(false)),
             ColumnDef::new("name", T::Text).input(),
             ColumnDef::new("image", T::Text).nullable().input(),
+            ColumnDef::new("security_stamp", T::Int)
+                .default(DefaultValue::Int(0))
+                .hidden(),
         ]
     }
 
