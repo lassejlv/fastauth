@@ -42,6 +42,11 @@ fastauth-plugin-two-factor     TOTP, email codes, backup codes, trusted devices
 fastauth-plugin-organization   organizations, members, invitations, roles and permissions
 fastauth-plugin-admin          roles and permissions, bans, impersonation, user management
 fastauth-plugin-api-key        hashed API keys, usage and rate limits, sessions from keys
+fastauth-plugin-magic-link     sign-in links by email
+fastauth-plugin-email-otp      one-time codes by email: sign-in, email verification, password reset
+fastauth-plugin-bearer         sessions from Authorization: Bearer, the set-auth-token header
+fastauth-plugin-jwt            JWTs and a JWKS with rotating keys, JwksVerifier for other services
+fastauth-plugin-passkey        passkeys (WebAuthn) on webauthn-rs
 fastauth-cli                   `fastauth secret`; schema and migrations run from your app's binary (`cli` feature)
 ```
 
@@ -52,10 +57,10 @@ fastauth-cli                   `fastauth secret`; schema and migrations run from
 
 ```toml
 [dependencies]
-fastauth = "0.2" # default = ["axum", "postgres", "macros"]
+fastauth = "0.3" # default = ["axum", "postgres", "macros"]
 
 # SQLite instead of Postgres, plus social sign-in and two-factor:
-fastauth = { version = "0.2", default-features = false, features = [
+fastauth = { version = "0.3", default-features = false, features = [
     "axum", "sqlite", "macros", "oauth", "two-factor",
 ] }
 ```
@@ -70,6 +75,11 @@ fastauth = { version = "0.2", default-features = false, features = [
 | `organization` | `fastauth-plugin-organization`, as `fastauth::plugins::organization` |
 | `admin` | `fastauth-plugin-admin`, as `fastauth::plugins::admin` |
 | `api-key` | `fastauth-plugin-api-key`, as `fastauth::plugins::api_key` |
+| `magic-link` | `fastauth-plugin-magic-link`, as `fastauth::plugins::magic_link` |
+| `email-otp` | `fastauth-plugin-email-otp`, as `fastauth::plugins::email_otp` |
+| `bearer` | `fastauth-plugin-bearer`, as `fastauth::plugins::bearer` |
+| `jwt` | `fastauth-plugin-jwt`, as `fastauth::plugins::jwt` |
+| `passkey` | `fastauth-plugin-passkey`, as `fastauth::plugins::passkey` |
 | `cli` | `fastauth::cli::run` for your app's `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
 
 argon2id is always on; it isn't a feature.
@@ -91,6 +101,11 @@ argon2id is always on; it isn't a feature.
 | [Organization](12-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
 | [Admin](13-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
 | [API keys](14-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
+| [Magic links](15-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
+| [Email OTP](16-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
+| [Bearer tokens](17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
+| [JWT](18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
+| [Passkeys](19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
 
 ## The decisions that shape everything else
 
@@ -122,8 +137,8 @@ calls it; the server API (`auth.api().sign_in_email(..)`) calls it directly with
 
 None of this exists yet. Don't write code against it; it may change shape before it lands.
 
-- **Plugins:** passkey (WebAuthn), magic link, email OTP sign-in, username, bearer tokens,
-  JWT with a JWKS endpoint, anonymous users, an OIDC provider, CAPTCHA.
+- **Plugins:** username, anonymous users, an OIDC provider, CAPTCHA. Each shipped plugin's
+  page lists what it doesn't build yet.
 - **Organization:** teams, dynamic access control, invitation and membership limits beyond
   `organization_limit`.
 - **Social:** Apple, Discord, Microsoft, GitLab and other providers, and a generic OIDC

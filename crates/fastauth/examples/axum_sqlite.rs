@@ -10,7 +10,8 @@
 //! curl -b jar localhost:3000/me
 //! ```
 //!
-//! The database is `fastauth-example.db` in the working directory; tables are created on start.
+//! It listens on `PORT` (default 3000). The database is `fastauth-example.db` in the working
+//! directory; tables are created on start.
 
 use std::net::SocketAddr;
 
@@ -31,13 +32,13 @@ pub struct Profile {
 
 pub type AppAuth = Auth<Sqlx<Sqlite>, Profile, plugins![TwoFactor, Organization, Admin, ApiKeys]>;
 
-fn build(pool: SqlitePool) -> Result<AppAuth, BuildError> {
+fn build(pool: SqlitePool, port: &str) -> Result<AppAuth, BuildError> {
     let secret = Secret::from_env("FASTAUTH_SECRET")
         .unwrap_or_else(|_| Secret::from_base64(&Secret::generate()));
     FastAuth::builder()
         .app_name("Acme")
         .secret(secret)
-        .base_url("http://localhost:3000")
+        .base_url(format!("http://localhost:{port}"))
         .database(Sqlx::new(pool))
         .email_password(EmailPassword::default())
         .mailer(LogMailer)
@@ -68,8 +69,9 @@ async fn me(session: Session<AppAuth>) -> Json<Me> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_owned());
     let pool = SqlitePool::connect("sqlite://fastauth-example.db?mode=rwc").await?;
-    let auth = build(pool)?;
+    let auth = build(pool, &port)?;
     let plan = auth.migrator().run().await?;
     println!("migrations: {} steps", plan.steps.len());
 
@@ -79,8 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(auth.session_layer())
         .with_state(auth);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
-    println!("listening on http://localhost:3000");
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
+    println!("listening on http://localhost:{port}");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

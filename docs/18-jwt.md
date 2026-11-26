@@ -12,7 +12,7 @@ Turn on the facade's `jwt` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.2", features = ["jwt"] }
+fastauth = { version = "0.3", features = ["jwt"] }
 ```
 
 or `cargo add fastauth --features jwt`. The plugin lives at `fastauth::plugins::jwt` (crate
@@ -86,6 +86,9 @@ These are Better Auth's `jwks.keyPairConfig.alg`, `jwt.issuer`, `jwt.audience`,
 `base_url` without a trailing slash, e.g. `https://acme.dk`.
 
 ```rust
+use fastauth::plugin_prelude::SessionView;
+use fastauth::plugins::jwt::{Jwt, JwtAlgorithm};
+
 Jwt::new()
     .algorithm(JwtAlgorithm::ES256)
     .issuer("https://auth.acme.dk")
@@ -183,7 +186,7 @@ against it with `JwksVerifier` (in `fastauth-plugin-jwt`, which you can depend o
 
 ```toml
 [dependencies]
-fastauth-plugin-jwt = "0.2"
+fastauth-plugin-jwt = "0.3"
 ```
 
 ```rust

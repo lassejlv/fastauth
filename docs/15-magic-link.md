@@ -11,7 +11,7 @@ Turn on the facade's `magic-link` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.2", features = ["magic-link"] }
+fastauth = { version = "0.3", features = ["magic-link"] }
 ```
 
 The plugin lives at `fastauth::plugins::magic_link` (crate `fastauth-plugin-magic-link`).
@@ -45,6 +45,8 @@ Your mailer gets `AuthEmail::Plugin` with `kind: "magic-link"`, the link in `url
 plain-text `subject` and `text` you can use as they are or replace with a template:
 
 ```rust
+use fastauth::mail::{AuthEmail, MailError, Mailer};
+
 impl Mailer for MyMailer {
     async fn send(&self, email: AuthEmail) -> Result<(), MailError> {
         match email {

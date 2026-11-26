@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-26)
+
+### Upgrading from 0.2
+
+None of these changes break a 0.2 app: bump `fastauth` to `"0.3"` and turn on the features
+you want. The `jwt` and `passkey` plugins add a table each (`jwks`, `passkey`), so run your
+migrations after registering them; the others add none. One behaviour change for custom
+plugins: a session found by a resolver's `Resolved::Token` is now refreshed like a cookie
+session (see Core below).
 
 ### New plugins
 
@@ -11,7 +19,7 @@
   `errorCallbackURL?error=..` as Better Auth does; links expire after 5 minutes by default
   and only the token's SHA-256 is stored. `MagicLinkExt` for server calls. Wire-compatible
   with `magicLinkClient` (`compat/better-auth/run-magic-link.sh`).
-  ([docs/15](docs/15-magic-link.md))
+  ([docs/15](docs/15-magic-link.md), #26)
 - **fastauth-plugin-email-otp** (feature `email-otp`, `fastauth::plugins::email_otp`):
   one-time codes by email for sign-in (with sign-up), email verification and password reset:
   `/email-otp/send-verification-otp`, `/sign-in/email-otp`, `/email-otp/verify-email`,
@@ -20,7 +28,7 @@
   and `allowed_attempts`; codes are stored as a keyed HMAC, compared in constant time, and
   attempts are claimed atomically before comparing. `EmailOtpExt` for server calls.
   Wire-compatible with `emailOTPClient` (`compat/better-auth/run-email-otp.sh`).
-  ([docs/16](docs/16-email-otp.md))
+  ([docs/16](docs/16-email-otp.md), #26)
 - Both plugins claim an unverified user when a link or code proves the email: the user's
   earlier accounts and sessions are deleted and the email is marked verified, as Better Auth
   does.
@@ -29,14 +37,14 @@
   extractors, signed or raw tokens (`require_signature` to refuse raw ones), and the
   `set-auth-token` header on every response that sets the session cookie. Wire-compatible
   with Better Auth's `bearer` plugin (`compat/better-auth/run-bearer.sh`).
-  ([docs/17](docs/17-bearer.md))
+  ([docs/17](docs/17-bearer.md), #27)
 - **fastauth-plugin-jwt** (feature `jwt`, `fastauth::plugins::jwt`): `GET /token`, `GET /jwks`,
   the `set-auth-jwt` header on `/get-session`, a `jwks` table with private keys encrypted
   with the app secret, EdDSA (default), ES256 and RS256 keys, issuer, audience, expiration
   time, `define_payload`, scheduled and on-demand key rotation with a grace period,
   `JwtExt` (`token`, `sign`, `verify`, `jwks`, `rotate`), and `JwksVerifier` for resource
   servers. Built on `jsonwebtoken` and aws-lc-rs. Wire-compatible with Better Auth's
-  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md))
+  `jwtClient` (`compat/better-auth/run-jwt.sh`). ([docs/18](docs/18-jwt.md), #27)
 - **fastauth-plugin-passkey** (feature `passkey`, `fastauth::plugins::passkey`): passkeys on
   webauthn-rs 0.6. Better Auth's seven routes (`/passkey/generate-register-options`,
   `verify-registration`, `generate-authenticate-options`, `verify-authentication`,
@@ -46,7 +54,7 @@
   compare-and-swap; sign-in runs the sign-in gates with method `"passkey"`. User
   verification is always required. `PasskeyExt` lists, renames and deletes passkeys.
   Wire-compatible with `passkeyClient`, checked in headless Chrome with a virtual
-  authenticator (`compat/better-auth/run-passkey.sh`). ([docs/19](docs/19-passkey.md))
+  authenticator (`compat/better-auth/run-passkey.sh`). ([docs/19](docs/19-passkey.md), #28)
 
 ### Core
 
@@ -58,6 +66,14 @@
   `EmailVerification::auto_signs_in_after_verification()` read those settings.
 - `PluginBuilder::on_response`: a hook over the HTTP response of every routed endpoint.
 - Sessions found by a resolver's `Resolved::Token` are refreshed like cookie sessions.
+
+### Docs and tooling
+
+- The README, the overview, the plugins page, the docs site and the `use-fastauth` skill list
+  the five new plugins; the skill has a reference for each.
+- Every compat script in `compat/better-auth/` takes `PORT` (3000 unless set), so two runs
+  on one machine don't collide. The `axum_sqlite` and organization `compat_server` examples
+  read `PORT` too.
 
 ## 0.2.0 (2026-11-26)
 

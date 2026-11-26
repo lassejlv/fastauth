@@ -2,15 +2,16 @@
 
 Authentication for Rust web apps, modelled on [Better Auth](https://www.better-auth.com):
 one builder call gives you email and password sign-in, social login, sessions, and a
-plugin system for two-factor, organizations, admin tools, API keys and your own plugins.
+plugin system for two-factor, organizations, admin tools, API keys, magic links, email codes,
+bearer tokens, JWTs, passkeys and your own plugins.
 It runs on sqlx and axum out of the box, and the plugin API is checked by the compiler.
 
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.2.0 is on crates.io. It adds the organization, admin and API key plugins and
-makes ids ULIDs by default, which is a breaking change for Postgres databases created with 0.1
-(see the [CHANGELOG](CHANGELOG.md) for the one-line fix). The docs in `docs/` describe 0.2.
+**Status:** 0.3.0 is on crates.io. It adds the magic link, email OTP, bearer, JWT and passkey
+plugins, and nothing in it breaks 0.2 apps (see the [CHANGELOG](CHANGELOG.md)). The docs in
+`docs/` describe 0.3.
 
 ## Install
 
@@ -21,8 +22,8 @@ cargo install fastauth-cli   # `fastauth secret` for FASTAUTH_SECRET
 
 Default features are `axum`, `postgres` and `macros`. Use `sqlite` instead of (or as well as)
 `postgres`, and add `oauth` for GitHub and Google sign-in, `two-factor` for TOTP, email codes and
-backup codes, `organization`, `admin` and `api-key` for those plugins, and `cli` for the
-migration commands. Requires Rust 1.94 or newer.
+backup codes, `organization`, `admin`, `api-key`, `magic-link`, `email-otp`, `bearer`, `jwt` and
+`passkey` for those plugins, and `cli` for the migration commands. Requires Rust 1.94 or newer.
 
 ## Example
 
@@ -105,14 +106,19 @@ apps on SQLite and in memory.
 | [`fastauth-plugin-organization`](https://crates.io/crates/fastauth-plugin-organization) | Organizations, members, invitations, roles and permissions, axum extractors (0.2) |
 | [`fastauth-plugin-admin`](https://crates.io/crates/fastauth-plugin-admin) | User management, roles and permissions, bans, impersonation, `RequireRole` (0.2) |
 | [`fastauth-plugin-api-key`](https://crates.io/crates/fastauth-plugin-api-key) | Hashed API keys with expiry, usage and rate limits, permissions, optional sessions from keys (0.2) |
+| [`fastauth-plugin-magic-link`](https://crates.io/crates/fastauth-plugin-magic-link) | Sign-in links by email, with sign-up on first use (0.3) |
+| [`fastauth-plugin-email-otp`](https://crates.io/crates/fastauth-plugin-email-otp) | One-time codes by email for sign-in, email verification and password reset (0.3) |
+| [`fastauth-plugin-bearer`](https://crates.io/crates/fastauth-plugin-bearer) | Sessions from `Authorization: Bearer`, and the `set-auth-token` header (0.3) |
+| [`fastauth-plugin-jwt`](https://crates.io/crates/fastauth-plugin-jwt) | JWTs for signed-in users, a JWKS with rotating keys, `JwksVerifier` for other services (0.3) |
+| [`fastauth-plugin-passkey`](https://crates.io/crates/fastauth-plugin-passkey) | Passkeys (WebAuthn) on webauthn-rs: registration, sign-in, management (0.3) |
 | [`fastauth-cli`](https://crates.io/crates/fastauth-cli) | `fastauth secret`; schema and migration commands run from your app via `fastauth::cli::run` |
 
 The HTTP API is compatible with Better Auth's TypeScript client (tested against
 `better-auth` 1.7.28, see [docs/11](docs/11-better-auth-client.md)), so its React, Vue and
 Svelte clients work against a fastauth server.
 
-Not built yet: passkey, magic link, JWT and other plugins, teams in organizations, actix-web,
-Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
+Not built yet: username, anonymous users and other plugins, teams in organizations,
+actix-web, Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
 
 ## Docs
 
@@ -132,13 +138,18 @@ Redis and MySQL. [Overview](docs/01-overview.md#planned) lists what's planned.
 | [Organization](docs/12-organization.md) | Organizations, members, invitations, roles and permissions, extractors |
 | [Admin](docs/13-admin.md) | User management, roles and permissions, bans, impersonation, `RequireRole` |
 | [API keys](docs/14-api-keys.md) | Hashed API keys, limits, permissions, sessions from keys |
+| [Magic links](docs/15-magic-link.md) | Sign-in links by email, redirects, sign-up on first use |
+| [Email OTP](docs/16-email-otp.md) | One-time codes by email for sign-in, email verification and password reset |
+| [Bearer tokens](docs/17-bearer.md) | Sessions from `Authorization: Bearer` for clients without cookies |
+| [JWT](docs/18-jwt.md) | Tokens and a JWKS for other services, key rotation, verifying tokens elsewhere |
+| [Passkeys](docs/19-passkey.md) | WebAuthn registration and sign-in, the `passkey` table, managing passkeys |
 
 ## Agent skill
 
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against `main` (0.2). Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.3). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License
