@@ -27,6 +27,7 @@ axum = [
 macros = ["fastauth-core/macros"]
 postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
+mysql = ["dep:fastauth-sqlx", "fastauth-sqlx/mysql"]
 oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
 two-factor = ["dep:fastauth-plugin-two-factor"]
 organization = ["dep:fastauth-plugin-organization"]
@@ -67,6 +68,7 @@ time = { version = "0.3.45", features = ["formatting", "macros"], optional = tru
 [dev-dependencies]
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
 tracing-subscriber = "0.3.23"
@@ -86,3 +88,23 @@ required-features = ["cli", "sqlite", "macros", "two-factor"]
 [[test]]
 name = "cli"
 required-features = ["cli", "sqlite", "macros"]
+
+[[test]]
+name = "mysql"
+required-features = [
+    "cli",
+    "mysql",
+    "macros",
+    "two-factor",
+    "organization",
+    "admin",
+    "api-key",
+    "magic-link",
+    "email-otp",
+    "bearer",
+    "jwt",
+    "passkey",
+    "username",
+    "anonymous",
+    "multi-session",
+]

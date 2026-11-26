@@ -24,7 +24,8 @@ time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }
 axum = { version = "0.8.9", features = ["macros"] }
 bytes = "1.12.2"
 fastauth-axum = { version = "0.4.0", path = "../fastauth-axum" }
-fastauth-sqlx = { version = "0.4.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite"] }
+fastauth-sqlx = { version = "0.4.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "mysql"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 http-body-util = "0.1.5"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }
 tower = { version = "0.5.3", features = ["util"] }

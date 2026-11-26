@@ -11,12 +11,15 @@
 //! ```
 //!
 //! It listens on `PORT` (default 3000). The database is `fastauth-example.db` in the working
-//! directory; tables are created on start.
+//! directory; tables are created on start. Built with the `mysql` feature too, it runs on the
+//! MySQL database at `DATABASE_URL` when that is set.
 
+use std::error::Error;
 use std::net::SocketAddr;
 
 use axum::routing::get;
 use axum::{Json, Router};
+use fastauth::adapter::Adapter;
 use fastauth::plugins::admin::Admin;
 use fastauth::plugins::api_key::ApiKeys;
 use fastauth::plugins::organization::Organization;
@@ -30,16 +33,17 @@ pub struct Profile {
     pub plan: String,
 }
 
-pub type AppAuth = Auth<Sqlx<Sqlite>, Profile, plugins![TwoFactor, Organization, Admin, ApiKeys]>;
+pub type AppAuth<D = Sqlx<Sqlite>> =
+    Auth<D, Profile, plugins![TwoFactor, Organization, Admin, ApiKeys]>;
 
-fn build(pool: SqlitePool, port: &str) -> Result<AppAuth, BuildError> {
+fn build<D: Adapter>(db: D, port: &str) -> Result<AppAuth<D>, BuildError> {
     let secret = Secret::from_env("FASTAUTH_SECRET")
         .unwrap_or_else(|_| Secret::from_base64(&Secret::generate()));
     FastAuth::builder()
         .app_name("Acme")
         .secret(secret)
         .base_url(format!("http://localhost:{port}"))
-        .database(Sqlx::new(pool))
+        .database(db)
         .email_password(EmailPassword::default())
         .mailer(LogMailer)
         .user_fields::<Profile>()
@@ -57,7 +61,7 @@ struct Me {
     two_factor: bool,
 }
 
-async fn me(session: Session<AppAuth>) -> Json<Me> {
+async fn me<D: Adapter>(session: Session<AppAuth<D>>) -> Json<Me> {
     let two_factor: &TwoFactorUser = session.user.plugin::<TwoFactor, _>();
     Json(Me {
         email: session.user.email.clone(),
@@ -67,16 +71,24 @@ async fn me(session: Session<AppAuth>) -> Json<Me> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_owned());
+    #[cfg(feature = "mysql")]
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        let pool = MySqlPool::connect(&url).await?;
+        return serve(build(Sqlx::new(pool), &port)?, &port).await;
+    }
     let pool = SqlitePool::connect("sqlite://fastauth-example.db?mode=rwc").await?;
-    let auth = build(pool, &port)?;
+    serve(build(Sqlx::new(pool), &port)?, &port).await
+}
+
+async fn serve<D: Adapter>(auth: AppAuth<D>, port: &str) -> Result<(), Box<dyn Error>> {
     let plan = auth.migrator().run().await?;
     println!("migrations: {} steps", plan.steps.len());
 
     let app = Router::new()
-        .route("/me", get(me))
+        .route("/me", get(me::<D>))
         .merge(auth.router())
         .layer(auth.session_layer())
         .with_state(auth);

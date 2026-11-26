@@ -35,7 +35,7 @@ server API) and moves the type safety from TypeScript inference into the Rust co
 fastauth                       facade: re-exports, prelude, feature flags. The only crate most apps add.
 fastauth-core                  Auth, builder, Plugin/Endpoint/Adapter traits, sessions, crypto, schema, router
 fastauth-macros                #[derive(Fields)], #[derive(Model)], #[derive(AuthError)]
-fastauth-sqlx                  Adapter for sqlx: Postgres and SQLite; migrations; shared transactions
+fastauth-sqlx                  Adapter for sqlx: Postgres, SQLite and MySQL; migrations; shared transactions
 fastauth-axum                  Router, Session extractors, session layer
 fastauth-oauth                 Social plugin: OAuth providers (GitHub, Google), the outgoing HttpClient
 fastauth-plugin-two-factor     TOTP, email codes, backup codes, trusted devices
@@ -71,7 +71,7 @@ fastauth = { version = "0.4", default-features = false, features = [
 | Flag | Pulls in |
 |---|---|
 | `axum` | `fastauth-axum`, as `fastauth::axum`; also the axum extractors of the organization and admin plugins |
-| `postgres`, `sqlite` | `fastauth-sqlx` with that sqlx driver, as `fastauth::sqlx`; `Sqlx` and the pool types join the prelude |
+| `postgres`, `sqlite`, `mysql` | `fastauth-sqlx` with that sqlx driver, as `fastauth::sqlx`; `Sqlx` and the pool types join the prelude ([MySQL](../concepts/02-database.md#mysql)) |
 | `macros` | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | `fastauth-oauth` (with the reqwest client), as `fastauth::social` |
 | `two-factor` | `fastauth-plugin-two-factor`, as `fastauth::plugins::two_factor` |
@@ -175,7 +175,7 @@ None of this exists yet. Don't write code against it; it may change shape before
   `organization_limit`.
 - **Social:** Apple, Discord, Microsoft, GitLab and other providers, and a generic OIDC
   provider with `id_token` verification against the provider's JWKS.
-- **Integrations and storage:** actix-web, MySQL in `fastauth-sqlx`, Redis secondary
+- **Integrations and storage:** actix-web, Redis secondary
   storage for sessions and rate-limit counters (rate limits are per process today).
 - **Tooling:** importing Better Auth scrypt password hashes, re-encrypting columns after a
   secret rotation, an OpenAPI document of the registered endpoints, a `TestAuth` test

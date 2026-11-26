@@ -31,7 +31,8 @@ use time::OffsetDateTime;
 use time::macros::format_description;
 
 /// A database handle the CLI can open from `DATABASE_URL`: any sqlx pool. The closure
-/// passed to [`run`] names the concrete type, so `PgPool` and `SqlitePool` both work.
+/// passed to [`run`] names the concrete type, so `PgPool`, `SqlitePool` and `MySqlPool` all
+/// work.
 pub trait Connect: Sized {
     fn connect(url: &str) -> impl Future<Output = anyhow::Result<Self>>;
 }

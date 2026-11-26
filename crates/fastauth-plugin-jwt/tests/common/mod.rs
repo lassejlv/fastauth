@@ -5,7 +5,7 @@ use fastauth_core::adapter::Adapter;
 use fastauth_core::value::Id;
 use fastauth_core::{Auth, PluginSet, model::Fields};
 use fastauth_sqlx::sqlx::{AssertSqlSafe, Executor};
-use fastauth_sqlx::{PgPool, Postgres, Sqlite, SqlitePool, Sqlx};
+use fastauth_sqlx::{MySql, MySqlPool, PgPool, Postgres, Sqlite, SqlitePool, Sqlx};
 use http::{HeaderMap, Method, Request, StatusCode, header};
 use serde_json::Value;
 
@@ -104,5 +104,33 @@ impl PgDrop {
             )))
             .await
             .expect("drop test schema");
+    }
+}
+
+/// A fresh database on `MYSQL_DATABASE_URL`, or `None` (the test skips) when it isn't set.
+pub async fn mysql() -> Option<(Sqlx<MySql>, MySqlDrop)> {
+    let Ok(url) = std::env::var("MYSQL_DATABASE_URL") else {
+        eprintln!("MYSQL_DATABASE_URL is not set; skipping the MySQL run");
+        return None;
+    };
+    let pool = MySqlPool::connect(&url)
+        .await
+        .expect("connect to MYSQL_DATABASE_URL");
+    let database = format!("fastauth_jwt_{}", Id::new_v7().as_str().replace('-', ""));
+    let db = Sqlx::new(pool.clone()).schema(database.clone());
+    Some((db, MySqlDrop { pool, database }))
+}
+
+pub struct MySqlDrop {
+    pool: MySqlPool,
+    database: String,
+}
+
+impl MySqlDrop {
+    pub async fn drop_database(self) {
+        self.pool
+            .execute(AssertSqlSafe(format!("DROP DATABASE `{}`", self.database)))
+            .await
+            .expect("drop test database");
     }
 }

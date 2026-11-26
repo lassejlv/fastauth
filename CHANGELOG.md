@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### MySQL
+
+- `fastauth-sqlx` supports MySQL 8 behind a new `mysql` feature (also on the `fastauth`
+  facade): `Sqlx::new(MySqlPool)` gives `Sqlx<MySql>`, and `.schema(..)` picks the database.
+  Every core and plugin table migrates and passes the adapter conformance suite. Tables are
+  InnoDB, utf8mb4 with the case-sensitive `utf8mb4_0900_bin` collation; UUID ids are
+  `binary(16)`, other ids and key text `varchar(768)`, timestamps `datetime(6)` in UTC. See
+  [Databases](docs/concepts/02-database.md#mysql) for the column types and how to connect
+  (MySQL 8's default login needs TLS or sqlx's `mysql-rsa`).
+- The sqlx and plugin SQL tests also run on MySQL when `MYSQL_DATABASE_URL` is set, and the
+  Better Auth compat servers for `run.sh`, `run-organization.sh` and `run-passkey.sh` run on
+  MySQL when `DATABASE_URL` is set.
+
 ### License
 
 - fastauth is now licensed under MIT only. Earlier releases, 0.4.0 included, were dual-licensed

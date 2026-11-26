@@ -31,7 +31,8 @@ time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }
 [dev-dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
 bytes = "1.12.2"
-fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, features = ["sqlite"] }
+fastauth-sqlx = { path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "mysql"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 http = "1.5.0"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }

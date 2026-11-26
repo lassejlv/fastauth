@@ -2,6 +2,7 @@
 # Runs Better Auth's TypeScript client against the axum_sqlite example:
 # builds the example, starts it on localhost:$PORT (3000 unless set) with a fresh database, runs
 # compat.ts, and stops the server. Needs cargo and bun. Exits non-zero when any check fails.
+# With DATABASE_URL set to an empty MySQL database (mysql://...), the server runs on MySQL.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,8 +22,11 @@ if curl -s -o /dev/null "http://127.0.0.1:$port"; then
   exit 1
 fi
 
+features=sqlite,two-factor,organization,admin,api-key
+if [[ -n "${DATABASE_URL:-}" ]]; then features="$features,mysql"; fi
+
 echo "building the axum_sqlite example"
-cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example axum_sqlite --features sqlite,two-factor,organization,admin,api-key
+cargo build --manifest-path "$root/Cargo.toml" -p fastauth --example axum_sqlite --features "$features"
 bin="$root/target/debug/examples/axum_sqlite"
 
 echo "installing the client"

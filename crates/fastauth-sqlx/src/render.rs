@@ -8,7 +8,7 @@ use fastauth_core::adapter::{
     DbError, DbResult, Delete, Filter, Insert, Op, Order, Select, Update,
 };
 use fastauth_core::migrate::{MigrationPlan, Step, index_name};
-use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, TableDef};
+use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, Reference, TableDef};
 use fastauth_core::value::Value;
 use sqlx::{AssertSqlSafe, SqlSafeStr, SqlStr};
 
@@ -40,17 +40,18 @@ impl Names {
             .map(str::to_owned)
     }
 
-    fn qualified(&self, table: &str) -> String {
-        let table = quote(&self.physical(table));
+    fn qualified<DB: Driver>(&self, table: &str) -> String {
+        let table = quote::<DB>(&self.physical(table));
         match &self.schema {
-            Some(schema) => format!("{}.{table}", quote(schema)),
+            Some(schema) => format!("{}.{table}", quote::<DB>(schema)),
             None => table,
         }
     }
 }
 
-pub(crate) fn quote(ident: &str) -> String {
-    format!("\"{}\"", ident.replace('"', "\"\""))
+pub(crate) fn quote<DB: Driver>(ident: &str) -> String {
+    let q = DB::QUOTE;
+    format!("{q}{}{q}", ident.replace(q, &format!("{q}{q}")))
 }
 
 pub(crate) fn unique_name(physical: &str, column: &str) -> String {
@@ -133,7 +134,7 @@ impl Sql {
     pub(crate) fn insert<DB: Driver>(&self, q: Insert<'_>) -> Statement {
         let table = q.table;
         let sql = self.cached(Key::new(Kind::Insert, table, String::new()), || {
-            let columns = column_list(table, None);
+            let columns = column_list::<DB>(table, None);
             let mut params = String::new();
             for n in 1..=table.columns.len() {
                 if n > 1 {
@@ -141,10 +142,14 @@ impl Sql {
                 }
                 DB::param(n, &mut params);
             }
-            format!(
-                "INSERT INTO {} ({columns}) VALUES ({params}) RETURNING {columns}",
-                self.names.qualified(table.name)
-            )
+            let mut sql = format!(
+                "INSERT INTO {} ({columns}) VALUES ({params})",
+                self.names.qualified::<DB>(table.name)
+            );
+            if DB::RETURNING {
+                let _ = write!(sql, " RETURNING {columns}");
+            }
+            sql
         });
         let params = table
             .columns
@@ -168,8 +173,8 @@ impl Sql {
         let sql = self.cached(Key::new(Kind::Select, table, shape), || {
             let mut sql = format!(
                 "SELECT {} FROM {} WHERE ",
-                column_list(table, None),
-                self.names.qualified(table.name)
+                column_list::<DB>(table, None),
+                self.names.qualified::<DB>(table.name)
             );
             let mut n = 0;
             render_filter::<DB>(table, &q.filter, &mut n, &mut sql);
@@ -178,7 +183,7 @@ impl Sql {
                 let _ = write!(
                     sql,
                     "{} {}",
-                    quote(table.columns[*column].name),
+                    quote::<DB>(table.columns[*column].name),
                     order_sql(*order)
                 );
             }
@@ -207,7 +212,7 @@ impl Sql {
         let sql = self.cached(Key::new(Kind::Count, table, filter_shape(&filter)), || {
             let mut sql = format!(
                 "SELECT COUNT(*) FROM {} WHERE ",
-                self.names.qualified(table.name)
+                self.names.qualified::<DB>(table.name)
             );
             render_filter::<DB>(table, &filter, &mut 0, &mut sql);
             sql
@@ -224,13 +229,13 @@ impl Sql {
             let _ = write!(shape, "|{column}");
         }
         let sql = self.cached(Key::new(Kind::Update, table, shape), || {
-            let mut sql = format!("UPDATE {} SET ", self.names.qualified(table.name));
+            let mut sql = format!("UPDATE {} SET ", self.names.qualified::<DB>(table.name));
             let mut n = 0;
             for (i, (column, _)) in q.set.iter().enumerate() {
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                let _ = write!(sql, "{} = ", quote(table.columns[*column].name));
+                let _ = write!(sql, "{} = ", quote::<DB>(table.columns[*column].name));
                 next_param::<DB>(&mut n, &mut sql);
             }
             sql.push_str(" WHERE ");
@@ -253,7 +258,10 @@ impl Sql {
         let sql = self.cached(
             Key::new(Kind::Delete, table, filter_shape(&q.filter)),
             || {
-                let mut sql = format!("DELETE FROM {} WHERE ", self.names.qualified(table.name));
+                let mut sql = format!(
+                    "DELETE FROM {} WHERE ",
+                    self.names.qualified::<DB>(table.name)
+                );
                 render_filter::<DB>(table, &q.filter, &mut 0, &mut sql);
                 sql
             },
@@ -275,12 +283,14 @@ impl Sql {
             let mut param = String::new();
             DB::param(1, &mut param);
             format!(
-                "SELECT {}, {} FROM {} AS s JOIN {} AS u ON u.\"id\" = s.\"user_id\" \
-                 WHERE s.\"token_hash\" = {param} LIMIT 1",
-                column_list(session, Some("s")),
-                column_list(user, Some("u")),
-                self.names.qualified(session.name),
-                self.names.qualified(user.name),
+                "SELECT {}, {} FROM {} AS s JOIN {} AS u ON u.{} = s.{} WHERE s.{} = {param} LIMIT 1",
+                column_list::<DB>(session, Some("s")),
+                column_list::<DB>(user, Some("u")),
+                self.names.qualified::<DB>(session.name),
+                self.names.qualified::<DB>(user.name),
+                quote::<DB>("id"),
+                quote::<DB>("user_id"),
+                quote::<DB>("token_hash"),
             )
         });
         Statement {
@@ -290,7 +300,7 @@ impl Sql {
     }
 }
 
-fn column_list(table: &TableDef, alias: Option<&str>) -> String {
+fn column_list<DB: Driver>(table: &TableDef, alias: Option<&str>) -> String {
     let mut out = String::new();
     for (i, column) in table.columns.iter().enumerate() {
         if i > 0 {
@@ -300,7 +310,7 @@ fn column_list(table: &TableDef, alias: Option<&str>) -> String {
             out.push_str(alias);
             out.push('.');
         }
-        out.push_str(&quote(column.name));
+        out.push_str(&quote::<DB>(column.name));
     }
     out
 }
@@ -347,7 +357,7 @@ fn filter_shape(filter: &Filter) -> String {
 }
 
 fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, out: &mut String) {
-    let column = |i: usize| quote(table.columns[i].name);
+    let column = |i: usize| quote::<DB>(table.columns[i].name);
     match filter {
         Filter::All => out.push_str("1 = 1"),
         Filter::Cmp { column: c, op, .. } => {
@@ -478,35 +488,47 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
         return out;
     }
     if let Some(schema) = &names.schema {
-        out.push(format!("CREATE SCHEMA IF NOT EXISTS {}", quote(schema)));
+        out.push(format!(
+            "CREATE SCHEMA IF NOT EXISTS {}",
+            quote::<DB>(schema)
+        ));
     }
     for step in &plan.steps {
         match step {
             Step::CreateTable(table) => {
-                let columns: Vec<String> = table
+                let mut lines: Vec<String> = table
                     .columns
                     .iter()
                     .map(|column| column_def::<DB>(names, table, column, false))
                     .collect();
+                if !DB::INLINE_CONSTRAINTS {
+                    for column in &table.columns {
+                        lines.extend(constraints::<DB>(names, table, column));
+                    }
+                }
                 out.push(format!(
-                    "CREATE TABLE {} (\n    {}\n)",
-                    names.qualified(table.name),
-                    columns.join(",\n    ")
+                    "CREATE TABLE {} (\n    {}\n){}",
+                    names.qualified::<DB>(table.name),
+                    lines.join(",\n    "),
+                    DB::TABLE_OPTIONS
                 ));
             }
             Step::AddColumn { table, column } => {
+                let qualified = names.qualified::<DB>(table.name);
                 out.push(format!(
-                    "ALTER TABLE {} ADD COLUMN {}",
-                    names.qualified(table.name),
+                    "ALTER TABLE {qualified} ADD COLUMN {}",
                     column_def::<DB>(names, table, column, true)
                 ));
-                if column.unique && !DB::UNIQUE_ON_ADD_COLUMN {
+                if !DB::INLINE_CONSTRAINTS {
+                    for constraint in constraints::<DB>(names, table, column) {
+                        out.push(format!("ALTER TABLE {qualified} ADD {constraint}"));
+                    }
+                } else if column.unique && !DB::UNIQUE_ON_ADD_COLUMN {
                     let name = unique_name(&names.physical(table.name), column.name);
                     out.push(format!(
-                        "CREATE UNIQUE INDEX {} ON {} ({})",
-                        quote(&DB::ident(name)),
-                        names.qualified(table.name),
-                        quote(column.name)
+                        "CREATE UNIQUE INDEX {} ON {qualified} ({})",
+                        quote::<DB>(&DB::ident(name)),
+                        quote::<DB>(column.name)
                     ));
                 }
             }
@@ -514,9 +536,9 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
                 let name = index_name(&names.physical(table.name), column.name);
                 out.push(format!(
                     "CREATE INDEX {} ON {} ({})",
-                    quote(&DB::ident(name)),
-                    names.qualified(table.name),
-                    quote(column.name)
+                    quote::<DB>(&DB::ident(name)),
+                    names.qualified::<DB>(table.name),
+                    quote::<DB>(column.name)
                 ));
             }
         }
@@ -531,10 +553,15 @@ fn column_def<DB: Driver>(
     adding: bool,
 ) -> String {
     let physical = names.physical(table.name);
+    let keyed = column.primary_key
+        || column.unique
+        || column.index
+        || column.references.is_some()
+        || column.ty == ColumnType::Id;
     let mut def = format!(
         "{} {}",
-        quote(column.name),
-        DB::sql_type(stored_type(table, column.ty))
+        quote::<DB>(column.name),
+        DB::sql_type(stored_type(table, column.ty), keyed)
     );
     if !column.nullable {
         def.push_str(" NOT NULL");
@@ -546,29 +573,59 @@ fn column_def<DB: Driver>(
             DefaultValue::Text(s) => format!("'{}'", s.replace('\'', "''")),
             DefaultValue::Now => DB::now_default(adding),
         };
-        let _ = write!(def, " DEFAULT {value}");
+        let _ = write!(def, " DEFAULT {}", DB::default_expr(value));
+    }
+    if !DB::INLINE_CONSTRAINTS {
+        return def;
     }
     if column.primary_key {
         let name = DB::ident(primary_key_name(&physical));
-        let _ = write!(def, " CONSTRAINT {} PRIMARY KEY", quote(&name));
+        let _ = write!(def, " CONSTRAINT {} PRIMARY KEY", quote::<DB>(&name));
     } else if column.unique && (!adding || DB::UNIQUE_ON_ADD_COLUMN) {
         let name = DB::ident(unique_name(&physical, column.name));
-        let _ = write!(def, " CONSTRAINT {} UNIQUE", quote(&name));
+        let _ = write!(def, " CONSTRAINT {} UNIQUE", quote::<DB>(&name));
     }
     if let Some(reference) = column.references {
-        let on_delete = match reference.on_delete {
-            OnDelete::Cascade => "CASCADE",
-            OnDelete::SetNull => "SET NULL",
-            OnDelete::Restrict => "RESTRICT",
-        };
-        let _ = write!(
-            def,
-            " REFERENCES {} ({}) ON DELETE {on_delete}",
-            names.qualified(reference.table),
-            quote(reference.column)
-        );
+        let _ = write!(def, " {}", references::<DB>(names, reference));
     }
     def
+}
+
+/// `column`'s PRIMARY KEY, UNIQUE and FOREIGN KEY constraints as table constraints, for a
+/// database that doesn't take them in the column definition.
+fn constraints<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> Vec<String> {
+    let physical = names.physical(table.name);
+    let name = |name: String| quote::<DB>(&DB::ident(name));
+    let quoted = quote::<DB>(column.name);
+    let mut out = Vec::new();
+    if column.primary_key {
+        let name = name(primary_key_name(&physical));
+        out.push(format!("CONSTRAINT {name} PRIMARY KEY ({quoted})"));
+    } else if column.unique {
+        let name = name(unique_name(&physical, column.name));
+        out.push(format!("CONSTRAINT {name} UNIQUE ({quoted})"));
+    }
+    if let Some(reference) = column.references {
+        let name = name(format!("{physical}_{}_fkey", column.name));
+        out.push(format!(
+            "CONSTRAINT {name} FOREIGN KEY ({quoted}) {}",
+            references::<DB>(names, reference)
+        ));
+    }
+    out
+}
+
+fn references<DB: Driver>(names: &Names, reference: Reference) -> String {
+    let on_delete = match reference.on_delete {
+        OnDelete::Cascade => "CASCADE",
+        OnDelete::SetNull => "SET NULL",
+        OnDelete::Restrict => "RESTRICT",
+    };
+    format!(
+        "REFERENCES {} ({}) ON DELETE {on_delete}",
+        names.qualified::<DB>(reference.table),
+        quote::<DB>(reference.column)
+    )
 }
 
 #[cfg(all(test, feature = "sqlite"))]

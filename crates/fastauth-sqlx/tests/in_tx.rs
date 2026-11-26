@@ -70,6 +70,29 @@ impl AppDb for fastauth_sqlx::Postgres {
     }
 }
 
+#[cfg(feature = "mysql")]
+impl AppDb for fastauth_sqlx::MySql {
+    async fn create_members(pool: &Pool<Self>) {
+        pool.execute(MEMBERS).await.unwrap();
+    }
+
+    async fn insert_member(tx: &SharedTx<Self>, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("insert into team_member (team_id, user_id) values (?, ?)")
+            .bind(1)
+            .bind(user_id)
+            .execute(&mut **tx.lock().await)
+            .await
+            .map(drop)
+    }
+
+    async fn members(pool: &Pool<Self>) -> i64 {
+        sqlx::query_scalar("select count(*) from team_member")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+}
+
 /// Emails of `UserCreated` events, with whether the handler could read the user back.
 type Fired = Arc<Mutex<Vec<(String, bool)>>>;
 
@@ -366,5 +389,66 @@ mod postgres {
     #[tokio::test]
     async fn session_calls_run_on_the_tx() {
         with_schema(super::session_calls_run_on_the_tx).await;
+    }
+}
+
+#[cfg(feature = "mysql")]
+mod mysql {
+    use std::str::FromStr;
+
+    use fastauth_core::value::Id;
+    use fastauth_sqlx::MySqlPool;
+    use fastauth_sqlx::sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+
+    use super::{AssertSqlSafe, Executor};
+
+    /// Runs `test` on a pool connected to a fresh database, then drops the database.
+    /// Skipped without `MYSQL_DATABASE_URL`.
+    async fn with_database<F: Future<Output = ()>>(test: impl FnOnce(MySqlPool) -> F) {
+        let Ok(url) = std::env::var("MYSQL_DATABASE_URL") else {
+            eprintln!("MYSQL_DATABASE_URL is not set; skipping the MySQL test");
+            return;
+        };
+        let admin = MySqlPool::connect(&url)
+            .await
+            .expect("connect to MYSQL_DATABASE_URL");
+        let name = format!("fastauth_tx_{}", Id::new_v7().as_str().replace('-', ""));
+        admin
+            .execute(AssertSqlSafe(format!("CREATE DATABASE `{name}`")))
+            .await
+            .unwrap();
+        let options = MySqlConnectOptions::from_str(&url).unwrap().database(&name);
+        let pool = MySqlPoolOptions::new().connect_with(options).await.unwrap();
+        test(pool.clone()).await;
+        pool.close().await;
+        admin
+            .execute(AssertSqlSafe(format!("DROP DATABASE `{name}`")))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn rollback_discards_everything() {
+        with_database(super::rollback_discards_everything).await;
+    }
+
+    #[tokio::test]
+    async fn commit_keeps_everything_and_fires_after() {
+        with_database(super::commit_keeps_everything_and_fires_after).await;
+    }
+
+    #[tokio::test]
+    async fn duplicate_email_leaves_tx_usable() {
+        with_database(super::duplicate_email_leaves_tx_usable).await;
+    }
+
+    #[tokio::test]
+    async fn failed_call_leaves_tx_as_it_was() {
+        with_database(super::failed_call_leaves_tx_as_it_was).await;
+    }
+
+    #[tokio::test]
+    async fn session_calls_run_on_the_tx() {
+        with_database(super::session_calls_run_on_the_tx).await;
     }
 }

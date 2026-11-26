@@ -44,6 +44,10 @@ impl Driver for Sqlite {
     const TEXT_MATCH: (&'static str, &'static str) = ("GLOB", "");
     const WILDCARD: char = '*';
     const UNIQUE_ON_ADD_COLUMN: bool = false;
+    const QUOTE: char = '"';
+    const RETURNING: bool = true;
+    const INLINE_CONSTRAINTS: bool = true;
+    const TABLE_OPTIONS: &'static str = "";
 
     fn param(n: usize, out: &mut String) {
         out.push('?');
@@ -69,7 +73,7 @@ impl Driver for Sqlite {
         name
     }
 
-    fn sql_type(ty: ColumnType) -> &'static str {
+    fn sql_type(ty: ColumnType, _keyed: bool) -> &'static str {
         match ty {
             ColumnType::Id | ColumnType::Text | ColumnType::Json => "text",
             ColumnType::Bool | ColumnType::Int | ColumnType::Timestamp => "integer",

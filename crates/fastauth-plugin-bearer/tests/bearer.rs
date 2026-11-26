@@ -3,7 +3,7 @@ mod common;
 use axum::Router;
 use axum::body::Body;
 use axum::routing::get;
-use common::{Res, bearer, postgres, secret, send, sqlite};
+use common::{Res, bearer, mysql, postgres, secret, send, sqlite};
 use fastauth_axum::{AuthRouter, Session};
 use fastauth_core::adapter::Adapter;
 use fastauth_core::crypto::Argon2id;
@@ -189,6 +189,15 @@ async fn bearer_flow_on_postgres() {
     };
     bearer_flow(db).await;
     cleanup.drop_schema().await;
+}
+
+#[tokio::test]
+async fn bearer_flow_on_mysql() {
+    let Some((db, cleanup)) = mysql().await else {
+        return;
+    };
+    bearer_flow(db).await;
+    cleanup.drop_database().await;
 }
 
 #[tokio::test]

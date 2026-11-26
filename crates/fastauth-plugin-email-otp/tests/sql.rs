@@ -1,4 +1,5 @@
-//! Email OTP on SQLite and, with `DATABASE_URL` set, Postgres: sign-up by code, attempt
+//! Email OTP on SQLite and, with `DATABASE_URL` or
+//! `MYSQL_DATABASE_URL` set, Postgres or MySQL: sign-up by code, attempt
 //! counting and a password reset.
 
 mod common;
@@ -14,7 +15,7 @@ use fastauth_core::value::Id;
 use fastauth_plugin_email_otp::EmailOtp;
 use fastauth_sqlx::sqlx::sqlite::SqlitePoolOptions;
 use fastauth_sqlx::sqlx::{AssertSqlSafe, Executor};
-use fastauth_sqlx::{PgPool, Sqlx};
+use fastauth_sqlx::{MySqlPool, PgPool, Sqlx};
 use http::StatusCode;
 use serde_json::json;
 
@@ -157,4 +158,23 @@ async fn email_otp_on_postgres() {
     pool.execute(AssertSqlSafe(format!("DROP SCHEMA \"{schema}\" CASCADE")))
         .await
         .expect("drop the test schema");
+}
+
+#[tokio::test]
+async fn email_otp_on_mysql() {
+    let Ok(url) = std::env::var("MYSQL_DATABASE_URL") else {
+        eprintln!("MYSQL_DATABASE_URL is not set; skipping the MySQL test");
+        return;
+    };
+    let pool = MySqlPool::connect(&url)
+        .await
+        .expect("connect to MYSQL_DATABASE_URL");
+    let database = format!(
+        "fastauth_email_otp_{}",
+        Id::new_v7().as_str().replace('-', "")
+    );
+    flow(Sqlx::new(pool.clone()).schema(database.clone())).await;
+    pool.execute(AssertSqlSafe(format!("DROP DATABASE `{database}`")))
+        .await
+        .expect("drop the test database");
 }

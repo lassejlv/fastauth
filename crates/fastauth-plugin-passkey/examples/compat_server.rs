@@ -1,29 +1,41 @@
 //! The server `compat/better-auth/run-passkey.sh` points Better Auth's `passkeyClient` at: email
-//! and password plus the passkey plugin, in memory, on localhost:$PORT (3000 unless set).
+//! and password plus the passkey plugin, on localhost:$PORT (3000 unless set). In memory, or on
+//! MySQL when `DATABASE_URL` is set (an empty database; tables are created on start).
 //!
 //! ```bash
 //! cargo run -p fastauth-plugin-passkey --example compat_server
 //! ```
 
+use std::error::Error;
 use std::net::SocketAddr;
 
 use axum::Router;
 use fastauth_axum::AuthRouter;
+use fastauth_core::adapter::Adapter;
 use fastauth_core::prelude::*;
 use fastauth_plugin_passkey::Passkey;
+use fastauth_sqlx::{MySqlPool, Sqlx};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".into());
-    let auth: Auth<MemoryAdapter, (), plugins![Passkey]> = FastAuth::builder()
+    match std::env::var("DATABASE_URL") {
+        Ok(url) => serve(Sqlx::new(MySqlPool::connect(&url).await?), &port).await,
+        Err(_) => serve(MemoryAdapter::new(), &port).await,
+    }
+}
+
+async fn serve<D: Adapter>(db: D, port: &str) -> Result<(), Box<dyn Error>> {
+    let auth: Auth<D, (), plugins![Passkey]> = FastAuth::builder()
         .app_name("Acme")
         .secret(Secret::from_base64(&Secret::generate()))
         .base_url(format!("http://localhost:{port}"))
-        .database(MemoryAdapter::new())
+        .database(db)
         .email_password(EmailPassword::default())
         .rate_limit(RateLimit::disabled())
         .plugin(Passkey::new())
         .build()?;
+    auth.migrator().run().await?;
     let app = Router::new()
         .merge(auth.router())
         .layer(auth.session_layer())

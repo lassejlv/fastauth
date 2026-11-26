@@ -1,6 +1,6 @@
 mod common;
 
-use common::{Res, bearer, cookie, postgres, secret, send, sqlite};
+use common::{Res, bearer, cookie, mysql, postgres, secret, send, sqlite};
 use fastauth_core::PluginSet;
 use fastauth_core::adapter::Adapter;
 use fastauth_core::crypto::Argon2id;
@@ -186,6 +186,15 @@ async fn jwt_flow_on_postgres() {
     };
     jwt_flow(db).await;
     cleanup.drop_schema().await;
+}
+
+#[tokio::test]
+async fn jwt_flow_on_mysql() {
+    let Some((db, cleanup)) = mysql().await else {
+        return;
+    };
+    jwt_flow(db).await;
+    cleanup.drop_database().await;
 }
 
 #[tokio::test]
