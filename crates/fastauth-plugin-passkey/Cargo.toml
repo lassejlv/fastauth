@@ -1,0 +1,34 @@
+[package]
+name = "fastauth-plugin-passkey"
+description = "Passkeys (WebAuthn) for fastauth, built on webauthn-rs and wire-compatible with Better Auth's passkey plugin."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = "0.22.1"
+fastauth-core = { version = "0.2.0", path = "../fastauth-core", features = ["macros"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_cbor_2 = "0.13.0"
+serde_json = "1.0.154"
+time = { version = "0.3.45", features = ["serde"] }
+webauthn-rs = { version = "0.6.2", features = ["conditional-ui", "danger-allow-state-serialisation", "danger-credential-internals"] }
+webauthn-rs-proto = "0.6.2"
+
+[dev-dependencies]
+aws-lc-rs = "1.19.0"
+axum = "0.8.9"
+bytes = "1.12.2"
+fastauth-axum = { version = "0.2.0", path = "../fastauth-axum" }
+fastauth-plugin-two-factor = { version = "0.2.0", path = "../fastauth-plugin-two-factor" }
+fastauth-sqlx = { version = "0.2.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "postgres"] }
+http = "1.5.0"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
