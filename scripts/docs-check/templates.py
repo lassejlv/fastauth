@@ -480,6 +480,7 @@ mod stripe { pub async fn create_customer(_: &str) -> Result<(), fastauth::AuthE
     block("pub trait AccessTokensExt: AuthInstance + Sized {"),
     block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
     block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
+    block("let session = ctx.sensitive_session().await?;"),
     block("app.prepare_user_input(|ctx, mut input, kind| async move {"),
     block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
     block('let remember_me = if attempt.remember_me { "1" } else { "0" };'),
@@ -502,7 +503,7 @@ pub enum BanError {
 }
 fn is_borrowed(_: &SessionView) -> bool { false }
 @4
-@15
+@16
 }
 @5
 pub struct CreateTokenFresh(Arc<AccessTokens>);
@@ -539,34 +540,38 @@ impl Plugin for ClaimTokens {
 
 @13
 }
-fn prepare_user_input<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
+async fn lock_unless_claimed<D: Adapter>(ctx: &Ctx<D, Authenticated>, row: AccessToken) -> Result<(), AuthError> {
 @14
+Ok(())
+}
+fn prepare_user_input<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
+@15
 }
 struct Tfa { two_factor_cookie_max_age: Duration }
 const PENDING_PREFIX: &str = "two-factor-pending:";
 const PENDING_COOKIE: &str = "two_factor";
 async fn two_factor_gate<D: Adapter>(plugin: &Tfa, ctx: HookCtx<D>, attempt: SignInAttempt) -> Result<Gate, AuthError> {
-@16
+@17
 }
 enum VerifyOutput { Challenge(serde_json::Value) }
 async fn verify_two_factor<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>, user: UserView, method: Cow<'static, str>, remember_me: bool) -> Result<VerifyOutput, AuthError> {
 let _session =
-@17
+@18
 ;
 Ok(VerifyOutput::Challenge(json!(null)))
 }
 fn session_gate<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
-@18
-}
-fn fixed_session_expiry<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
 @19
 }
-fn on_session_created<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
+fn fixed_session_expiry<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
 @20
 }
-pub struct OrgBilling;
+fn on_session_created<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
 @21
-@22""")
+}
+pub struct OrgBilling;
+@22
+@23""")
 
 page("reference/02-internals.md", "", [
     excerpt("pub struct Nil;"),
