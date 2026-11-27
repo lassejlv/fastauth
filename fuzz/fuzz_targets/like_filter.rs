@@ -1,7 +1,7 @@
-//! The LIKE/GLOB patterns fastauth-sqlx builds for `contains`, `starts_with` and
-//! `ends_with`, as a property on SQLite in-process: for any stored names and any needle, the
-//! SQL returns exactly the rows a plain Rust filter returns. Wildcards in the needle must
-//! match only themselves.
+//! The SQL fastauth-sqlx builds for `contains`, `starts_with` and `ends_with`, as a
+//! property on SQLite in-process: for any stored names and any needle, the SQL returns
+//! exactly the rows a plain Rust filter returns. Wildcards and NULs, in the needle or in a
+//! name, must match only themselves.
 
 #![no_main]
 
@@ -52,11 +52,6 @@ struct Input {
 fuzz_target!(|input: Input| {
     let names = &input.names[..input.names.len().min(12)];
     let needle = &input.needle;
-    // SQLX-1 (open): SQLite cuts patterns and stored text at a NUL. The ignored tests in
-    // crates/fastauth-sqlx/tests/security_fast46.rs cover it; drop this skip with the fix.
-    if needle.contains('\0') || names.iter().any(|name| name.contains('\0')) {
-        return;
-    }
     let auth = &*AUTH;
     let api = auth.api();
     let db = api.db();

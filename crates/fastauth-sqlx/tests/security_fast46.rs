@@ -1,6 +1,7 @@
-//! FAST-46 fuzzing findings in the sqlx adapter, kept as regression tests. They are
-//! `#[ignore]`d until the fix lands; run them with `cargo test -p fastauth-sqlx --all-features
-//! --test security_fast46 -- --ignored`.
+//! FAST-46 fuzzing findings in the sqlx adapter, kept as regression tests. FAST-58 fixed
+//! both: SQLite matches text filters byte by byte, Postgres binds a needle with a NUL as
+//! NULL (it can't store one, so the filter matches nothing), and core refuses request text
+//! with a NUL with 400 `INVALID_REQUEST_BODY`.
 //!
 //! SQLX-1: a NUL character in a `contains`, `starts_with` or `ends_with` needle. SQLite's GLOB
 //! reads the pattern as a C string, so everything after the NUL is dropped and `*\0*`
@@ -75,7 +76,6 @@ async fn nul_needles_match_nothing<D: Adapter>(db: D) {
 }
 
 #[tokio::test]
-#[ignore = "FAST-46 SQLX-1: open until the fix lands"]
 async fn sqlx_1_nul_in_a_pattern_on_sqlite() {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
@@ -84,7 +84,6 @@ async fn sqlx_1_nul_in_a_pattern_on_sqlite() {
 }
 
 #[tokio::test]
-#[ignore = "FAST-46 SQLX-1: open until the fix lands"]
 async fn sqlx_1_nul_in_a_stored_name_on_sqlite() {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
@@ -121,7 +120,6 @@ async fn sqlx_1_nul_in_a_stored_name_on_sqlite() {
 }
 
 #[tokio::test]
-#[ignore = "FAST-46 SQLX-1: open until the fix lands"]
 async fn sqlx_1_nul_in_a_pattern_on_postgres() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
         eprintln!("DATABASE_URL is not set; skipping the Postgres run");
@@ -138,7 +136,6 @@ async fn sqlx_1_nul_in_a_pattern_on_postgres() {
 }
 
 #[tokio::test]
-#[ignore = "FAST-46 SQLX-1: open until the fix lands"]
 async fn sqlx_1_nul_in_a_pattern_on_mysql() {
     let Ok(url) = std::env::var("MYSQL_DATABASE_URL") else {
         eprintln!("MYSQL_DATABASE_URL is not set; skipping the MySQL run");
@@ -163,7 +160,6 @@ async fn sqlx_1_nul_in_a_pattern_on_mysql() {
 }
 
 #[tokio::test]
-#[ignore = "FAST-46 SQLX-2: open until the fix lands"]
 async fn sqlx_2_nul_in_request_text_on_postgres() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
         eprintln!("DATABASE_URL is not set; skipping the Postgres run");

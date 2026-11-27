@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use fastauth_core::schema::{ColumnType, IdStorage, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::{BoxDynError, DatabaseError};
@@ -6,7 +8,7 @@ use sqlx::types::{JsonValue, Uuid};
 use sqlx::{Arguments, AssertSqlSafe, Decode, Postgres, Row, SqlStr, Type};
 use time::OffsetDateTime;
 
-use crate::driver::{Catalog, Driver, Param};
+use crate::driver::{Catalog, Driver, Param, TextMatch, like_pattern};
 use crate::render::{primary_key_name, unique_name};
 
 const MAX_IDENT: usize = 63;
@@ -50,8 +52,7 @@ fn get<'r, T: Decode<'r, Postgres> + Type<Postgres>>(
 }
 
 impl Driver for Postgres {
-    const TEXT_MATCH: (&'static str, &'static str) = ("LIKE", " ESCAPE '\\'");
-    const WILDCARD: char = '%';
+    const TEXT_HOLDS_NUL: bool = false;
     const UNIQUE_ON_ADD_COLUMN: bool = true;
     const QUOTE: char = '"';
     const RETURNING: bool = true;
@@ -63,15 +64,12 @@ impl Driver for Postgres {
         out.push_str(&n.to_string());
     }
 
-    fn escape_pattern(text: &str) -> String {
-        let mut pattern = String::with_capacity(text.len());
-        for ch in text.chars() {
-            if matches!(ch, '\\' | '%' | '_') {
-                pattern.push('\\');
-            }
-            pattern.push(ch);
-        }
-        pattern
+    fn text_match(_kind: TextMatch, column: &str, param: &str, out: &mut String) {
+        let _ = write!(out, "{column} LIKE {param} ESCAPE '\\'");
+    }
+
+    fn text_needle(kind: TextMatch, needle: &str) -> String {
+        like_pattern(kind, needle, '\\')
     }
 
     fn ident(mut name: String) -> String {

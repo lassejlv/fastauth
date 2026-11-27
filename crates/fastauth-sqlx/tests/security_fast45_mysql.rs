@@ -176,7 +176,7 @@ async fn literal_matching<D: Adapter>(db: D) -> Vec<String> {
 }
 
 /// Checked: Contains/StartsWith/EndsWith (admin list-users search) match `% _ ! \ '` literally
-/// and case-sensitively on SQLite (GLOB), Postgres (LIKE ESCAPE '\\') and MySQL
+/// and case-sensitively on SQLite (byte comparison), Postgres (LIKE ESCAPE '\\') and MySQL
 /// (LIKE ESCAPE '!'), the last both in the default sql_mode and with NO_BACKSLASH_ESCAPES.
 #[tokio::test]
 async fn guard_text_filters_match_literally_on_every_backend_and_sql_mode() {
