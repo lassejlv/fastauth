@@ -185,7 +185,9 @@ same place either way.
   be raised later; hashes with old parameters are upgraded on the next successful sign-in.
 - Hashing runs on a blocking pool **behind a semaphore** (default: number of CPUs).
   Without it, a burst of sign-in attempts would allocate 19 MiB each and could run the
-  server out of memory.
+  server out of memory. A hash keeps its permit until it finishes, even when the request is
+  dropped (a client that disconnects, a timeout layer or proxy), so disconnecting doesn't
+  let more hashes run at once.
 - Unknown emails still hash a dummy password, so response time doesn't reveal which emails
   have accounts. When `require_email_verification` is on, sign-up for an existing email
   answers like a successful sign-up (no session, a user that isn't stored) and sends no

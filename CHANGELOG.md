@@ -31,6 +31,10 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
   owner claimed the address landed on the claimed account. Every session-authorised write of a
   credential or identity now runs under a lock on the user row that holds only while the
   security stamp is unchanged, and answers 401 and stores nothing after a claim.
+- **F61-2 (medium):** a request dropped mid-hash (a client disconnect, a timeout layer) gave
+  its hashing permit back while argon2 kept running, so disconnecting clients could run far
+  more hashes at once than the CPU-count cap. The permit now moves into the blocking task and
+  is held until the hash finishes.
 
 ### Core
 

@@ -376,19 +376,26 @@ impl Passwords {
         }
     }
 
+    /// The permit moves into the blocking task and is released when the hash finishes, not
+    /// when the request's future does: a request dropped mid-hash (a client that disconnects,
+    /// a timeout layer) leaves argon2 running, and its permit with it.
     async fn run<T: Send + 'static>(
         &self,
         f: impl FnOnce(&dyn PasswordHasher) -> T + Send + 'static,
     ) -> T {
-        let _permit = self
+        let permit = self
             .permits
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .expect("semaphore is never closed");
         let hasher = self.hasher.clone();
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle
-                .spawn_blocking(move || f(hasher.as_ref()))
+                .spawn_blocking(move || {
+                    let _permit = permit;
+                    f(hasher.as_ref())
+                })
                 .await
                 .expect("password hashing task panicked"),
             Err(_) => f(hasher.as_ref()),
