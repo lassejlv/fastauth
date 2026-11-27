@@ -464,19 +464,22 @@ impl Passwords {
         self.hasher.needs_rehash(hash)
     }
 
-    /// Spends the same time as a real verification, for unknown emails.
+    /// Spends the same time as a real verification, for unknown emails: one run of the
+    /// hasher. The first call hashes the dummy password, which costs what a verification
+    /// does, and later calls verify against it.
     pub async fn verify_dummy(&self, password: &str) {
-        let dummy = match self.dummy_hash.get() {
-            Some(h) => h.clone(),
+        match self.dummy_hash.get() {
+            Some(dummy) => {
+                let _ = self.verify(password, &dummy.clone()).await;
+            }
             None => {
-                let h = self
+                let dummy = self
                     .hash("fastauth-dummy-password")
                     .await
                     .unwrap_or_default();
-                self.dummy_hash.get_or_init(|| h).clone()
+                let _ = self.dummy_hash.set(dummy);
             }
-        };
-        let _ = self.verify(password, &dummy).await;
+        }
     }
 }
 

@@ -60,6 +60,9 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
   `openssl rand -hex 16` secrets. `Secret::entropy_bits` now counts repeated and counting
   stretches once and uses the secret's alphabet (hex, alphanumeric, base64, printable, any
   byte): placeholders score below 25 bits, and 0.08% of 128-bit hex secrets are refused.
+- **F61-11 (info):** the first unknown-email sign-in after a start ran the hasher twice (it
+  made the dummy hash, then verified against it), so it took about twice as long as a wrong
+  password for a known email. It now runs it once.
 
 ### Core
 
