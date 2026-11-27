@@ -195,9 +195,10 @@ if wanted test; then
   if [[ $databases_ok == 1 ]]; then
     run test "test --workspace --all-features (Redis 7)" \
       env DATABASE_URL="$database_url" MYSQL_DATABASE_URL="$mysql_url" REDIS_URL="$redis_url" \
+      REDIS_CONTAINER="$redis_container" \
       cargo test --workspace --all-features --no-fail-fast
     run test "test fastauth-redis (Valkey 8)" \
-      env DATABASE_URL="$database_url" REDIS_URL="$valkey_url" \
+      env DATABASE_URL="$database_url" REDIS_URL="$valkey_url" REDIS_CONTAINER="$valkey_container" \
       cargo test -p fastauth-redis --all-features --no-fail-fast
   else
     record "test --workspace --all-features" "FAIL (no databases)"

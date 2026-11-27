@@ -28,7 +28,7 @@ use std::fmt;
 use std::time::Duration;
 
 use fastauth_core::storage::{SecondaryStorage, StorageError};
-use redis::aio::ConnectionManager;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::{AsyncCommands, Script};
 
 /// Increments `KEYS[1]` and sets its TTL to `ARGV[1]` milliseconds when the increment created
@@ -40,6 +40,13 @@ if count == 1 or redis.call('PTTL', KEYS[1]) == -1 then
 end
 return count
 ";
+
+/// How long [`RedisStorage::connect`] waits for each connection attempt, at start-up and on
+/// every reconnect.
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// How long [`RedisStorage::connect`] waits for the answer to each command.
+pub const RESPONSE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// [`SecondaryStorage`] on Redis or Valkey, through a [`ConnectionManager`]: one multiplexed
 /// connection that reconnects on its own after a dropped connection. Cheap to clone; clones
@@ -60,13 +67,24 @@ impl RedisStorage {
     /// Connects to `url`: `redis://[user:password@]host[:port][/db]`, `unix:///path`, or
     /// `rediss://` with the `tls` feature. Fails when the server doesn't answer, so a wrong URL
     /// shows up at start-up rather than on the first sign-in.
+    ///
+    /// Each connection attempt gives up after [`CONNECTION_TIMEOUT`] and each command after
+    /// [`RESPONSE_TIMEOUT`]. fastauth's rate limiter puts its own, shorter timeout on every
+    /// call ([`secondary_storage_timeout`](fastauth_core::Builder::secondary_storage_timeout));
+    /// these bound the calls an app makes itself.
     pub async fn connect(url: &str) -> Result<Self, redis::RedisError> {
         let client = redis::Client::open(url)?;
-        Ok(Self::new(ConnectionManager::new(client).await?))
+        let config = ConnectionManagerConfig::new()
+            .set_connection_timeout(Some(CONNECTION_TIMEOUT))
+            .set_response_timeout(Some(RESPONSE_TIMEOUT));
+        Ok(Self::new(
+            ConnectionManager::new_with_config(client, config).await?,
+        ))
     }
 
     /// Uses a connection manager the app already has, with its own configuration (timeouts,
-    /// retries).
+    /// retries). fastauth's rate limiter still bounds each of its calls with
+    /// [`secondary_storage_timeout`](fastauth_core::Builder::secondary_storage_timeout).
     pub fn new(conn: ConnectionManager) -> Self {
         Self {
             conn,

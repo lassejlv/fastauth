@@ -78,9 +78,36 @@ request. This is Better Auth's secondary-storage limiter.
   sees the address. Client IPs do appear in keys.
 - **Keys expire on their own.** A counter lives one period. `RateLimit::max_keys` only bounds
   the in-memory limiter.
-- **When Redis fails**, the instance falls back to its in-memory limiter, so limits still
-  hold per instance, and logs `fastauth: secondary storage failed` with `tracing::error!` at
-  most once a minute. Sign-in keeps working.
+- **When Redis fails or is slow**, the instance falls back to its in-memory limiter, so
+  limits still hold per instance, and logs `fastauth: secondary storage failed` with
+  `tracing::error!` at most once a minute. Sign-in keeps working; see below for how long it
+  waits.
+
+## When the storage is slow or down
+
+A Redis that stops answering (a network partition, a paused or overloaded server) would
+otherwise hold every rate-limited request, sign-in included, until the connection gave up.
+fastauth bounds that wait:
+
+- **Every storage call has a timeout**, 100 ms by default. Change it with
+  `.secondary_storage_timeout(Duration::from_millis(..))`. A call that fails or times out
+  counts the request in the instance's memory instead. A request waits for at most one
+  timeout: once one of its buckets fails, its other buckets (the account limit on sign-in)
+  stay in memory.
+- **A circuit breaker** stops calling the storage after 5 failed or timed-out calls in a
+  row. For the next 5 seconds every request uses the in-memory limiter and doesn't wait at
+  all. Then one request probes the storage: if it answers, the shared counters decide again;
+  if not, the breaker stays open another 5 seconds. During an outage, one request per
+  instance every 5 seconds waits for the timeout.
+- **`RedisStorage::connect`** also sets timeouts on its connection: 1 second per connection
+  attempt and 250 ms per command, so calls your own code makes can't hang either. A
+  `ConnectionManager` you pass to `RedisStorage::new` keeps its own settings; fastauth's
+  timeout still applies to its calls.
+
+Pick a timeout well above your store's normal latency: a call that is merely slow also falls
+back, and five of them in a row open the breaker. 100 ms is about a hundred round trips to a
+Redis on the same network. While the storage is out, each instance allows the full limit, as
+it does without secondary storage.
 
 ## Sessions and the cookie cache
 

@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::net::{IpAddr, Ipv6Addr};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
 use hmac::{Hmac, KeyInit, Mac};
@@ -13,7 +13,7 @@ use time::Duration;
 use zeroize::Zeroizing;
 
 use crate::config::ClientIp;
-use crate::storage::{DynStorage, StorageError};
+use crate::storage::{GuardedStorage, StorageError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limit {
@@ -189,7 +189,7 @@ pub(crate) struct RateLimiter {
     /// the secret.
     account_key: Zeroizing<[u8; 32]>,
     /// Where counters live when the app configured secondary storage; in `shards` otherwise.
-    storage: Option<Arc<dyn DynStorage>>,
+    storage: Option<GuardedStorage>,
     last_storage_error: Mutex<Option<Instant>>,
     warned_no_ip: AtomicBool,
     production: bool,
@@ -205,7 +205,7 @@ impl RateLimiter {
         config: RateLimit,
         production: bool,
         account_key: Zeroizing<[u8; 32]>,
-        storage: Option<Arc<dyn DynStorage>>,
+        storage: Option<GuardedStorage>,
     ) -> Self {
         Self {
             config,
@@ -330,12 +330,21 @@ impl RateLimiter {
         (key, limit)
     }
 
-    /// Takes one request from each bucket in turn and stops at the first that is empty.
+    /// Takes one request from each bucket in turn and stops at the first that is empty. Once
+    /// the storage fails, the request's remaining buckets stay in memory, so a request waits
+    /// for at most one storage timeout.
     async fn take_all(&self, buckets: Vec<(String, Limit)>) -> bool {
         let now = Instant::now();
+        let mut storage = self.storage.as_ref();
         for (key, limit) in buckets {
-            let allowed = match &self.storage {
-                Some(storage) => self.take_shared(storage.as_ref(), key, limit, now).await,
+            let allowed = match storage {
+                Some(shared) => match self.take_shared(shared, &key, limit).await {
+                    Some(allowed) => allowed,
+                    None => {
+                        storage = None;
+                        self.take(key, limit, now)
+                    }
+                },
                 None => self.take(key, limit, now),
             };
             if !allowed {
@@ -347,23 +356,18 @@ impl RateLimiter {
 
     /// A fixed window in secondary storage: the first request in a window sets the counter's
     /// TTL to the period, and the window allows `max` requests (Better Auth's
-    /// secondary-storage limiter). When the storage fails, this instance's in-memory bucket
-    /// decides, so limits still hold per instance.
-    async fn take_shared(
-        &self,
-        storage: &dyn DynStorage,
-        key: String,
-        limit: Limit,
-        now: Instant,
-    ) -> bool {
+    /// secondary-storage limiter). `None` when the storage failed, timed out or is skipped by
+    /// its circuit breaker: this instance's in-memory bucket decides then, so limits still
+    /// hold per instance.
+    async fn take_shared(&self, storage: &GuardedStorage, key: &str, limit: Limit) -> Option<bool> {
         match storage
             .increment(&format!("fastauth:rate-limit:{key}"), limit.burst())
             .await
         {
-            Ok(count) => count <= u64::from(limit.max),
+            Ok(count) => Some(count <= u64::from(limit.max)),
             Err(err) => {
                 self.log_storage_error(&err);
-                self.take(key, limit, now)
+                None
             }
         }
     }
@@ -420,7 +424,10 @@ impl RateLimiter {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::storage::DEFAULT_STORAGE_TIMEOUT;
     use crate::storage::fake::FakeStorage;
 
     #[test]
@@ -524,12 +531,14 @@ mod tests {
     }
 
     fn shared(config: RateLimit, storage: &FakeStorage) -> RateLimiter {
-        RateLimiter::new(
+        guarded(
             config,
-            false,
-            Zeroizing::new([7; 32]),
-            Some(Arc::new(storage.clone())),
+            GuardedStorage::new(Arc::new(storage.clone()), DEFAULT_STORAGE_TIMEOUT),
         )
+    }
+
+    fn guarded(config: RateLimit, storage: GuardedStorage) -> RateLimiter {
+        RateLimiter::new(config, false, Zeroizing::new([7; 32]), Some(storage))
     }
 
     fn sign_in_rule() -> RateLimit {
@@ -635,6 +644,96 @@ mod tests {
             limiter.check(ip, "/sign-in/email", b"").await,
             "the shared counter decides again once the storage answers"
         );
+    }
+
+    #[tokio::test]
+    async fn a_hanging_storage_costs_a_request_one_timeout() {
+        let storage = FakeStorage::default();
+        let timeout = StdDuration::from_millis(100);
+        let limiter = guarded(
+            sign_in_rule(),
+            GuardedStorage::new(Arc::new(storage.clone()), timeout)
+                .with_breaker(100, StdDuration::ZERO),
+        );
+        storage.set_hanging(true);
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        let body = br#"{"email":"ada@acme.dk"}"#;
+        for n in 1..=3 {
+            let started = Instant::now();
+            assert!(limiter.check(ip, "/sign-in/email", body).await);
+            let took = started.elapsed();
+            assert!(
+                took >= timeout && took < timeout + StdDuration::from_millis(100),
+                "{took:?}"
+            );
+            assert_eq!(
+                storage.increments(),
+                n,
+                "the account bucket stays in memory once the client bucket timed out"
+            );
+        }
+        assert!(
+            !limiter.check(ip, "/sign-in/email", body).await,
+            "the in-memory limit still applies"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_breaker_skips_a_failing_storage_and_probes_it_again() {
+        let storage = FakeStorage::default();
+        let timeout = StdDuration::from_millis(50);
+        let cool_down = StdDuration::from_millis(300);
+        let limiter = guarded(
+            sign_in_rule(),
+            GuardedStorage::new(Arc::new(storage.clone()), timeout).with_breaker(2, cool_down),
+        );
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        storage.set_hanging(true);
+        for _ in 0..2 {
+            assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        }
+        assert_eq!(storage.increments(), 2);
+
+        let started = Instant::now();
+        assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        assert!(
+            !limiter.check(ip, "/sign-in/email", b"").await,
+            "the in-memory limit applies while the breaker is open"
+        );
+        assert!(
+            started.elapsed() < timeout,
+            "skipped calls cost no timeout: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(storage.increments(), 2, "an open breaker skips the storage");
+
+        tokio::time::sleep(cool_down).await;
+        let other: IpAddr = "203.0.113.8".parse().unwrap();
+        let started = Instant::now();
+        assert!(limiter.check(other, "/sign-in/email", b"").await);
+        assert!(
+            started.elapsed() >= timeout,
+            "the probe waits for the storage"
+        );
+        assert!(limiter.check(other, "/sign-in/email", b"").await);
+        assert_eq!(
+            storage.increments(),
+            3,
+            "a failed probe reopens the breaker"
+        );
+
+        storage.set_hanging(false);
+        tokio::time::sleep(cool_down).await;
+        assert!(
+            limiter.check(ip, "/sign-in/email", b"").await,
+            "the probe succeeds and the shared counter decides again"
+        );
+        assert_eq!(storage.increments(), 4);
+        for _ in 0..2 {
+            assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        }
+        assert!(!limiter.check(ip, "/sign-in/email", b"").await);
+        assert_eq!(storage.increments(), 7, "the breaker is closed");
     }
 
     #[tokio::test]
