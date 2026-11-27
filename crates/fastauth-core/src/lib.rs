@@ -4,6 +4,7 @@
 
 pub mod adapter;
 mod auth;
+pub mod compat;
 pub mod config;
 pub mod cookies;
 pub mod crypto;
@@ -42,9 +43,10 @@ pub use time::Duration;
 
 /// Everything an app needs to configure auth.
 pub mod prelude {
+    pub use crate::compat::{BetterAuthCompat, BetterAuthScrypt};
     pub use crate::config::{
-        ClientIp, CookieConfig, EmailPassword, EmailVerification, IdStrategy, SameSite, Secure,
-        SessionConfig,
+        ClientIp, CookieConfig, CookieSigning, EmailPassword, EmailVerification, IdStrategy,
+        SameSite, Secure, SessionConfig, SlidingRefresh,
     };
     pub use crate::crypto::Secret;
     pub use crate::events::*;

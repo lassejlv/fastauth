@@ -495,9 +495,8 @@ impl<D: Adapter, A> Ctx<D, A> {
     /// Reads `{prefix}.{name}` and checks that the current secret signed it.
     pub fn signed_cookie(&self, name: &str) -> Option<String> {
         let raw = self.cookie(&self.shared.config.cookie_name(name))?;
-        self.shared
-            .keys
-            .verify(SignPurpose::Cookie, raw)
+        let keys = &self.shared.keys;
+        keys.verify(SignPurpose::Cookie, &keys.decode_cookie(raw))
             .map(str::to_owned)
     }
 
@@ -506,7 +505,9 @@ impl<D: Adapter, A> Ctx<D, A> {
     /// survives a secret rotation.
     pub fn signed_token_cookie(&self, name: &str) -> Option<String> {
         let raw = self.cookie(&self.shared.config.cookie_name(name))?;
-        self.shared.keys.verify_token(raw).map(str::to_owned)
+        let keys = &self.shared.keys;
+        keys.verify_token(&keys.decode_cookie(raw))
+            .map(str::to_owned)
     }
 
     pub fn delete_cookie(&self, name: &str) {

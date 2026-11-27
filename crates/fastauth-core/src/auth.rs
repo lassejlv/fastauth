@@ -14,9 +14,10 @@ use serde::Serialize;
 use url::Url;
 
 use crate::adapter::{Adapter, Transaction};
+use crate::compat::BetterAuthCompat;
 use crate::config::{
-    ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, IdStrategy, Secure,
-    SessionConfig, SessionTokens,
+    ClientIp, CookieConfig, CookieSigning, CoreConfig, EmailPassword, EmailVerification,
+    IdStrategy, Secure, SessionConfig, SessionTokens,
 };
 use crate::crypto::{Argon2id, Keys, Passwords, Secret, SignPurpose};
 use crate::endpoint::{
@@ -78,6 +79,7 @@ impl FastAuth {
             session_tokens: SessionTokens::default(),
             only_owned_accounts: false,
             migrations: Migrations::default(),
+            better_auth: None,
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -112,6 +114,7 @@ pub struct Builder<D, U, P, S, B> {
     session_tokens: SessionTokens,
     only_owned_accounts: bool,
     migrations: Migrations,
+    better_auth: Option<BetterAuthCompat>,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
 }
@@ -152,6 +155,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             session_tokens: self.session_tokens,
             only_owned_accounts: self.only_owned_accounts,
             migrations: self.migrations,
+            better_auth: self.better_auth,
             app_init: self.app_init,
             _state: PhantomData,
         }
@@ -355,6 +359,15 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// Shares sessions and passwords with a Better Auth app on the same database: Better
+    /// Auth's cookie format and secret, its session refresh and its scrypt password hashes.
+    /// Applied at `.build()`, over the matching cookie, session and email-and-password
+    /// settings. See [`BetterAuthCompat`].
+    pub fn better_auth_compat(mut self, compat: BetterAuthCompat) -> Self {
+        self.better_auth = Some(compat);
+        self
+    }
+
     /// The app's own columns on `user`.
     pub fn user_fields<U2: Fields>(self) -> Builder<D, U2, P, S, B> {
         self.retype(|p| p)
@@ -396,6 +409,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             session_tokens: self.session_tokens,
             only_owned_accounts: self.only_owned_accounts,
             migrations: self.migrations,
+            better_auth: self.better_auth,
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -426,7 +440,18 @@ impl<D: Adapter, U, P, S, B> Builder<D, U, P, S, B> {
 }
 
 impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
-    pub fn build(self) -> Result<Auth<D, U, P>, BuildError> {
+    pub fn build(mut self) -> Result<Auth<D, U, P>, BuildError> {
+        if let Some(compat) = self.better_auth.take() {
+            compat.apply(
+                &mut self.cookies,
+                &mut self.session,
+                self.email_password.as_mut(),
+                &mut self.storage,
+                &mut self.session_tokens,
+                &mut self.only_owned_accounts,
+                &mut self.migrations,
+            );
+        }
         let mut problems = Vec::new();
         if self.secrets.is_empty() || self.secrets.iter().any(|s| s.len() < Secret::MIN_LEN) {
             problems.push(format!(
@@ -480,6 +505,29 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
                  `.secrets(..)` once those columns are rewritten",
                 Secret::MIN_ENTROPY_BITS
             );
+        }
+        if let CookieSigning::BetterAuth(secret) = &self.cookies.signing {
+            if self.session.cookie_cache.is_some() {
+                problems.push(
+                    "the cookie cache can't be used with Better Auth cookie signing: Better Auth \
+                     reads `session_data` in its own format, so remove `.cookie_cache(..)`"
+                        .into(),
+                );
+            }
+            if secret.len() == 0 {
+                problems.push("the Better Auth secret is empty".into());
+            } else if secret.len() < Secret::MIN_LEN
+                || secret.entropy_bits() < Secret::MIN_ENTROPY_BITS
+            {
+                unsafe_in_production.push(format!(
+                    "the Better Auth secret has {} bytes and about {:.0} bits of entropy; \
+                     cookies need at least {} bytes and {:.0} bits",
+                    secret.len(),
+                    secret.entropy_bits(),
+                    Secret::MIN_LEN,
+                    Secret::MIN_ENTROPY_BITS
+                ));
+            }
         }
         if base_url.scheme() == "http" && !local {
             unsafe_in_production.push(format!(
@@ -583,6 +631,14 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             || Arc::new(Argon2id::owasp()) as Arc<dyn crate::crypto::PasswordHasher>,
             |e| e.hasher.clone(),
         );
+        let passwords = match self
+            .email_password
+            .as_ref()
+            .and_then(|e| e.max_concurrent_hashes)
+        {
+            Some(permits) => Passwords::with_concurrency(hasher, permits),
+            None => Passwords::new(hasher),
+        };
         let cache_fingerprint =
             session::fingerprint(schema.expect(Session::TABLE), schema.expect(User::TABLE));
         let config = CoreConfig {
@@ -605,7 +661,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
                     .collect()
             }),
         };
-        let keys = Keys::new(self.secrets);
+        let keys = Keys::new(self.secrets).with_cookie_signing(&config.cookies.signing);
         let rate_limiter = RateLimiter::new(
             rate_limit,
             !local && !self.allow_insecure,
@@ -619,7 +675,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             schema,
             keys,
             config,
-            passwords: Passwords::new(hasher),
+            passwords,
             mailer: self.mailer,
             plugins: registry.plugins,
             hooks: registry.hooks,

@@ -218,6 +218,7 @@ compat_mysql() {
 if wanted compat; then
   run compat "compat run.sh (axum)" compat run.sh
   run compat "compat run.sh (SERVER=actix)" compat run.sh SERVER=actix
+  run compat "compat run-vectors.sh (golden vectors)" compat run-vectors.sh
   for script in run-organization.sh run-admin.sh run-magic-link.sh run-email-otp.sh run-bearer.sh \
     run-jwt.sh run-passkey.sh run-username.sh run-anonymous.sh run-multi-session.sh; do
     run compat "compat $script" compat "$script"

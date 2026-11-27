@@ -391,3 +391,27 @@ async fn background_pruning_runs_on_its_interval_and_stops_with_the_auth() {
         .expect("the task ends once the auth is dropped")
         .unwrap();
 }
+
+#[test]
+fn the_better_auth_preset_sets_the_database_settings() {
+    let auth = builder()
+        .better_auth_compat(fastauth_core::compat::BetterAuthCompat::new(
+            "better-auth-secret-better-auth-secret-0123",
+        ))
+        .build()
+        .unwrap();
+    assert_eq!(auth.config().session_tokens(), SessionTokens::Raw);
+    assert_eq!(
+        auth.config().owned_account_providers(),
+        Some(&["credential".to_owned()][..])
+    );
+    assert_eq!(auth.migrator().mode(), Migrations::ReviewOnly);
+    let account = auth.schema().expect("account");
+    assert_eq!(account.stored_column("password_hash"), Some("password"));
+    assert_eq!(account.stored_column("provider_id"), Some("providerId"));
+    assert!(account.is_hex_text(account.position("access_token").unwrap()));
+    assert!(account.is_hex_text(account.position("refresh_token").unwrap()));
+    let session = auth.schema().expect("session");
+    assert_eq!(session.stored_column("token"), Some("token"));
+    assert_eq!(session.stored_column("expires_at"), Some("expiresAt"));
+}

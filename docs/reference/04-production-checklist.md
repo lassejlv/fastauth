@@ -171,7 +171,28 @@ own logging still has to keep secrets out:
 - Don't log the `Cookie`, `Set-Cookie`, `Authorization` or `set-auth-token` headers.
 - Don't log the messages your mailer builds; they hold sign-in links and codes.
 
-## 13. Organization and admin limits
+## 13. Better Auth compatibility, only during a migration
+
+`.better_auth_compat(..)` (or `CookieSigning::BetterAuth`, `BetterAuthScrypt`) is for the
+weeks a Better Auth app shares the database, not a permanent setting
+([Migrating from Better Auth](../integrations/04-migrating-from-better-auth.md#trade-offs)).
+
+- Give both apps the same Better Auth secret, loaded with `BetterAuthCompat::from_env`, not
+  `Secret::from_env`, which decodes base64-looking values. Keep fastauth's own `.secret(..)`
+  a separate generated secret.
+- The Better Auth secret is the cookie key itself and both apps hold it: store it as you store
+  fastauth's secret. Rotating it signs everyone out of both apps.
+- Set `.expires_in(..)` to the Better Auth app's `session.expiresIn` (Better Auth's default is
+  7 days; the preset uses 14).
+- Keep Better Auth's `session.cookieCache` off or a few minutes long: a session fastauth
+  revokes keeps working in the Better Auth app until its cache expires. fastauth refuses its own
+  cookie cache in this mode.
+- scrypt takes 32 MiB per hash and the preset runs at most 8 at once (256 MiB); size the
+  machine for it or lower `.max_concurrent_hashes(n)`.
+- Once the Better Auth app is gone, turn the cookie signing back to fastauth's (everyone signs
+  in once more). Keep `BetterAuthScrypt` until the passwords are rewritten.
+
+## 14. Organization and admin limits
 
 - `Organization::invitation_limit(n)` caps pending invitations per organization (100 by
   default). Each invitation emails an address the inviter picks, so lower it when your

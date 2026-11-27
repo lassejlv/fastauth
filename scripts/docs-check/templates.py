@@ -294,10 +294,6 @@ fn block(my_reqwest_client: reqwest::Client) {
 }"""),
 ])
 
-page("integrations/04-migrating-from-better-auth.md", "", [
-    block("use fastauth::config::SessionTokens;"),
-])
-
 page("integrations/03-actix.md", "use fastauth::plugins::{admin::Admin, organization::Organization};\n" + app_auth("Organization", "Admin") + """mod auth { pub fn build(pool: fastauth::prelude::PgPool) -> Result<super::AppAuth, fastauth::prelude::BuildError> { todo!() } }
 """, base=ACTIX, blocks=[
     block("use actix_web::{App, HttpResponse, HttpServer, web};", """@:1-6
@@ -315,6 +311,11 @@ let _app =
 }"""),
     block("use fastauth::plugins::admin::actix::RequireRole;"),
     block("use fastauth::ApiResponse;"),
+])
+
+page("integrations/04-migrating-from-better-auth.md", "", [
+    block("pub fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, BuildError> {"),
+    block("use fastauth::config::SessionTokens;"),
 ])
 
 # ---------------------------------------------------------------- plugins
