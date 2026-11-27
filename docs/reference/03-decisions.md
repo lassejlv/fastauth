@@ -242,4 +242,27 @@ using the compile-checked extension traits.
    authorised instead of an id. No shim: an id-only version would bring the race back. No
    table or column was added.
 
+## Released: 0.8.0 (2026-11-27)
+
+1. Better Auth database compatibility, opt-in: a fastauth app shares one database and its
+   sign-ins with a live Better Auth app during a migration
+   ([Migrating from Better Auth](../integrations/04-migrating-from-better-auth.md)).
+   `BetterAuthCompat` sets every piece, and each is also a setting of its own.
+2. Cookies follow better-call's format and are checked against the one Better Auth secret
+   only, as Better Auth 1.7.8 does; fastauth refuses its own cookie cache and never touches
+   Better Auth's `session_data`. Sessions are extended by Better Auth's rule, counted from
+   `expires_at` because Better Auth moves `updatedAt` on every update.
+3. Passwords use Better Auth's scrypt format and are never rehashed, so a rollback to the
+   Better Auth app loses nobody. Hashing runs in a bounded pool, since each hash takes 32 MiB.
+4. On the database side: Better Auth's column names, raw session tokens in
+   `session.token`, accounts of providers fastauth doesn't own left alone (deleting their
+   user answers 409), review-only migrations, and fastauth's verification rows in a table
+   of their own.
+5. Provider tokens stay encrypted in compat mode. Storing them as plain text, as Better
+   Auth does, so its `/get-access-token` works after a sign-in through fastauth, is a
+   separate setting (`store_oauth_tokens_in_plaintext`) the preset never turns on, because
+   it puts provider credentials in the clear.
+6. No breaking change: an app that doesn't opt in behaves as on 0.7, and no table or column
+   was added.
+
 The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.

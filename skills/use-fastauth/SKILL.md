@@ -1,6 +1,6 @@
 ---
 name: use-fastauth
-description: Use fastauth, Better Auth for Rust, in an app. Use in any Rust project that depends on `fastauth` or a `fastauth-*` crate, or when asked to add authentication, login, sessions, OAuth, 2FA, passkeys, magic links, JWTs, usernames, guest users or account switching to a Rust or axum app.
+description: Use fastauth, Better Auth for Rust, in an app. Use in any Rust project that depends on `fastauth` or a `fastauth-*` crate, or when asked to add authentication, login, sessions, OAuth, 2FA, passkeys, magic links, JWTs, usernames, guest users or account switching to a Rust or axum app, or when migrating a Better Auth app onto fastauth.
 ---
 
 # Using fastauth in an app
@@ -13,7 +13,7 @@ Auth's routes and JSON. The whole configuration is one value,
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches fastauth 0.7 on crates.io and the code on `main`, and so does the repo's
+This skill matches fastauth 0.8 on crates.io and the code on `main`, and so does the repo's
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
 plugins, organization teams, `TestAuth` and `#[endpoint]`
 (`docs/get-started/01-overview.md#planned`). actix-web works through the `actix` feature
@@ -28,7 +28,7 @@ builder). Never parse them or assume a format.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.7", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.8", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -221,6 +221,30 @@ pub async fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, Box<dyn std::er
   implementation with `testing::run_storage_conformance`
   (`docs/concepts/04-multiple-instances.md`).
 
+### Migrating from Better Auth
+
+When an app moves off Better Auth while the Better Auth app keeps serving users from the
+same database, fastauth has an opt-in compatibility mode for the migration window:
+`.better_auth_compat(BetterAuthCompat::from_env("BETTER_AUTH_SECRET")?.cookie_prefix(..))` on
+the builder, plus `Sqlx::new(pool).rename("verification", "fastauth_verification")` on the
+adapter. The two apps then accept each other's session cookies, sign-outs and password
+hashes, and fastauth uses Better Auth's camelCase tables, leaves the SSO `account` rows it
+doesn't own alone, and only writes migrations for review (`fastauth generate`; `fastauth
+migrate` refuses).
+
+- Only for a database a Better Auth app still uses. It relaxes fastauth's defaults: raw
+  session tokens in the table, scrypt instead of argon2id, the raw Better Auth secret as
+  the cookie key, no cookie cache. A new app never turns it on.
+- Pass the Better Auth secret through `BetterAuthCompat::from_env`, never
+  `Secret::from_env`, and keep fastauth's own `.secret(..)` separate. Match the Better Auth
+  app's `cookiePrefix`, `session.expiresIn` and `updateAge`.
+- Provider tokens stay encrypted unless you add `.store_oauth_tokens_in_plaintext(true)`,
+  which only matters when the Better Auth app reads stored tokens (`/get-access-token`); the
+  preset never sets it.
+- Follow `docs/integrations/04-migrating-from-better-auth.md` for the full setup, the
+  trade-offs and the cutover checklist, and verify the real config with
+  `compat/better-auth-dual/run-dual.sh`.
+
 ## Where to go next
 
 Read the reference for the task in front of you:
@@ -245,6 +269,7 @@ Read the reference for the task in front of you:
 | A custom plugin: tables, endpoints, hooks, gates, resolvers, events | [references/custom-plugins.md](references/custom-plugins.md) |
 | Tests with `MemoryAdapter` and `MemoryMailer` | [references/testing.md](references/testing.md) |
 | A frontend using Better Auth's client against fastauth | [references/client.md](references/client.md) |
+| Moving a live Better Auth app onto fastauth on a shared database | [Migrating from Better Auth](#migrating-from-better-auth), then `docs/integrations/04-migrating-from-better-auth.md` |
 
 ## Common mistakes
 

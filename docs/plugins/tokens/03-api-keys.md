@@ -12,7 +12,7 @@ Turn on the facade's `api-key` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.7", features = ["api-key"] }
+fastauth = { version = "0.8", features = ["api-key"] }
 ```
 
 or `cargo add fastauth --features api-key`. The plugin lives at

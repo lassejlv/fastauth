@@ -1,6 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-11-27)
+
+### Highlights
+
+- **Better Auth database compatibility mode.** A live Better Auth app can move onto fastauth
+  while both share one database, route by route. Each app accepts the other's session
+  cookies, sign-outs, password changes and hashes, session refreshes, custom user fields and
+  social accounts; fastauth reads Better Auth's camelCase tables, leaves the SSO rows it
+  doesn't own alone, and only writes migrations for you to review.
+  `.better_auth_compat(BetterAuthCompat::from_env("BETTER_AUTH_SECRET")?)` turns it on. A
+  cross-app suite runs a real Better Auth 1.7.8 app and a fastauth app on one Postgres 17 and
+  checks it end to end (204 checks: the 195 of the first suite and 9 for provider tokens).
+  See [Migrating from Better Auth](docs/integrations/04-migrating-from-better-auth.md),
+  including its trade-offs and cutover checklist.
+
+### Upgrading from 0.7
+
+Bump `fastauth` (and any `fastauth-*` crate you depend on directly) to `"0.8"`.
+
+- **Nothing to change.** Compat mode is opt-in, and an app that doesn't turn it on behaves
+  as it did on 0.7: the same schema and SQL, cookies, sessions, password hashes, encrypted
+  OAuth tokens and migrations. There's no database migration, so `fastauth status` passes on a
+  0.7 database.
+- **No breaking API changes.** Everything new is an addition: builder settings, types, and
+  two `Adapter` methods with default implementations, so custom adapters keep compiling.
+  `cargo semver-checks` against the published 0.7.0 finds no breaking change in any of the 19
+  library crates it checks (fastauth-cli is a binary and fastauth-macros a proc-macro crate;
+  neither changed).
 
 ### Added
 
