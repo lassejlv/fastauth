@@ -1,0 +1,11 @@
+{
+  "name": "fastauth-better-auth-dual",
+  "private": true,
+  "type": "module",
+  "description": "A Better Auth 1.7.8 app and the cross-app suite that runs it next to fastauth on one Postgres.",
+  "dependencies": {
+    "auth": "1.7.8",
+    "better-auth": "1.7.8",
+    "pg": "8.16.3"
+  }
+}

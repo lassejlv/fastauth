@@ -1333,6 +1333,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastauth-compat-better-auth-dual"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "fastauth",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "fastauth-core"
 version = "0.7.0"
 dependencies = [

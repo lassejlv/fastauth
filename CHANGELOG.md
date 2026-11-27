@@ -69,6 +69,18 @@ the adapter names (`Sqlx::rename("verification", "fastauth_verification")`).
   `better_auth_schema` tests run on the schema Better Auth 1.7.8's CLI generates for each
   database (`crates/fastauth-sqlx/tests/better-auth/generate.sh`).
 
+### Better Auth cross-app suite
+
+`compat/better-auth-dual/run-dual.sh` (in `scripts/ci.sh --only compat`) runs a real Better
+Auth 1.7.8 app and a fastauth app on axum against one Postgres 17, as during a phased cutover:
+Better Auth's migration creates the schema, fastauth's four review-only migrations go on top,
+and each app accepts the other's sign-ups, cookies (`__Secure-` on https), sign-outs, password
+changes and resets, refreshes, `customerId`, scrypt hashes and social accounts, with SSO
+(`oidc`) rows left alone and Better Auth's cookie cache on and off. The Better Auth app's config
+is one file, `compat/better-auth-dual/better-auth/app.config.ts`, to swap for a real one.
+[Verified against Better Auth 1.7.8](docs/integrations/04-migrating-from-better-auth.md#verified-against-better-auth-178)
+lists what it proves.
+
 ### Core changes
 
 All additive: `ColumnNaming`, `TableDef::stored_name` / `stored_column` /
