@@ -1,0 +1,41 @@
+{
+  "alice_api_key": "WOeBAWkYGmNUzWhTDrJbpbyRHWQimwvMdkbMWpAajdVMZYxWuLZqOdYETOndNzti",
+  "alice_id": "01M8DZ6RYN9TV8JHA6VD3GJ180",
+  "alice_phone_session_cookie": "fastauth.session_token=PhdoWpsuUJqdJGQnQZS8o6MzcxHUlMPjku0NGhcT40g.6vY5my5iJ47apYZ72x4Y3O6ULrfxFCiRNZOvSG3ipT4",
+  "alice_session_cookie": "fastauth.session_token=kl9jWg1uZJEAffyOqVR3MCuHCjJrj4lWtu7p4jVWCik.CmNEqAryUTjFn6jDUdTBgypkhxnSx3O-IhSKSLeQrpk",
+  "bob_id": "01M8DZ6S09DHHKZJ7ZB6MTWPVR",
+  "bob_reset_token": "ZxZkTjvj1u6hC-v-tKkZv4EpktSgJzKzmh3J0xKvaJ0",
+  "bob_session_cookie": "fastauth.session_token=PPfrhjJ0UjSXhkGGDYUutBERAfaE8y-wucWK-1v1O14.m20v5AtUt9wfIu0keluc4rifLntAmSbSxUmKvG2rSkk",
+  "bob_verify_token": "WDrLhcE-zW0XKF9YNpCL8Q_k5vBdvOsSi_YDOGanIRU",
+  "carol_backup_codes": [
+    "0lvmJ-yavfh",
+    "vua5r-ItOQs",
+    "8pXQW-49PLa",
+    "RJBJF-XFkqD",
+    "pDDNy-swdtR",
+    "vx7UP-EIyqb",
+    "GRgYV-4hywb",
+    "Ymd67-pIS38",
+    "yVwcx-K7y8Z",
+    "5EyIU-bsrXp"
+  ],
+  "carol_id": "01M8DZ6S0MWEKTVHR40VFNA1TA",
+  "dave_session_cookie": "fastauth.session_token=3rhG9ZIpyTztwE4DkBl0_chSf1f3zt1OY2OLhrK6h5E.bR32wWlrsDraPeK6dQ8BTg075JX5kd4ervQmnKD7mN4",
+  "frank_backup_codes": [
+    "0qfuL-hqUqE",
+    "E8FgI-olzZx",
+    "7YyIm-wejD8",
+    "4r99U-93rDc",
+    "dfqQr-mRjTD",
+    "3dOWm-Q3vnX",
+    "7ruhR-GzHny",
+    "JpOma-WdD4R",
+    "9t9DD-4qXLG",
+    "h026X-K4EoG"
+  ],
+  "frank_id": "01M8DZ6S1HVKHFH8AW3PZBZT1B",
+  "guest_session_cookie": "fastauth.session_token=dvvdUTh8RL48fPJjOA-bmQrxy72Z_CAJjFpvgq8qYgY.B3qwb2gXQEQTsSgDtQztDsz5in4it8f69GjdI6mymuc",
+  "organization_id": "01M8DZ6RZX0T21C5WW5889BPHS",
+  "password": "correct horse battery staple",
+  "secret": "upgrade-fixture-secret-0.5-to-0.6-do-not-use-anywhere-else-7f3c9a"
+}
