@@ -24,6 +24,7 @@ use clap::{Parser, Subcommand};
 use fastauth_core::adapter::Adapter;
 use fastauth_core::migrate::{MigrationPlan, Migrations};
 use fastauth_core::model::Fields;
+use fastauth_core::schema::BytesText;
 use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, Schema};
 use fastauth_core::{Auth, PluginSet};
 use fastauth_sqlx::sqlx::{Database, Pool};
@@ -248,8 +249,10 @@ fn render_schema(schema: &Schema) -> String {
             if stored != column.name {
                 attributes.push(format!("stored as {stored}"));
             }
-            if table.is_hex_text(position) {
-                attributes.push("hex text".to_owned());
+            match table.bytes_text(position) {
+                Some(BytesText::Hex) => attributes.push("hex text".to_owned()),
+                Some(BytesText::Utf8) => attributes.push("text".to_owned()),
+                None => {}
             }
             let line = format!(
                 "  {:name_width$}{:type_width$}{:owner_width$}{}",

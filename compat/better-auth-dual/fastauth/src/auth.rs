@@ -4,6 +4,11 @@
 //! The suite runs it in two shapes. [`App`] is the app as it starts the cutover. [`WithAdmin`]
 //! adds the admin plugin, the way a later fastauth upgrade adds columns: its migrations go
 //! through `fastauth generate` and review like the first four.
+//!
+//! OAuth tokens are stored as plain text, as Better Auth stores them
+//! (`store_oauth_tokens_in_plaintext`), so its `/get-access-token` works after a sign-in here.
+//! `FASTAUTH_PLAINTEXT_TOKENS=0` keeps fastauth's default, encrypted tokens, for the instance
+//! that shows the gap that leaves.
 
 use fastauth::plugins::admin::Admin;
 use fastauth::plugins::email_otp::EmailOtp;
@@ -51,6 +56,9 @@ macro_rules! builder {
                     .cookie_prefix("vt")
                     .expires_in(Duration::days(14))
                     .update_age(Duration::days(1)),
+            )
+            .store_oauth_tokens_in_plaintext(
+                std::env::var("FASTAUTH_PLAINTEXT_TOKENS").map_or(true, |v| v != "0"),
             )
             .plugin(social)
             .plugin(MagicLink::new())

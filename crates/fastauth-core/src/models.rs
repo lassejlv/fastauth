@@ -3,7 +3,7 @@
 use time::OffsetDateTime;
 
 use crate::config::SessionTokens;
-use crate::crypto::Hash;
+use crate::crypto::{Hash, Keys};
 use crate::model::{Col, Model, OnTable};
 use crate::schema::{ColumnDef, ColumnType as T, DefaultValue, OnDelete, SchemaBuilder};
 use crate::value::{ColumnValue, DecodeError, Id, Row, Value};
@@ -210,7 +210,9 @@ impl Model for Session {
 }
 
 /// A way to sign in: `provider_id = "credential"` holds the password hash; OAuth providers
-/// hold encrypted tokens.
+/// hold their tokens, encrypted unless
+/// [`store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext) is on.
+/// Read them with [`Account::read_access_token`] and [`Account::read_refresh_token`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
     pub id: Id,
@@ -218,9 +220,9 @@ pub struct Account {
     pub provider_id: String,
     pub account_id: String,
     pub password_hash: Option<String>,
-    /// `Keys::encrypt`ed.
+    /// As stored: `Keys::encrypt`ed, or the token's bytes (see [`Account::read_access_token`]).
     pub access_token: Option<Vec<u8>>,
-    /// `Keys::encrypt`ed.
+    /// As stored, like `access_token`.
     pub refresh_token: Option<Vec<u8>>,
     pub id_token: Option<String>,
     pub access_token_expires_at: Option<OffsetDateTime>,
@@ -232,6 +234,24 @@ pub struct Account {
 
 impl Account {
     pub const CREDENTIAL: &'static str = "credential";
+
+    /// The provider's access token, however the row stores it: encrypted by fastauth (as
+    /// bytes, or as hex in a text column), or as plain text, written by fastauth with
+    /// [`store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext) or
+    /// by a Better Auth app on the same database. `None` when the row has none, or holds
+    /// bytes that are neither.
+    ///
+    /// A value counts as fastauth's only when one of `keys`' secrets decrypts it, so keep a
+    /// retired secret in `.secrets(..)` while rows encrypted under it remain: without it, such
+    /// a row in a text column reads as its hex.
+    pub fn read_access_token(&self, keys: &Keys) -> Option<String> {
+        read_token(keys, self.access_token.as_deref()?)
+    }
+
+    /// The provider's refresh token, read like [`Account::read_access_token`].
+    pub fn read_refresh_token(&self, keys: &Keys) -> Option<String> {
+        read_token(keys, self.refresh_token.as_deref()?)
+    }
 
     pub const ID: Col<Account, Id> = Col::new("id");
     pub const USER_ID: Col<Account, Id> = Col::new("user_id");
@@ -250,6 +270,25 @@ impl Account {
 
 impl OnTable for Account {
     type Table = Account;
+}
+
+/// A stored OAuth token: fastauth's ciphertext as bytes, the same as hex text (what a UTF-8
+/// text column returns for a row written before plain-text storage), or the token itself.
+fn read_token(keys: &Keys, stored: &[u8]) -> Option<String> {
+    let unhex = |text: &str| -> Option<Vec<u8>> {
+        if !text.len().is_multiple_of(2) {
+            return None;
+        }
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+            .collect()
+    };
+    let plain = keys
+        .decrypt(stored)
+        .or_else(|| keys.decrypt(&unhex(std::str::from_utf8(stored).ok()?)?))
+        .unwrap_or_else(|| stored.to_vec());
+    String::from_utf8(plain).ok()
 }
 
 impl Model for Account {

@@ -525,6 +525,7 @@ pub struct CoreConfig {
     pub ids: IdStrategy,
     pub(crate) secure_cookies: bool,
     pub(crate) session_tokens: SessionTokens,
+    pub(crate) plaintext_oauth_tokens: bool,
     pub(crate) owned_accounts: Option<Vec<String>>,
 }
 
@@ -590,6 +591,12 @@ impl CoreConfig {
     /// How session tokens are stored ([`SessionTokens`]).
     pub fn session_tokens(&self) -> SessionTokens {
         self.session_tokens
+    }
+
+    /// Whether OAuth tokens are stored as plain text
+    /// ([`Builder::store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext)).
+    pub fn oauth_tokens_in_plaintext(&self) -> bool {
+        self.plaintext_oauth_tokens
     }
 
     /// The filter that finds the session row of `token`, under the configured

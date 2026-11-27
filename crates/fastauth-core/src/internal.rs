@@ -45,9 +45,10 @@ pub struct NewAccount {
     /// Defaults to the user id (what the credential account uses).
     pub account_id: Option<String>,
     pub password_hash: Option<String>,
-    /// Plaintext; encrypted before it is stored.
+    /// Plaintext; encrypted before it is stored, unless
+    /// [`store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext) is on.
     pub access_token: Option<String>,
-    /// Plaintext; encrypted before it is stored.
+    /// Plaintext; stored like `access_token`.
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
     pub access_token_expires_at: Option<OffsetDateTime>,
@@ -255,8 +256,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         user_id: &Id,
         account: NewAccount,
     ) -> Result<Vec<(&'static str, Value)>, AuthError> {
-        let keys = self.ctx.keys();
-        let seal = |t: Option<String>| t.map(|t| keys.encrypt(t.as_bytes()));
+        let seal = |t: Option<String>| t.map(|t| self.ctx.oauth_token_bytes(&t));
         Ok(vec![
             ("id", self.ctx.new_id()?.into_value()),
             ("user_id", user_id.clone().into_value()),

@@ -406,6 +406,18 @@ impl<D: Adapter, A> Ctx<D, A> {
         &self.shared.keys
     }
 
+    /// The bytes an OAuth access or refresh token is stored as in `account`: encrypted with
+    /// the secret, or the token's own bytes with
+    /// [`store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext).
+    /// [`Account::read_access_token`](crate::models::Account::read_access_token) reads either.
+    pub fn oauth_token_bytes(&self, token: &str) -> Vec<u8> {
+        if self.shared.config.plaintext_oauth_tokens {
+            token.as_bytes().to_vec()
+        } else {
+            self.shared.keys.encrypt(token.as_bytes())
+        }
+    }
+
     pub fn config(&self) -> &CoreConfig {
         &self.shared.config
     }

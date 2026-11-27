@@ -78,6 +78,7 @@ impl FastAuth {
             storage: Storage::default(),
             session_tokens: SessionTokens::default(),
             only_owned_accounts: false,
+            plaintext_oauth_tokens: false,
             migrations: Migrations::default(),
             better_auth: None,
             app_init: Vec::new(),
@@ -113,6 +114,7 @@ pub struct Builder<D, U, P, S, B> {
     storage: Storage,
     session_tokens: SessionTokens,
     only_owned_accounts: bool,
+    plaintext_oauth_tokens: bool,
     migrations: Migrations,
     better_auth: Option<BetterAuthCompat>,
     app_init: Vec<AppInit<D>>,
@@ -154,6 +156,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             storage: self.storage,
             session_tokens: self.session_tokens,
             only_owned_accounts: self.only_owned_accounts,
+            plaintext_oauth_tokens: self.plaintext_oauth_tokens,
             migrations: self.migrations,
             better_auth: self.better_auth,
             app_init: self.app_init,
@@ -350,6 +353,25 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// Stores the OAuth access and refresh tokens providers return as plain text instead of
+    /// encrypting them with the secret, as Better Auth does unless its
+    /// `account.encryptOAuthTokens` is on. For a database a Better Auth app shares: its
+    /// `/get-access-token`, and app code reading `account.accessToken`, then get the
+    /// provider's token after a sign-in through fastauth, not fastauth's ciphertext. A token
+    /// column stored as text ([`bytes_as_hex_text`](Self::bytes_as_hex_text), which
+    /// [`BetterAuthCompat`] sets) then holds the token itself rather than hex
+    /// ([`BytesText::Utf8`](crate::schema::BytesText::Utf8)). The id token is stored as it
+    /// is either way.
+    ///
+    /// Rows already stored aren't rewritten; [`Account::read_access_token`] reads both kinds.
+    /// Anyone who can read the table, a backup or a replica can call the provider as the user,
+    /// so turn it on only for the migration window; [`BetterAuthCompat`] doesn't. Off by
+    /// default: tokens are encrypted.
+    pub fn store_oauth_tokens_in_plaintext(mut self, on: bool) -> Self {
+        self.plaintext_oauth_tokens = on;
+        self
+    }
+
     /// Whether `auth.migrator()` may change the database. [`Migrations::ReviewOnly`] makes
     /// `run` and `apply` (and `fastauth migrate`) refuse, for a schema another app's
     /// migrations own, and `fastauth generate` write each step as its own migration to
@@ -408,6 +430,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             storage: self.storage,
             session_tokens: self.session_tokens,
             only_owned_accounts: self.only_owned_accounts,
+            plaintext_oauth_tokens: self.plaintext_oauth_tokens,
             migrations: self.migrations,
             better_auth: self.better_auth,
             app_init: Vec::new(),
@@ -451,6 +474,17 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
                 &mut self.only_owned_accounts,
                 &mut self.migrations,
             );
+        }
+        if self.plaintext_oauth_tokens {
+            let storage = &mut self.storage;
+            let (tokens, others): (Vec<_>, Vec<_>) = std::mem::take(&mut storage.hex_text)
+                .into_iter()
+                .partition(|(table, column)| {
+                    table == Account::TABLE
+                        && matches!(column.as_str(), "access_token" | "refresh_token")
+                });
+            storage.hex_text = others;
+            storage.utf8_text.extend(tokens);
         }
         let mut problems = Vec::new();
         if self.secrets.is_empty() || self.secrets.iter().any(|s| s.len() < Secret::MIN_LEN) {
@@ -655,6 +689,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             ids: self.ids,
             secure_cookies,
             session_tokens: self.session_tokens,
+            plaintext_oauth_tokens: self.plaintext_oauth_tokens,
             owned_accounts: self.only_owned_accounts.then(|| {
                 std::iter::once(Account::CREDENTIAL.to_owned())
                     .chain(registry.account_providers.iter().cloned())
@@ -764,6 +799,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
 
     pub fn schema(&self) -> &Schema {
         &self.shared.schema
+    }
+
+    /// The keys derived from the configured secrets, as endpoints get them from
+    /// `Ctx::keys`: for app code that reads what fastauth encrypted, such as
+    /// [`Account::read_access_token`].
+    pub fn keys(&self) -> &Keys {
+        &self.shared.keys
     }
 
     pub fn adapter(&self) -> &D {

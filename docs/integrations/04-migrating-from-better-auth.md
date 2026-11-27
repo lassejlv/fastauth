@@ -66,6 +66,9 @@ Each piece is also a knob of its own:
 | `Builder::only_owned_accounts(true)` | [accounts another app owns](#accounts-another-app-owns) |
 | `Builder::migrations(Migrations::ReviewOnly)` | [review-only migrations](#the-schema) |
 
+One setting stays out of the preset on purpose, because it stores credentials in the clear:
+`Builder::store_oauth_tokens_in_plaintext(true)` ([Provider tokens](#provider-tokens)).
+
 ## Cookies
 
 With `CookieSigning::BetterAuth`, fastauth signs and reads cookies exactly as better-call 1.4.2
@@ -204,7 +207,7 @@ pub fn build(pool: PgPool) -> anyhow::Result<Auth<Sqlx<Postgres>, Customer>> {
 |---|---|
 | `.column_naming(ColumnNaming::CamelCase)` | Stores every column, core's, the plugins' and the app's, under its camelCase name: `email_verified` as `"emailVerified"`, `customer_id` as `"customerId"`. Code keeps the declared names (`User::EMAIL_VERIFIED`, the `Fields` field names); only the SQL changes. |
 | `.rename_column(table, column, to)` | Stores one column under another name, over the strategy. Better Auth keeps the password hash in `account.password`. Use it for any custom field whose name doesn't follow the strategy. |
-| `.bytes_as_hex_text(table, column)` | Stores a byte column as lowercase hex in a text column. Better Auth's `accessToken` and `refreshToken` are text; fastauth keeps writing its encrypted bytes there. |
+| `.bytes_as_hex_text(table, column)` | Stores a byte column as lowercase hex in a text column. Better Auth's `accessToken` and `refreshToken` are text; fastauth keeps writing its encrypted bytes there, or the token itself with `.store_oauth_tokens_in_plaintext(true)` ([Provider tokens](#provider-tokens)). |
 | `.session_tokens(SessionTokens::Raw)` | Stores the session token itself in `session.token` and looks it up there, as Better Auth does, instead of its SHA-256 in `token_hash`. |
 | `.only_owned_accounts(true)` | Leaves `account` rows of providers fastauth doesn't own alone (below). |
 | `.migrations(Migrations::ReviewOnly)` | `fastauth migrate` and `auth.migrator().run()` refuse; `fastauth generate` writes the SQL for you to review. |
@@ -253,6 +256,43 @@ as the `oidc` rows an SSO integration writes, are never read as a way to sign in
 Plugins that write their own provider ids declare them with
 `PluginBuilder::account_provider`.
 
+## Provider tokens
+
+After a social sign-in, both apps store the provider's access and refresh tokens on the
+`account` row. Better Auth 1.7.8 stores them as plain text unless its
+`account.encryptOAuthTokens` is on (it's off by default), and its `/get-access-token`
+returns the column as it is. fastauth encrypts them with its secret by default, so after a
+sign-in through fastauth the Better Auth app, and any of its code that reads
+`account.accessToken`, gets fastauth's ciphertext instead of a token the provider accepts,
+until the user signs in with that provider through Better Auth again.
+
+If the Better Auth app calls provider APIs with stored tokens during the window, store them
+the way it does:
+
+```rust
+FastAuth::builder()
+    .better_auth_compat(BetterAuthCompat::from_env("BETTER_AUTH_SECRET")?)
+    .store_oauth_tokens_in_plaintext(true)
+    // ...
+```
+
+- Access and refresh tokens are written as the provider sent them: as the text itself in
+  Better Auth's text columns, as UTF-8 bytes in a `bytea` column. The id token is plain text
+  in both apps either way. A refresh token the provider doesn't send again keeps the stored
+  one, as in Better Auth.
+- Rows already stored aren't rewritten. fastauth's own code reads every row with
+  `Account::read_access_token(auth.keys())` and `read_refresh_token`: a value one of the
+  configured secrets decrypts is fastauth's ciphertext, anything else is a plain token,
+  whichever app wrote it.
+- The preset doesn't turn it on, and it's off by default: anyone who can read the table, a
+  backup, a replica or a log of the rows can call the provider as each user, as with Better
+  Auth's default ([Trade-offs](#trade-offs)).
+- Leave it off if nothing in the Better Auth app reads provider tokens. Better Auth's own
+  sign-ins still work on rows fastauth encrypted: it replaces the tokens on its next sign-in.
+- The suite runs Better Auth with `encryptOAuthTokens` off. With it on, Better Auth would
+  pass fastauth's plain tokens through as long as they don't look like hex, and fastauth can't
+  read the tokens Better Auth encrypts; that combination isn't tested.
+
 ## Verification rows
 
 fastauth stores the hash of each emailed token and data Better Auth's `verification` table
@@ -278,7 +318,8 @@ passwords. Each is meant for the migration window only:
 | argon2id (19 MiB, t=2), upgraded when parameters rise | scrypt (32 MiB, N=16384, r=16), never rehashed | No upgrade path while Better Auth reads the database; scrypt with these parameters is weaker against GPU guessing than argon2id, and each hash takes more memory. |
 | An optional signed cookie cache | Refused | One database read per request that resolves a session. |
 | `session` holds each token's SHA-256 | It holds the tokens themselves (`SessionTokens::Raw`) | A read-only leak of the database (a backup, an injection elsewhere) yields every live session, and the lookup compares the token itself in the database. The signed cookie is still checked first, and the security stamp, claim locks, sensitive and authoritative sessions, session gates and expiry rules work the same. |
-| OAuth tokens in `bytea` columns | Hex in Better Auth's text columns | Nothing for fastauth's own tokens, which stay encrypted. Tokens Better Auth stored for a provider both apps configure are plain text, which fastauth reads as bytes and can't decrypt; they are replaced on the user's next sign-in with that provider through fastauth. The other way round, after a sign-in through fastauth Better Auth's `/get-access-token` (and app code reading `account.accessToken`) gets fastauth's ciphertext instead of a token the provider accepts, until the user signs in with that provider through Better Auth again. |
+| OAuth tokens in `bytea` columns | Hex in Better Auth's text columns | Nothing for fastauth's own tokens, which stay encrypted. Tokens Better Auth stored for a provider both apps configure are plain text, which `Account::read_access_token` reads as they are; they are replaced on the user's next sign-in with that provider through fastauth. The other way round, after a sign-in through fastauth Better Auth's `/get-access-token` (and app code reading `account.accessToken`) gets fastauth's ciphertext instead of a token the provider accepts, until the user signs in with that provider through Better Auth again, unless you store tokens in plain text (next row). |
+| OAuth tokens encrypted with the secret | Not in the preset: plain text only with `.store_oauth_tokens_in_plaintext(true)` | Better Auth's `/get-access-token` and its code get working tokens after a sign-in through fastauth. In exchange the tokens are credentials in the clear: a read-only leak of the database, a backup or a replica lets its holder call each provider as each user, for as long as the tokens (and refresh tokens) live, and a leaked fastauth secret is no longer needed for that. This is Better Auth's own default. |
 | The migrator adds what's missing at startup | Review-only | Every fastauth upgrade that adds a column goes through `fastauth generate` and review, so nothing changes Better Auth's tables behind its back. |
 | A claim deletes all of a user's accounts | Only the accounts fastauth owns | A foreign row (`oidc`) survives a claim, which is right when the other app vouches for that identity; deleting a user with one is refused. |
 
@@ -296,27 +337,32 @@ In order:
    into other bytes), and its own new random `FASTAUTH_SECRET` for everything else. Keep both
    in your secret manager, at least 32 random bytes each. Don't rotate `BETTER_AUTH_SECRET`
    during the cutover: it signs everyone out of both apps.
-3. **Match the configs.** The same cookie prefix, `session.expiresIn` as `.expires_in(..)`
+3. **Decide on provider tokens.** If the Better Auth app (or code reading its tables) uses
+   stored provider tokens, through `/get-access-token` or `account.accessToken`, add
+   `.store_oauth_tokens_in_plaintext(true)` and treat the database and its backups as holding
+   live provider credentials. Otherwise leave it off ([Provider tokens](#provider-tokens)).
+4. **Match the configs.** The same cookie prefix, `session.expiresIn` as `.expires_in(..)`
    (Better Auth's default is 7 days, the preset's 14), `updateAge` as `.update_age(..)`, the
    app's user fields as `Fields` with the same column names, and each social provider under
    the same provider id. Put `app.config.ts` from your real `auth.ts` in
    `compat/better-auth-dual/better-auth/`, mirror it in `compat/better-auth-dual/fastauth/src/auth.rs`
    and run `compat/better-auth-dual/run-dual.sh` ([Verified against Better Auth 1.7.8](#verified-against-better-auth-178)).
-4. **The schema.** Take a backup, run `fastauth generate` against the production database (or a
+5. **The schema.** Take a backup, run `fastauth generate` against the production database (or a
    fresh copy), review the four files, run the duplicate check at the top of the unique index
    one (it must return no rows), and apply them with your own migration tool. Afterwards
    `fastauth status` reports nothing pending and `npx auth migrate` reports
    `No migrations needed.`
-5. **Deploy fastauth without traffic, then move routes over** behind one site, so both apps
+6. **Deploy fastauth without traffic, then move routes over** behind one site, so both apps
    see the same cookies. Links Better Auth mailed before a route moved (a reset link, a magic
    link) stop working on that route ([Verification rows](#verification-rows)).
-6. **During the window.** SSO stays in the Better Auth app, and so does deleting a user who has
+7. **During the window.** SSO stays in the Better Auth app, and so does deleting a user who has
    an `oidc` row (fastauth answers 409). Every fastauth upgrade that adds columns goes through
-   `fastauth generate` and review. App code in the Better Auth app that reads a provider's
-   access token sees fastauth's ciphertext after a sign-in through fastauth ([Trade-offs](#trade-offs)).
-7. **Rolling back** is moving the routes back: sessions and passwords fastauth wrote keep
+   `fastauth generate` and review. Without plain-text tokens, app code in the Better Auth app
+   that reads a provider's access token sees fastauth's ciphertext after a sign-in through
+   fastauth ([Provider tokens](#provider-tokens)).
+8. **Rolling back** is moving the routes back: sessions and passwords fastauth wrote keep
    working in Better Auth.
-8. **Remove compat mode only once the Better Auth app is gone:** no traffic, no code reading
+9. **Remove compat mode only once the Better Auth app is gone:** no traffic, no code reading
    the tables, and the SSO accounts moved or handled. [After the cutover](#after-the-cutover)
    says which settings can go and what each costs.
 
@@ -325,7 +371,10 @@ In order:
 Switching `SessionTokens::Raw` back to `Hashed` needs a `token_hash` column and signs
 everyone out; a hashed mode that keeps working next to Better Auth isn't built yet. The other
 database settings can stay as long as the tables keep Better Auth's names, and
-`Migrations::ReviewOnly` can go once fastauth owns the schema.
+`Migrations::ReviewOnly` can go once fastauth owns the schema. Turn
+`store_oauth_tokens_in_plaintext` off as soon as nothing outside fastauth reads the tokens:
+fastauth encrypts the tokens of each sign-in from then on, reads the plain ones still stored,
+and replaces each on the user's next sign-in with that provider.
 
 
 Once the Better Auth app is gone, the cookie settings can go back to fastauth's: removing
@@ -385,10 +434,14 @@ your own and keep `compat/better-auth-dual/fastauth/src/auth.rs` in step. The ru
   expired rows whenever it looks one up).
 - **Social sign-in** through a mock OAuth provider both apps configure (Better Auth's
   `genericOAuth`, a custom `OAuthProvider` in fastauth, provider id `mock`): a user created in
-  either app signs in to the other on the same account row. fastauth reads the row Better Auth
-  wrote with plain-text tokens without an error and replaces them with its own, and Better
-  Auth writes plain ones back on its next sign-in. In between, Better Auth's
-  `/get-access-token` returns fastauth's ciphertext ([Trade-offs](#trade-offs)).
+  either app signs in to the other on the same account row. The fastauth app stores tokens in
+  plain text (`store_oauth_tokens_in_plaintext`): after its sign-in the row holds the
+  provider's new tokens, Better Auth's `/get-access-token` returns them, the provider accepts
+  them, and fastauth's code reads them with `Account::read_access_token`. A second fastauth
+  instance with the setting off (the default) shows the gap: it stores its ciphertext as
+  hex, Better Auth's `/get-access-token` returns that and the provider refuses it, until Better
+  Auth's next sign-in writes plain tokens back. Each fastauth instance reads the rows the other
+  wrote, encrypted or plain ([Provider tokens](#provider-tokens)).
 - **The cookie cache.** With it off, a revocation in fastauth signs the user out of Better Auth
   at once. With it on (`maxAge` 5 minutes) Better Auth keeps answering with the revoked
   session from `vt.session_data`; `?disableCookieCache=true` and the instance with it off
