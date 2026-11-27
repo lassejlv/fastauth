@@ -25,7 +25,7 @@ pub async fn accounts(auth: &AppAuth, headers: &HeaderMap) -> Result<usize, Auth
 
 Full page: `docs/plugins/access/03-multi-session.md`.
 
-- `fastauth = { version = "0.5", features = ["multi-session"] }`; path
+- `fastauth = { version = "0.6", features = ["multi-session"] }`; path
   `fastauth::plugins::multi_session`. No tables.
 - Every new session also sets a signed `{prefix}.session_token_multi-{token lowercased}`
   cookie; the normal session cookie stays the active account. Signing in again as a

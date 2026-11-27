@@ -818,7 +818,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     }
 
     /// [`claim_user`](Self::claim_user) without an account to link, the 0.5 name.
-    #[deprecated(since = "0.5.1", note = "use `claim_user(user, None)`")]
+    #[deprecated(since = "0.6.0", note = "use `claim_user(user, None)`")]
     pub async fn claim_unverified_user(&self, user: UserView) -> Result<UserView, AuthError> {
         self.claim_user(user, None).await
     }

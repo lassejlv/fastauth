@@ -25,9 +25,9 @@ all-features = true
 [dependencies]
 actix-web = { version = "4.20.0", default-features = false, optional = true }
 axum = { version = "0.8.9", default-features = false, optional = true }
-fastauth-actix = { version = "0.5.0", path = "../fastauth-actix", optional = true }
-fastauth-axum = { version = "0.5.0", path = "../fastauth-axum", optional = true }
-fastauth-core = { version = "0.5.0", path = "../fastauth-core", features = ["macros"] }
+fastauth-actix = { version = "0.6.0", path = "../fastauth-actix", optional = true }
+fastauth-axum = { version = "0.6.0", path = "../fastauth-axum", optional = true }
+fastauth-core = { version = "0.6.0", path = "../fastauth-core", features = ["macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }

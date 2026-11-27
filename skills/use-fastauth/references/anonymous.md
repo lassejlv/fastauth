@@ -36,7 +36,7 @@ pub async fn server_side(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Auth
 
 Full page: `docs/plugins/sign-in/05-anonymous.md`.
 
-- `fastauth = { version = "0.5", features = ["anonymous"] }`; path `fastauth::plugins::anonymous`.
+- `fastauth = { version = "0.6", features = ["anonymous"] }`; path `fastauth::plugins::anonymous`.
   Adds `is_anonymous` (bool, default false, not client-settable) to `user`: run migrations.
 - `POST /sign-in/anonymous` creates a user named "Anonymous" with
   `{id}@anonymous.placeholder.invalid` and signs them in: `{ token, user }`. From an

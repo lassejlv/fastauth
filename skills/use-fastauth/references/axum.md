@@ -19,7 +19,9 @@ let app = Router::new()
 - Serve with `app.into_make_service_with_connect_info::<SocketAddr>()`. The default
   `ClientIp::Socket` reads the socket address from there, and rate limits key on it. With
   plain `axum::serve(listener, app)` there is no client IP, and rate limits fall back to one
-  bucket per account named in the body, or one bucket for everyone.
+  bucket per account named in the body, or one bucket for everyone. IPv6 clients share a
+  bucket per /64, and routes with a rule of their own (sign-in, sign-up, reset, codes) also
+  allow each account 30 requests per 10 minutes whatever the IP.
 - Behind proxies, set `.client_ip(..)` on the builder instead
   ([below](#session-cookie-and-origin-settings)). Use `ClientIp::Header(name)` only for a header
   your proxy overwrites with exactly one address (`fly-client-ip`, `cf-connecting-ip`). For
@@ -148,8 +150,10 @@ pub fn build(pool: PgPool) -> Result<AppAuth, BuildError> {
 ```
 
 The session values shown are the defaults. `cookie_cache` is off by default: it saves a
-database read per request, but a revoked session keeps working until the cache cookie
-expires. Cookies are named `{prefix}.session_token` (`fastauth` by default), with a
+database read per request, but a revoked session keeps working on your own routes until the
+cache cookie expires (admin and organization writes and `/revoke-*` always re-read the
+database). Keep it to a few minutes. A `rememberMe: false` sign-in gets a session of at most
+one day that is never refreshed. Cookies are named `{prefix}.session_token` (`fastauth` by default), with a
 `__Secure-` prefix when `base_url` is https.
 
 ## Origins, CSRF and CORS

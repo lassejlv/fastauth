@@ -212,7 +212,10 @@ fuzz_target!(|ops: Vec<Op>| {
                     )
                 };
                 let before = email_code.clone();
+                let refused_unread = reply.status == StatusCode::BAD_REQUEST
+                    && reply.json["code"] == "INVALID_REQUEST_BODY";
                 email_code = match before.clone() {
+                    _ if refused_unread => before.clone(),
                     None => None,
                     Some((_, tries)) if tries >= EMAIL_ATTEMPTS => None,
                     Some((live, _)) if given.trim() == live && !check => None,

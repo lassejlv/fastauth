@@ -66,7 +66,8 @@ The tables come from SQL files in `server/migrations/`, which the server applies
 `sqlx::migrate!` on start:
 
 - `…_fastauth.sql` was written by the fastauth CLI: `cargo run --bin fastauth -- generate`
-  diffs the auth config against a database and writes the SQL for what's missing.
+  diffs the auth config against a database and writes the SQL for what's missing. The second
+  one is the upgrade to fastauth 0.6: `user.security_stamp` and three unique constraints.
 - `…_projects.sql` is the app's own table. It references `organization` and `"user"` like any
   other foreign key.
 

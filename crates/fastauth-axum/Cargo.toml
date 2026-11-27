@@ -16,7 +16,7 @@ workspace = true
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["original-uri", "tokio"] }
 bytes = "1.12.2"
-fastauth-core = { version = "0.5.0", path = "../fastauth-core", features = ["axum"] }
+fastauth-core = { version = "0.6.0", path = "../fastauth-core", features = ["axum"] }
 http = "1.5.0"
 http-body = "1.0.1"
 http-body-util = "0.1.5"
