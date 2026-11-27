@@ -5,6 +5,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
 use http::header::{CACHE_CONTROL, COOKIE, ORIGIN, REFERER, USER_AGENT};
@@ -35,7 +36,7 @@ use crate::rate_limit::{RateLimit, RateLimiter};
 use crate::routes;
 use crate::schema::Schema;
 use crate::session::{self, SessionData, UserView};
-use crate::storage::{DynStorage, SecondaryStorage};
+use crate::storage::{DEFAULT_STORAGE_TIMEOUT, DynStorage, GuardedStorage, SecondaryStorage};
 
 /// Entry point: `FastAuth::builder()`.
 #[derive(Debug)]
@@ -70,6 +71,7 @@ impl FastAuth {
             ids: IdStrategy::default(),
             mailer: None,
             secondary_storage: None,
+            secondary_storage_timeout: DEFAULT_STORAGE_TIMEOUT,
             multi_instance: false,
             allow_insecure: false,
             app_init: Vec::new(),
@@ -99,6 +101,7 @@ pub struct Builder<D, U, P, S, B> {
     ids: IdStrategy,
     mailer: Option<Arc<dyn DynMailer>>,
     secondary_storage: Option<Arc<dyn DynStorage>>,
+    secondary_storage_timeout: Duration,
     multi_instance: bool,
     allow_insecure: bool,
     app_init: Vec<AppInit<D>>,
@@ -134,6 +137,7 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             ids: self.ids,
             mailer: self.mailer,
             secondary_storage: self.secondary_storage,
+            secondary_storage_timeout: self.secondary_storage_timeout,
             multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
             app_init: self.app_init,
@@ -230,8 +234,25 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
     /// A key-value store every instance of the app shares, such as Redis
     /// (`fastauth_redis::RedisStorage`). Rate limit counters live there, so a limit holds
     /// across all instances. Without it, each instance keeps its own counters in memory.
+    ///
+    /// Each call is bounded by [`secondary_storage_timeout`](Self::secondary_storage_timeout).
+    /// A call that fails or times out falls back to this instance's in-memory limiter, and
+    /// after 5 such calls in a row the storage is skipped for 5 seconds before one request
+    /// probes it again, so a dead store doesn't slow every request down.
     pub fn secondary_storage(mut self, storage: impl SecondaryStorage) -> Self {
         self.secondary_storage = Some(Arc::new(storage));
+        self
+    }
+
+    /// How long a request waits for one secondary storage call before its rate limit falls
+    /// back to this instance's memory. Default: 100 ms
+    /// ([`DEFAULT_STORAGE_TIMEOUT`](crate::storage::DEFAULT_STORAGE_TIMEOUT)).
+    pub fn secondary_storage_timeout(mut self, timeout: Duration) -> Self {
+        assert!(
+            !timeout.is_zero(),
+            "a secondary storage timeout is longer than zero"
+        );
+        self.secondary_storage_timeout = timeout;
         self
     }
 
@@ -288,6 +309,7 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             ids: self.ids,
             mailer: self.mailer,
             secondary_storage: self.secondary_storage,
+            secondary_storage_timeout: self.secondary_storage_timeout,
             multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
             app_init: Vec::new(),
@@ -498,7 +520,8 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             rate_limit,
             !local && !self.allow_insecure,
             keys.rate_limit_key(),
-            self.secondary_storage,
+            self.secondary_storage
+                .map(|storage| GuardedStorage::new(storage, self.secondary_storage_timeout)),
         );
         let shared = Shared {
             db: self.db,
