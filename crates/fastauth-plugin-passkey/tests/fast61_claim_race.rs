@@ -67,7 +67,8 @@ impl Gate {
     }
 }
 
-/// Stops a non-transactional insert into `passkey` at the gate.
+/// Stops a non-transactional insert into `passkey`, or the first transaction that begins after
+/// `arm` (the one a registration writes its passkey in), at the gate.
 struct GatedDb<D> {
     inner: D,
     gate: Gate,
@@ -106,6 +107,7 @@ impl<D: Adapter> Adapter for GatedDb<D> {
     type Tx = D::Tx;
 
     async fn begin(&self) -> DbResult<D::Tx> {
+        self.gate.pass().await;
         self.inner.begin().await
     }
 

@@ -300,6 +300,21 @@ sign-in, an OAuth callback, and links to reset a password or verify an email, wh
 stamp and the address they were sent to. So a sign-in that started before a claim can't finish
 after it, and a reset or verification link dies when the user is claimed or changes email.
 
+**Writes a session authorised.** A request can also be in flight with the previous holder's
+session when the claim commits. So every write that adds a credential or changes who the user
+is runs in a transaction whose first statement locks the user row, on the condition that the
+stamp is still the one the request read: `/change-password` and the password rehash at
+sign-in, a reset's new password, passkey registration (and the session it creates), API key
+creation, `/two-factor/enable` and the `verify-totp` that turns two-factor on, linking a
+social account, email OTP's `change-email`, `/update-user` (name, image, username and app
+fields), and an admin's `set-user-password` and `update-user` on their own account. A claim
+locks the same row first, so the two run one after the other: a write that reaches the lock
+after the claim answers 401 and stores nothing, and a claim that starts while a write holds
+the lock waits for it, then deletes what it stored. Taking the user row first on both sides
+keeps the lock order the same on Postgres, SQLite and MySQL, so neither deadlocks. Plugins do
+the same with `Internal::lock_user_unless_claimed`
+([Claiming a user](../reference/01-plugin-authoring.md#claiming-a-user)).
+
 **Verification links.** A verification link proves the mailbox, but not that the person who
 opens it set the password. When the request also carries the user's session, or the signed
 `pending_verification` cookie that sign-up (and a sign-in refused with `EMAIL_NOT_VERIFIED`)
@@ -320,7 +335,8 @@ flight. fastauth's claim covers all of them. What an app notices:
   accounts, passkeys, API keys and two-factor, and signs them out everywhere, even with
   `revoke_sessions_on_password_reset(false)`.
 - A sign-in that was checking the password while the user was claimed answers 401
-  `UNAUTHORIZED` instead of a session.
+  `UNAUTHORIZED` instead of a session. So does a password change, passkey registration, API
+  key, two-factor enrollment or email change that was in flight, and it changes nothing.
 
 **Not covered.** JWTs issued before a claim stay valid until they expire (15 minutes by
 default), and organization memberships and invitations of the claimed user are kept.

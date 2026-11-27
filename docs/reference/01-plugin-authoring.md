@@ -477,6 +477,24 @@ the user before checking its credential and finishes with `ctx.internal().sign_i
 or `link_account_unless_claimed(&user, ..)`. Both compare the user's security stamp at the end,
 so a flow that started before a claim answers 401 instead of finishing.
 
+An endpoint that writes a credential or changes who the user is (a key, a device, a factor,
+an email address) for the session's user writes it under `lock_user_unless_claimed`. It
+begins a transaction whose first statement locks the user row, on the condition that the
+stamp is still the one the session read, and answers 401 when a claim moved it:
+
+```rust
+let session = ctx.sensitive_session().await?;
+let tx = ctx.internal().lock_user_unless_claimed(&session.user).await?;
+ctx.db_on(&tx).insert(&row).await?;
+tx.commit().await?;
+```
+
+A claim locks the same row before it deletes anything, so the two run one after the other: a
+write that reaches the lock after a claim stores nothing, and a claim that starts while the
+write holds the lock waits and then deletes what it stored. Hash passwords and send mail
+before taking the lock. `set_password(&user, ..)` and `create_session_unless_claimed(&user,
+..)` take the user the same way.
+
 ### Checking user fields
 
 `prepare_user_input` checks and rewrites the user columns a client sends (the extra keys of

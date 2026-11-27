@@ -152,6 +152,16 @@ async fn find_user<D: Adapter, A>(ctx: &Ctx<D, A>, id: &Id) -> Result<UserView, 
         .ok_or_else(user_not_found)
 }
 
+/// The user a write to `target` locks at its stamp: the caller's own session user when an
+/// admin changes their own account, since their session authorised it, and otherwise
+/// `target` as it was just read.
+fn as_authorised<'a>(session: Option<&'a SessionView>, target: &'a UserView) -> &'a UserView {
+    match session {
+        Some(session) if session.user.id == target.id => &session.user,
+        _ => target,
+    }
+}
+
 fn user_not_found() -> AuthError {
     AuthError::new(
         StatusCode::NOT_FOUND,
@@ -975,11 +985,16 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
             }
             set.push((column.name, column_value(&column, key, json)?));
         }
-        let mut update = ctx.db().update::<User>(User::ID.eq(&input.user_id));
+        let tx = ctx
+            .internal()
+            .lock_user_unless_claimed(as_authorised(session, &target))
+            .await?;
+        let mut update = ctx.db_on(&tx).update::<User>(User::ID.eq(&input.user_id));
         for (column, value) in set {
             update = update.set_raw(column, value);
         }
         update.exec().await?;
+        tx.commit().await?;
         if banning {
             ctx.internal()
                 .revoke_user_sessions(&input.user_id, None)
@@ -1030,7 +1045,7 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
         let target = find_user(&ctx, &input.user_id).await?;
         check_target(&self.0.plugin, session, &target)?;
         internal
-            .set_password(&input.user_id, &input.new_password)
+            .set_password(as_authorised(session, &target), &input.new_password)
             .await?;
         ctx.emit(PasswordChanged {
             user_id: input.user_id,

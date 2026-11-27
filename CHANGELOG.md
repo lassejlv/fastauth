@@ -22,8 +22,25 @@
   [Running several instances](docs/concepts/04-multiple-instances.md). The Production
   checklist now says multi-instance apps need secondary storage.
 
+### Security
+
+Fixes for the FAST-61 review of 0.6.0, one line per finding.
+
+- **F61-1 (medium):** a password change (or the rehash at sign-in), passkey registration, API
+  key, two-factor enrollment or email change that the first registrant had in flight when the
+  owner claimed the address landed on the claimed account. Every session-authorised write of a
+  credential or identity now runs under a lock on the user row that holds only while the
+  security stamp is unchanged, and answers 401 and stores nothing after a claim.
+
 ### Core
 
+- **Breaking for plugins:** `Internal::set_password` takes the `&UserView` the request
+  authorised instead of a user id, and answers 401 when that user was claimed since.
+- Additive: `Internal::lock_user_unless_claimed(&user)`, a transaction holding the user row
+  locked at the security stamp `user` was read with (401 when a claim moved it), and
+  `Internal::create_session_unless_claimed(&user, remember_me)`. `link_account_unless_claimed`
+  now inserts under that lock instead of inserting and checking afterwards.
+  `plugin_prelude` exports `Transaction`.
 - Additive: `fastauth_core::storage` with the `SecondaryStorage` trait (`get`, `set` with a
   TTL, `delete`, atomic `increment` with a TTL set on creation) and `StorageError`, and
   `testing::run_storage_conformance` behind the `testing` feature.

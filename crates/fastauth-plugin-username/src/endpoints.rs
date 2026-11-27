@@ -186,7 +186,7 @@ impl<D: Adapter> Endpoint<D> for SignInUsername {
             return Err(invalid());
         }
         if passwords.needs_rehash(&hash) {
-            internal.set_password(&user.id, &input.password).await?;
+            internal.set_password(&user, &input.password).await?;
         }
         let require_verification = ctx
             .config()

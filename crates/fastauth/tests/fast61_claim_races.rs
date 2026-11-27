@@ -36,6 +36,9 @@ use fastauth::adapter::{
 use fastauth::crypto::{Argon2id, PasswordHasher, Secret};
 use fastauth::mail::{AuthEmail, MemoryMailer};
 use fastauth::migrate::{LiveSchema, MigrationPlan};
+use fastauth::plugin_prelude::{
+    Authenticated, Ctx, Duration, Empty, Endpoint, Hash, Method, Transaction, Verification,
+};
 use fastauth::plugins::api_key::ApiKeys;
 use fastauth::plugins::email_otp::EmailOtp;
 use fastauth::plugins::magic_link::MagicLink;
@@ -132,7 +135,9 @@ impl PasswordHasher for GatedHasher {
     }
 }
 
-/// An adapter that stops a non-transactional insert or update on `table` at `gate`.
+/// An adapter that stops a non-transactional insert or update on `table`, or the first
+/// transaction that begins after `arm` (the one a session-authorised write locks the user row
+/// in), at `gate`.
 struct GatedDb<D> {
     inner: D,
     table: &'static str,
@@ -175,6 +180,7 @@ impl<D: Adapter> Adapter for GatedDb<D> {
     type Tx = D::Tx;
 
     async fn begin(&self) -> DbResult<D::Tx> {
+        self.gate.pass().await;
         self.inner.begin().await
     }
 
@@ -205,6 +211,43 @@ struct App<D: Adapter> {
     on_hash: Gate,
     on_verify: Gate,
     on_insert: Gate,
+    in_lock: Gate,
+}
+
+/// `POST /test/locked-write`: a session-authorised write that stops at its gate while it
+/// holds the user row (`lock_user_unless_claimed`), then stores a verification a claim
+/// deletes (`email-verification:{user_id}`).
+struct LockedWrite(Gate);
+
+impl<D: Adapter> Endpoint<D> for LockedWrite {
+    const METHOD: Method = Method::POST;
+    const PATH: &'static str = "/test/locked-write";
+    type Access = Authenticated;
+    type Input = Empty;
+    type Output = Value;
+
+    async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Value, AuthError> {
+        let session = ctx.sensitive_session().await?;
+        let tx = ctx
+            .internal()
+            .lock_user_unless_claimed(&session.user)
+            .await?;
+        self.0.pass().await;
+        let now = ctx.now();
+        ctx.db_on(&tx)
+            .insert(&Verification {
+                id: ctx.new_id()?,
+                identifier: format!("email-verification:{}", session.user.id),
+                value_hash: Hash::sha256("locked write"),
+                data: None,
+                expires_at: now + Duration::hours(1),
+                created_at: now,
+                updated_at: now,
+            })
+            .await?;
+        tx.commit().await?;
+        Ok(json!({ "status": true }))
+    }
 }
 
 async fn app<D: Adapter>(db: D, gated_table: &'static str) -> App<D> {
@@ -214,6 +257,8 @@ async fn app<D: Adapter>(db: D, gated_table: &'static str) -> App<D> {
 async fn app_with<D: Adapter>(db: D, gated_table: &'static str, argon2: Argon2id) -> App<D> {
     let mail = MemoryMailer::new();
     let (on_hash, on_verify, on_insert) = (Gate::default(), Gate::default(), Gate::default());
+    let in_lock = Gate::default();
+    let locked_write = LockedWrite(in_lock.clone());
     let hasher = GatedHasher {
         inner: argon2,
         on_hash: on_hash.clone(),
@@ -236,6 +281,9 @@ async fn app_with<D: Adapter>(db: D, gated_table: &'static str, argon2: Argon2id
         .plugin(ApiKeys::new().sessions(true))
         .plugin(MagicLink::new())
         .plugin(EmailOtp::new().change_email(true))
+        .configure(move |app| {
+            app.endpoint(locked_write);
+        })
         .build()
         .expect("valid config");
     auth.migrator().run().await.expect("migrates");
@@ -245,6 +293,7 @@ async fn app_with<D: Adapter>(db: D, gated_table: &'static str, argon2: Argon2id
         on_hash,
         on_verify,
         on_insert,
+        in_lock,
     }
 }
 
@@ -632,6 +681,66 @@ async fn two_factor_vs_claim<D: Adapter>(app: App<D>) -> Outcome {
     Ok(format!(
         "two-factor/enable answered {status}; no enrollment"
     ))
+}
+
+/// Guard (F61-1's lock, the other order): a claim that starts while a session-authorised write
+/// holds the user row waits for the write to commit, then runs and removes what it stored.
+/// Neither deadlocks on any backend.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn guard_a_claim_waits_for_a_write_holding_the_user_row_and_then_removes_it() {
+    on_every_backend!(
+        "a claim while a write holds the user row",
+        "",
+        claim_waits_for_a_locked_write
+    );
+}
+
+async fn claim_waits_for_a_locked_write<D: Adapter>(app: App<D>) -> Outcome {
+    let mallory = mallory_squats(&app).await;
+    app.in_lock.arm();
+    let write = spawn_post(mallory, "/test/locked-write", json!({}));
+    app.in_lock.wait_reached().await;
+    let claimed = AtomicBool::new(false);
+    let release = async {
+        tokio::time::sleep(StdDuration::from_millis(300)).await;
+        let early = claimed.load(Ordering::SeqCst);
+        app.in_lock.release();
+        early
+    };
+    let claim = async {
+        let ada = ada_opens_a_magic_link(&app).await;
+        claimed.store(true, Ordering::SeqCst);
+        ada
+    };
+    let (early, _ada) = tokio::join!(release, claim);
+    let (status, json) = write.await.unwrap();
+    if early {
+        return Err("the claim finished while the write still held the user row".into());
+    }
+    if status != 200 {
+        return Err(format!(
+            "the write that held the lock first answered {status} {json}"
+        ));
+    }
+    let user = db(&app)
+        .find::<User>(User::EMAIL.eq(ADA))
+        .one()
+        .await
+        .unwrap()
+        .expect("Ada's user");
+    let left = db(&app)
+        .count::<Verification>(
+            Verification::IDENTIFIER.eq(format!("email-verification:{}", user.id)),
+        )
+        .await
+        .unwrap();
+    if left > 0 || !user.email_verified {
+        return Err(format!(
+            "after the claim, {left} row(s) the write stored remain (emailVerified={})",
+            user.email_verified
+        ));
+    }
+    Ok("the claim waited for the write, then removed what it stored".into())
 }
 
 /// Guard: a password sign-in in flight during a claim gets no session. RACE-1 holds through
