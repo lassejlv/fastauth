@@ -29,18 +29,65 @@ impl Secret {
     /// Better Auth. See [`Secret::entropy_bits`].
     pub const MIN_ENTROPY_BITS: f64 = 120.0;
 
-    /// A rough entropy estimate: length times log2 of the number of distinct bytes. A
-    /// generated secret scores about 370 bits; one repeated byte scores 0.
+    /// A rough entropy estimate: the bytes a guesser can't predict, times log2 of the
+    /// alphabet. A run of four or more bytes that repeats earlier bytes (`changeme` again,
+    /// `aaaa`) or counts up or down by one (`abcd`, `6543`) counts as two bytes, where it
+    /// starts and what it follows. The alphabet is the smallest of hex digits, letters and
+    /// digits, base64, printable ASCII or any byte that holds every byte of the secret, but at
+    /// most twice the distinct bytes seen, so a secret drawn from a handful of characters
+    /// scores low. A generated secret scores about
+    /// 440 bits, `openssl rand -hex 16` about 128; one repeated byte scores 0.
     pub fn entropy_bits(&self) -> f64 {
+        let bytes: &[u8] = &self.0;
         let mut seen = [false; 256];
-        for byte in self.0.iter() {
+        for byte in bytes {
             seen[usize::from(*byte)] = true;
         }
         let distinct = seen.iter().filter(|s| **s).count();
         if distinct < 2 {
             return 0.0;
         }
-        self.0.len() as f64 * (distinct as f64).log2()
+        let all = |class: fn(&u8) -> bool| bytes.iter().all(class);
+        let class = if all(u8::is_ascii_hexdigit)
+            && (all(|b| !b.is_ascii_uppercase()) || all(|b| !b.is_ascii_lowercase()))
+        {
+            16
+        } else if all(u8::is_ascii_alphanumeric) {
+            62
+        } else if all(|b| b.is_ascii_alphanumeric() || b"-_+/=".contains(b)) {
+            64
+        } else if all(|b| (0x20..0x7f).contains(b)) {
+            95
+        } else {
+            256
+        };
+        let alphabet = class.min(2 * distinct) as f64;
+        let mut unpredictable = 0;
+        let mut i = 0;
+        while i < bytes.len() {
+            let repeat = (0..i)
+                .map(|j| {
+                    (0..bytes.len() - i)
+                        .take_while(|&k| bytes[j + k] == bytes[i + k])
+                        .count()
+                })
+                .max()
+                .unwrap_or(0);
+            let step = |delta: i16| {
+                1 + (i + 1..bytes.len())
+                    .take_while(|&k| i16::from(bytes[k]) - i16::from(bytes[k - 1]) == delta)
+                    .count()
+            };
+            let run = repeat.max(step(1)).max(step(-1));
+            if run >= 4 {
+                unpredictable += 2;
+                i += run;
+            } else {
+                unpredictable += 1;
+                i += 1;
+            }
+        }
+        unpredictable as f64 * alphabet.log2()
     }
 
     /// Raw bytes. Prefer `from_env` or `from_base64` so the secret never sits in source.
@@ -376,19 +423,26 @@ impl Passwords {
         }
     }
 
+    /// The permit moves into the blocking task and is released when the hash finishes, not
+    /// when the request's future does: a request dropped mid-hash (a client that disconnects,
+    /// a timeout layer) leaves argon2 running, and its permit with it.
     async fn run<T: Send + 'static>(
         &self,
         f: impl FnOnce(&dyn PasswordHasher) -> T + Send + 'static,
     ) -> T {
-        let _permit = self
+        let permit = self
             .permits
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .expect("semaphore is never closed");
         let hasher = self.hasher.clone();
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle
-                .spawn_blocking(move || f(hasher.as_ref()))
+                .spawn_blocking(move || {
+                    let _permit = permit;
+                    f(hasher.as_ref())
+                })
                 .await
                 .expect("password hashing task panicked"),
             Err(_) => f(hasher.as_ref()),
@@ -410,19 +464,22 @@ impl Passwords {
         self.hasher.needs_rehash(hash)
     }
 
-    /// Spends the same time as a real verification, for unknown emails.
+    /// Spends the same time as a real verification, for unknown emails: one run of the
+    /// hasher. The first call hashes the dummy password, which costs what a verification
+    /// does, and later calls verify against it.
     pub async fn verify_dummy(&self, password: &str) {
-        let dummy = match self.dummy_hash.get() {
-            Some(h) => h.clone(),
+        match self.dummy_hash.get() {
+            Some(dummy) => {
+                let _ = self.verify(password, &dummy.clone()).await;
+            }
             None => {
-                let h = self
+                let dummy = self
                     .hash("fastauth-dummy-password")
                     .await
                     .unwrap_or_default();
-                self.dummy_hash.get_or_init(|| h).clone()
+                let _ = self.dummy_hash.set(dummy);
             }
-        };
-        let _ = self.verify(password, &dummy).await;
+        }
     }
 }
 

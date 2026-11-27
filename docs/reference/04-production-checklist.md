@@ -41,6 +41,9 @@ prefix from it, and emailed links are built from it.
   `Secret::from_env("FASTAUTH_SECRET")`, never from source.
 - `.build()` refuses a secret with less than about 120 bits of estimated entropy when
   `base_url` isn't local (CFG-3): 32 zero bytes, `"a"` repeated, a short phrase.
+- Only the first secret has to pass that check. A weak secret further down the list (one you
+  are rotating off) logs a warning at `.build()` and isn't refused, so rotating needs no
+  `allow_insecure_config`. Drop it once nothing encrypted under it is left.
 - Rotate with `.secrets([new, old])`. Nobody is signed out, and a secret that is no longer
   first stops verifying the cookie cache and plugin cookies, so a leaked secret can't forge
   sessions once it's rotated out (CRYPTO-1). Keep the old secret in the list while columns
@@ -127,6 +130,10 @@ See [Databases](../concepts/02-database.md#mysql).
 `Sqlx<MySql>` needs MySQL 8.0.17 or later. MariaDB isn't supported and fails at the first
 `CREATE TABLE` (DB-5).
 
+fastauth runs its transactions at READ COMMITTED on MySQL (F61-7), so keep `binlog_format` at
+`ROW`, the default, or `MIXED`: under `STATEMENT`, InnoDB refuses writes at that level. If
+you pass your own transaction with `in_tx`, begin it at READ COMMITTED too.
+
 ## 11. Migrations run to completion
 
 - Generate migrations with `cargo run --bin fastauth -- generate`, review them, and apply
@@ -135,8 +142,13 @@ See [Databases](../concepts/02-database.md#mysql).
 - MySQL commits each DDL statement on its own, so a migration that fails can stop half-way.
   Run the migrator again: it reads the unique constraints back and adds any that are
   missing (DB-1).
+- On Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX CONCURRENTLY`
+  doesn't count as the constraint (F61-8): the migrator plans the constraint again. Drop the
+  invalid index (`DROP INDEX CONCURRENTLY ..`) once you've fixed the duplicates.
 - The migrator refuses to add a unique constraint to a table that holds duplicates and
-  names the rows. [Unique constraints on an existing
+  names the rows. On MySQL it compares values the way the index will, by their indexed
+  prefix (384 characters each for `account (provider_id, account_id)`), so two values that
+  differ only after it are refused before any DDL runs (F61-9). [Unique constraints on an existing
   database](../concepts/02-database.md#unique-constraints-on-an-existing-database) has a
   query to fix each table.
 

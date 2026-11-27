@@ -68,7 +68,7 @@ pub mod plugin_prelude {
     pub use serde::{Deserialize, Serialize};
     pub use time::OffsetDateTime;
 
-    pub use crate::adapter::{Adapter, Order};
+    pub use crate::adapter::{Adapter, Order, Transaction};
     pub use crate::crypto::{Hash, random_string, random_token};
     pub use crate::endpoint::BoxFuture;
     pub use crate::endpoint::{

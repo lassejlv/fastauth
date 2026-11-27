@@ -4,7 +4,7 @@ use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};
 
-use crate::adapter::Adapter;
+use crate::adapter::{Adapter, Transaction};
 use crate::endpoint::{Authenticated, Ctx, Empty, Endpoint, MaybeAuthenticated, Public};
 use crate::error::{AuthError, codes};
 use crate::events::{PasswordChanged, UserUpdated};
@@ -427,7 +427,7 @@ impl<D: Adapter> Endpoint<D> for SignInEmail {
             return Err(invalid_credentials());
         }
         if passwords.needs_rehash(&hash) {
-            internal.set_password(&user.id, &input.password).await?;
+            internal.set_password(&user, &input.password).await?;
         }
         if config.require_email_verification && !user.email_verified {
             internal.remember_password_holder(&user);
@@ -666,22 +666,25 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
                 "email can't be changed here",
             ));
         }
-        let user_id = ctx.session().user.id.clone();
-        let mut update = ctx.db().update::<User>(User::ID.eq(&user_id));
+        let user = &ctx.session().user;
+        let user_id = user.id.clone();
+        let fields = ctx
+            .internal()
+            .user_fields(&input.extra, UserInput::Update)
+            .await?;
+        let tx = ctx.internal().lock_user_unless_claimed(user).await?;
+        let mut update = ctx.db_on(&tx).update::<User>(User::ID.eq(&user_id));
         if let Some(name) = input.name {
             update = update.set(User::NAME, name);
         }
         if let Some(image) = input.image {
             update = update.set(User::IMAGE, image);
         }
-        for (column, value) in ctx
-            .internal()
-            .user_fields(&input.extra, UserInput::Update)
-            .await?
-        {
+        for (column, value) in fields {
             update = update.set_raw(column, value);
         }
         update.exec().await?;
+        tx.commit().await?;
         ctx.emit(UserUpdated { user_id });
         Ok(OK)
     }
@@ -740,7 +743,7 @@ impl<D: Adapter> Endpoint<D> for ChangePassword {
             ));
         }
         internal
-            .set_password(&session.user.id, &input.new_password)
+            .set_password(&session.user, &input.new_password)
             .await?;
         if input.revoke_other_sessions && !session.ephemeral {
             internal
@@ -1022,8 +1025,9 @@ impl<D: Adapter> Endpoint<D> for ResetPassword {
                 AuthError::bad_request(codes::INVALID_TOKEN, "invalid or expired token")
             })?;
         // The link was mailed to the address, so it proves the mailbox like a magic link.
-        let user_id = internal.claim_user(user, None).await?.id.clone();
-        internal.set_password(&user_id, &input.new_password).await?;
+        let user = internal.claim_user(user, None).await?;
+        internal.set_password(&user, &input.new_password).await?;
+        let user_id = user.id.clone();
         if email_password(&ctx).revoke_sessions_on_password_reset {
             internal.revoke_user_sessions(&user_id, None).await?;
         }

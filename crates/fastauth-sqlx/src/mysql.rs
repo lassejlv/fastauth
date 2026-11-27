@@ -60,6 +60,13 @@ impl Driver for MySql {
     const TEXT_HOLDS_NUL: bool = true;
     const UNIQUE_ON_ADD_COLUMN: bool = false;
     const KEY_BYTES: Option<usize> = Some(3072);
+    /// READ COMMITTED, as Postgres runs by default. Under InnoDB's REPEATABLE READ, a locking
+    /// write that matches no row takes a gap lock, and two transactions that each did that
+    /// and then insert into the gap deadlock, even for different users (two-factor enable
+    /// deleting a missing enrollment, then inserting one). `SET TRANSACTION` applies to the
+    /// next transaction only, so the pooled connection keeps its own level afterwards.
+    const BEGIN: Option<&'static str> =
+        Some("SET TRANSACTION ISOLATION LEVEL READ COMMITTED; START TRANSACTION");
 
     fn param(_n: usize, out: &mut String) {
         out.push('?');

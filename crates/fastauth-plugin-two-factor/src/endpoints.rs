@@ -1,9 +1,10 @@
 //! The `/two-factor/*` endpoints, the sign-in gate, and the signed cookies they share.
 
-use fastauth_core::adapter::Transaction;
+use fastauth_core::adapter::{Queries, Transaction};
 use fastauth_core::crypto::{Keys, base64url, ct_eq, random_bytes};
 use fastauth_core::mail::{AuthEmail, PluginEmail};
 use fastauth_core::plugin_prelude::*;
+use fastauth_core::query::Db;
 use fastauth_core::routes::Status;
 use serde_json::{Map, json};
 
@@ -117,19 +118,15 @@ impl<D: Adapter> Endpoint<D> for Enable {
             backup_codes: seal_codes(ctx.keys(), &backup_codes),
             last_used_step: None,
         };
-        let tx = ctx.adapter().begin().await?;
+        let tx = ctx.internal().lock_user_unless_claimed(user).await?;
         let db = ctx.db_on(&tx);
-        db.update::<User>(User::ID.eq(&user.id))
-            .set(User::ID, user.id.clone())
-            .exec()
-            .await?;
         db.delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(&user.id))
             .await?;
         db.insert(&row).await?;
-        tx.commit().await?;
         if self.0.skip_verification_on_enable {
-            set_enabled(&ctx, &user.id, true).await?;
+            set_enabled(&ctx, &db, &user.id, true).await?;
         }
+        tx.commit().await?;
         let totp_uri = self.0.totp_uri(
             &ctx.config().app_name,
             input.issuer.as_deref(),
@@ -166,7 +163,7 @@ impl<D: Adapter> Endpoint<D> for Disable {
         ctx.db()
             .delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(user_id))
             .await?;
-        set_enabled(&ctx, user_id, false).await?;
+        set_enabled(&ctx, &ctx.db(), user_id, false).await?;
         Ok(Status { status: true })
     }
 }
@@ -242,7 +239,12 @@ impl<D: Adapter> Endpoint<D> for VerifyTotp {
         if let Subject::Session(session) = &mut subject
             && !is_enabled(&session.user)?
         {
-            set_enabled(&ctx, &user_id, true).await?;
+            let tx = ctx
+                .internal()
+                .lock_user_unless_claimed(&session.user)
+                .await?;
+            set_enabled(&ctx, &ctx.db_on(&tx), &user_id, true).await?;
+            tx.commit().await?;
             session.user = ctx
                 .internal()
                 .find_user_by_id(&user_id)
@@ -723,14 +725,15 @@ fn is_enabled(user: &UserView) -> Result<bool, AuthError> {
         .two_factor_enabled)
 }
 
-/// Sets `user.two_factor_enabled` and drops the session cookie cache, which holds the old value.
-async fn set_enabled<D: Adapter, A>(
+/// Sets `user.two_factor_enabled` through `db` and drops the session cookie cache, which
+/// holds the old value.
+async fn set_enabled<D: Adapter, A, Q: Queries>(
     ctx: &Ctx<D, A>,
+    db: &Db<'_, Q>,
     user_id: &Id,
     enabled: bool,
 ) -> Result<(), AuthError> {
-    ctx.db()
-        .update::<User>(User::ID.eq(user_id))
+    db.update::<User>(User::ID.eq(user_id))
         .set(TwoFactorUser::TWO_FACTOR_ENABLED, enabled)
         .exec()
         .await?;

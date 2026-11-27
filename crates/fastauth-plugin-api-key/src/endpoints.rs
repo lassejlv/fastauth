@@ -274,6 +274,14 @@ impl<D: Adapter> Endpoint<D> for CreateApiKey {
             self.trusted,
             ApiKeyError::UnauthorizedSession.into(),
         )?;
+        let owner_user = match &session {
+            Some(session) if session.user.id == user_id => session.user.clone(),
+            _ => ctx
+                .internal()
+                .find_user_by_id(&user_id)
+                .await?
+                .ok_or_else(AuthError::unauthorized)?,
+        };
         let metadata = input.metadata.filter(|m| !m.is_null());
         if let Some(metadata) = &metadata {
             if !plugin.enable_metadata {
@@ -356,7 +364,9 @@ impl<D: Adapter> Endpoint<D> for CreateApiKey {
             created_at: now,
             updated_at: now,
         };
-        let row = ctx.db().insert(&row).await?;
+        let tx = ctx.internal().lock_user_unless_claimed(&owner_user).await?;
+        let row = ctx.db_on(&tx).insert(&row).await?;
+        tx.commit().await?;
         ctx.emit(ApiKeyCreated {
             id: row.id.clone(),
             user_id: row.user_id.clone(),

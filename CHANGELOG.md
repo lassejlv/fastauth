@@ -22,8 +22,61 @@
   [Running several instances](docs/concepts/04-multiple-instances.md). The Production
   checklist now says multi-instance apps need secondary storage.
 
+### Security
+
+Fixes for the FAST-61 review of 0.6.0, one line per finding.
+
+- **F61-1 (medium):** a password change (or the rehash at sign-in), passkey registration, API
+  key, two-factor enrollment or email change that the first registrant had in flight when the
+  owner claimed the address landed on the claimed account. Every session-authorised write of a
+  credential or identity now runs under a lock on the user row that holds only while the
+  security stamp is unchanged, and answers 401 and stores nothing after a claim.
+- **F61-2 (medium):** a request dropped mid-hash (a client disconnect, a timeout layer) gave
+  its hashing permit back while argon2 kept running, so disconnecting clients could run far
+  more hashes at once than the CPU-count cap. The permit now moves into the blocking task and
+  is held until the hash finishes.
+- **F61-3 (low):** a `rememberMe: false` session used without its `dont_remember` marker
+  (as a bearer token, or from a cookie jar that dropped the marker) slid to the full
+  `expires_in`. The refresh now also skips a session whose stored lifetime is shorter than
+  `expires_in` and at most a day.
+- **F61-4 (low):** a username sign-in refused with `EMAIL_NOT_VERIFIED` mailed a link but left
+  no `pending_verification` cookie, so the owner opening it in that browser was claimed and
+  lost the password. It now leaves the cookie, as the email sign-in does.
+- **F61-5 (low):** `pending_verification` was read with the current secret only, so a secret
+  rotation between sign-up and the click claimed the owner and deleted the password. It is now
+  accepted under any configured secret, like a session token.
+- **F61-6 (low):** `.build()` refused a weak *retired* secret too, so rotating off a weak 0.5
+  secret forced `allow_insecure_config(true)` in production. Only the current secret is
+  refused now; a weak retired one logs a warning.
+- **F61-7 (low):** first-time `/two-factor/enable` calls for *different* users deadlocked on
+  MySQL (a gap lock from deleting a missing row, then inserts into the gap), and one answered
+  500. fastauth's own MySQL transactions now begin at READ COMMITTED, as Postgres runs by
+  default; keep `binlog_format` at ROW or MIXED.
+- **F61-8 (low):** on Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX
+  CONCURRENTLY` counted as the unique constraint, so the migrator planned nothing and
+  duplicates went in. Introspection now counts only valid, ready indexes.
+- **F61-9 (info):** on MySQL the duplicate check compared whole values but a unique index
+  over two text columns keys on a 384-character prefix of each, so values that differed only
+  after it passed the check and the migration failed half-way. The check now groups by the
+  indexed prefix and refuses before any DDL.
+- **F61-10 (info):** the secret entropy estimate (length × log2 of distinct bytes) passed
+  placeholders repeated to length (`"changeme"` × 6) and refused about a third of
+  `openssl rand -hex 16` secrets. `Secret::entropy_bits` now counts repeated and counting
+  stretches once and uses the secret's alphabet (hex, alphanumeric, base64, printable, any
+  byte): placeholders score below 25 bits, and 0.08% of 128-bit hex secrets are refused.
+- **F61-11 (info):** the first unknown-email sign-in after a start ran the hasher twice (it
+  made the dummy hash, then verified against it), so it took about twice as long as a wrong
+  password for a known email. It now runs it once.
+
 ### Core
 
+- **Breaking for plugins:** `Internal::set_password` takes the `&UserView` the request
+  authorised instead of a user id, and answers 401 when that user was claimed since.
+- Additive: `Internal::lock_user_unless_claimed(&user)`, a transaction holding the user row
+  locked at the security stamp `user` was read with (401 when a claim moved it), and
+  `Internal::create_session_unless_claimed(&user, remember_me)`. `link_account_unless_claimed`
+  now inserts under that lock instead of inserting and checking afterwards.
+  `plugin_prelude` exports `Transaction`.
 - Additive: `fastauth_core::storage` with the `SecondaryStorage` trait (`get`, `set` with a
   TTL, `delete`, atomic `increment` with a TTL set on creation) and `StorageError`, and
   `testing::run_storage_conformance` behind the `testing` feature.

@@ -356,7 +356,7 @@ impl<D: Adapter> Endpoint<D> for ResetPasswordOtp {
             .await?
             .ok_or_else(user_not_found)?;
         let user = internal.claim_user(user, None).await?;
-        internal.set_password(&user.id, &input.password).await?;
+        internal.set_password(&user, &input.password).await?;
         if ctx
             .config()
             .email_password
@@ -486,7 +486,11 @@ impl<D: Adapter> Endpoint<D> for ChangeEmailOtp {
         {
             return Err(EmailOtpError::EmailAlreadyInUse.into());
         }
-        ctx.db()
+        let tx = ctx
+            .internal()
+            .lock_user_unless_claimed(&session.user)
+            .await?;
+        ctx.db_on(&tx)
             .update::<User>(User::ID.eq(user_id))
             .set(User::EMAIL, new_email)
             .set(User::EMAIL_VERIFIED, true)
@@ -496,6 +500,7 @@ impl<D: Adapter> Endpoint<D> for ChangeEmailOtp {
                 DbError::UniqueViolation { .. } => EmailOtpError::EmailAlreadyInUse.into(),
                 other => AuthError::from(other),
             })?;
+        tx.commit().await?;
         ctx.delete_cookie("session_data");
         ctx.emit(UserUpdated {
             user_id: user_id.clone(),

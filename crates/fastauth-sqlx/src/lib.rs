@@ -549,7 +549,13 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
                     open: true,
                 })
             }
-            None => TxKind::Owned(Mutex::new(self.pool.begin().await.map_err(DbError::other)?)),
+            None => {
+                let tx = match DB::BEGIN {
+                    Some(statement) => self.pool.begin_with(statement).await,
+                    None => self.pool.begin().await,
+                };
+                TxKind::Owned(Mutex::new(tx.map_err(DbError::other)?))
+            }
         };
         Ok(SqlxTx {
             kind,

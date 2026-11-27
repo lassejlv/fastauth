@@ -19,10 +19,12 @@ So a bug that leaks one derived key doesn't expose the others, and plugins can't
 core's keys.
 
 **Rotation.** `.secrets([new, old])`: the first secret signs, verifies and encrypts.
-Every secret in the list still decrypts, and still verifies a signed session token and the
-`rememberMe: false` marker (`Keys::verify_token`). A session token only points to a session
-row and the marker only shortens a session, so a retired secret gains nothing from them,
-and a rotation signs nobody out.
+Every secret in the list still decrypts, and still verifies a signed session token, the
+`rememberMe: false` marker and the `pending_verification` cookie (`Keys::verify_token`). A
+session token only points to a session row, the marker only shortens a session, and
+`pending_verification` only counts in the browser that also opens a verification link mailed
+to the address, so a retired secret gains nothing from them. A rotation signs nobody out,
+and a user who signed up just before it keeps their password when they verify.
 
 A retired secret verifies nothing else. Values that carry their own meaning are accepted
 only when the current secret signed them: the cookie cache, two-factor trusted-device
@@ -51,10 +53,15 @@ rewritten. A leaked secret still decrypts the values written under it.
 - **Always:** a `base_url` with credentials (`https://user:pw@..`), a query or a fragment.
   Emailed links are built from `base_url`, so each of these would break them.
 - **When `base_url` isn't local:** an `http://` `base_url`, since cookies would go out
-  without `Secure`, and a secret with less than `Secret::MIN_ENTROPY_BITS` (120) bits of
-  estimated entropy. The estimate (`Secret::entropy_bits`) is the length times log2 of the
-  number of distinct bytes: a secret from `fastauth secret` scores about 370, 32 zero bytes
-  score 0.
+  without `Secure`, and a current (first) secret with less than `Secret::MIN_ENTROPY_BITS`
+  (120) bits of estimated entropy. A retired secret with too little entropy is logged as a
+  warning, not refused, so an app can rotate off a weak secret without
+  `allow_insecure_config`. The estimate (`Secret::entropy_bits`) counts the bytes a guesser can't
+  predict (a stretch that repeats earlier bytes or counts up or down, like `changeme` again or
+  `abcd`, counts as two bytes) times log2 of the alphabet (hex, letters and digits, base64, printable
+  or any byte, capped at twice the distinct bytes seen): a secret from `fastauth secret`
+  scores about 440, `openssl rand -hex 16` about 128, `"changeme"` repeated or 32 zero bytes
+  far below 120.
 
 Local means `localhost`, `*.localhost` or a loopback address; there both problems are only
 logged as warnings. `Builder::allow_insecure_config(true)` does the same for any host, for
@@ -127,7 +134,11 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   does. Read-only lists (organizations, members) still answer from the cache.
 - **Sessions end when they should.** A `rememberMe: false` sign-in gets a session that
   lives one day at most (or `expires_in`, if that's shorter) and is never extended by the
-  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. A session
+  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. The
+  refresh recognises it by its stored lifetime (shorter than `expires_in` and at most a
+  day), not only by the `dont_remember` marker cookie, so using its token as a bearer token
+  or without the marker doesn't extend it. With an `expires_in` of one day or less both
+  kinds of session are equally long, and only the marker stops the refresh. A session
   revoked while a request is refreshing it gets no refreshed cookie: the request answers
   signed out and clears the cookies. When a session hook refuses a new session, the row is
   deleted and the response sets none of its cookies.
@@ -185,7 +196,9 @@ same place either way.
   be raised later; hashes with old parameters are upgraded on the next successful sign-in.
 - Hashing runs on a blocking pool **behind a semaphore** (default: number of CPUs).
   Without it, a burst of sign-in attempts would allocate 19 MiB each and could run the
-  server out of memory.
+  server out of memory. A hash keeps its permit until it finishes, even when the request is
+  dropped (a client that disconnects, a timeout layer or proxy), so disconnecting doesn't
+  let more hashes run at once.
 - Unknown emails still hash a dummy password, so response time doesn't reveal which emails
   have accounts. When `require_email_verification` is on, sign-up for an existing email
   answers like a successful sign-up (no session, a user that isn't stored) and sends no
@@ -300,9 +313,24 @@ sign-in, an OAuth callback, and links to reset a password or verify an email, wh
 stamp and the address they were sent to. So a sign-in that started before a claim can't finish
 after it, and a reset or verification link dies when the user is claimed or changes email.
 
+**Writes a session authorised.** A request can also be in flight with the previous holder's
+session when the claim commits. So every write that adds a credential or changes who the user
+is runs in a transaction whose first statement locks the user row, on the condition that the
+stamp is still the one the request read: `/change-password` and the password rehash at
+sign-in, a reset's new password, passkey registration (and the session it creates), API key
+creation, `/two-factor/enable` and the `verify-totp` that turns two-factor on, linking a
+social account, email OTP's `change-email`, `/update-user` (name, image, username and app
+fields), and an admin's `set-user-password` and `update-user` on their own account. A claim
+locks the same row first, so the two run one after the other: a write that reaches the lock
+after the claim answers 401 and stores nothing, and a claim that starts while a write holds
+the lock waits for it, then deletes what it stored. Taking the user row first on both sides
+keeps the lock order the same on Postgres, SQLite and MySQL, so neither deadlocks. Plugins do
+the same with `Internal::lock_user_unless_claimed`
+([Claiming a user](../reference/01-plugin-authoring.md#claiming-a-user)).
+
 **Verification links.** A verification link proves the mailbox, but not that the person who
 opens it set the password. When the request also carries the user's session, or the signed
-`pending_verification` cookie that sign-up (and a sign-in refused with `EMAIL_NOT_VERIFIED`)
+`pending_verification` cookie that sign-up (and an email or username sign-in refused with `EMAIL_NOT_VERIFIED`)
 leaves in the browser that knew the password, the email is just marked verified. Otherwise
 the link claims the user: the password is deleted with everything else, and the owner signs
 in with a magic link or code, or sets a password with a reset. Without this, someone who signed
@@ -320,7 +348,8 @@ flight. fastauth's claim covers all of them. What an app notices:
   accounts, passkeys, API keys and two-factor, and signs them out everywhere, even with
   `revoke_sessions_on_password_reset(false)`.
 - A sign-in that was checking the password while the user was claimed answers 401
-  `UNAUTHORIZED` instead of a session.
+  `UNAUTHORIZED` instead of a session. So does a password change, passkey registration, API
+  key, two-factor enrollment or email change that was in flight, and it changes nothing.
 
 **Not covered.** JWTs issued before a claim stay valid until they expire (15 minutes by
 default), and organization memberships and invitations of the claimed user are kept.
@@ -450,6 +479,13 @@ user's row: the organization plugin's `organization_limit`, so parallel creates 
 see room for one more. On Postgres and MySQL the second request waits for the first; SQLite
 runs one write transaction at a time anyway.
 
+On MySQL, fastauth begins its own transactions at READ COMMITTED, the level Postgres uses by
+default, instead of InnoDB's REPEATABLE READ. Under REPEATABLE READ a locking write that
+finds no row locks the gap around it, so two requests for different users that each did that
+and then inserted into the gap deadlocked (two first-time `/two-factor/enable` calls, one of
+them answering 500). The level is set for each transaction only; the pool's connections keep
+theirs. A transaction you hand in with `in_tx` keeps the level you began it with.
+
 In production:
 
 - **Use TLS to the database, and check the certificate.** sqlx's default for MySQL is
@@ -461,6 +497,8 @@ In production:
   migration fails on it rather than running with different comparison rules.
 - **Keep MySQL's `sql_mode` strict** (the default), so a value too long for a key column is
   an error and not cut short into another value's key.
+- **Keep MySQL's `binlog_format` at ROW** (the default) or MIXED. InnoDB refuses writes in a
+  READ COMMITTED transaction under `binlog_format=STATEMENT`.
 - **UUID ids compare as UUIDs on Postgres and MySQL.** Under a UUID id strategy, other
   spellings of the same UUID (uppercase, no hyphens, braces) find the same row there, while
   SQLite stores ids as text and compares them exactly. The admin plugin's "not yourself"

@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use http::StatusCode;
 use time::{Duration, OffsetDateTime};
 
-use crate::adapter::{Adapter, DbError, Transaction, Update};
+use crate::adapter::{Adapter, DbError, Queries, Transaction, Update};
 use crate::crypto::{Hash, random_bytes, random_token};
 use crate::endpoint::{Ctx, Gate, SignInAttempt};
 use crate::error::{AuthError, codes};
@@ -21,7 +21,8 @@ use crate::models::{Account, Session, User, Verification};
 use crate::query::Db;
 use crate::schema::Schema;
 use crate::session::{
-    SESSION_DATA, SessionView, UserView, clear_session_cookies, set_session_cookies,
+    DONT_REMEMBER_LIFETIME, SESSION_DATA, SessionView, UserView, clear_session_cookies,
+    set_session_cookies,
 };
 use crate::value::{ColumnValue, Id, Value};
 
@@ -82,9 +83,6 @@ impl NewSession {
         self
     }
 }
-
-/// How long a `rememberMe: false` session lives at most, as in Better Auth.
-const DONT_REMEMBER_LIFETIME: Duration = Duration::days(1);
 
 impl NewAccount {
     pub fn credential(password_hash: String) -> Self {
@@ -159,12 +157,13 @@ pub(crate) fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
-/// A sign-in or link that started before proof of the email claimed the user.
+/// A sign-in, link or session-authorised write that started before proof of the email
+/// claimed the user.
 fn claimed_meanwhile() -> AuthError {
     AuthError::new(
         StatusCode::UNAUTHORIZED,
         codes::UNAUTHORIZED,
-        "the account changed while signing in; sign in again",
+        "the account changed meanwhile; sign in again",
     )
 }
 
@@ -340,40 +339,77 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     }
 
     /// Links an account like [`link_account`](Self::link_account), unless proof of the email
-    /// claimed the user after `user` was read: then the account is removed again and the call
-    /// answers 401. For links that a session or an earlier request started, such as linking
-    /// a social account, so a link the previous holder started can't land on a claimed user.
+    /// claimed the user after `user` was read: then nothing is linked and the call answers 401.
+    /// For links that a session or an earlier request started, such as linking a social
+    /// account, so a link the previous holder started can't land on a claimed user. The insert
+    /// runs under [`lock_user_unless_claimed`](Self::lock_user_unless_claimed).
     pub async fn link_account_unless_claimed(
         &self,
         user: &UserView,
         account: NewAccount,
     ) -> Result<Account, AuthError> {
         let provider_id = account.provider_id.clone();
+        let values = self.account_values(&user.id, account)?;
+        let tx = self.lock_user_unless_claimed(user).await?;
         let row = self
             .ctx
-            .db()
-            .insert_row::<Account>(self.account_values(&user.id, account)?)
+            .db_on(&tx)
+            .insert_row::<Account>(values)
             .await
             .map_err(account_linked)?;
-        let linked = Account::decode(&row).map_err(AuthError::internal)?;
-        if !self.stamp_holds(&user.id, user.security_stamp()).await? {
-            self.ctx
-                .db()
-                .delete::<Account>(Account::ID.eq(&linked.id))
-                .await?;
-            return Err(claimed_meanwhile());
-        }
+        tx.commit().await?;
         self.ctx.emit(AccountLinked {
             user_id: user.id.clone(),
             provider_id,
         });
-        Ok(linked)
+        Account::decode(&row).map_err(AuthError::internal)
+    }
+
+    /// Begins a transaction that holds `user`'s row locked, for a write that a session or an
+    /// earlier read of `user` authorised: a password, a passkey, an API key, a two-factor
+    /// enrollment, a linked account, a new email or profile fields. When proof of the email
+    /// claimed the user since `user` was read (its security stamp moved), the transaction is
+    /// rolled back and the call answers 401, so the write can't land on the claimed user.
+    ///
+    /// Make the write through [`Ctx::db_on`] on the transaction and commit it; dropping it
+    /// rolls back. The lock is the transaction's first statement, as it is in a claim, which
+    /// locks the user row before it deletes anything: the two serialise, and with the user row
+    /// always first they can't deadlock. Hash passwords and send mail before calling this, not
+    /// while holding the lock.
+    pub async fn lock_user_unless_claimed(&self, user: &UserView) -> Result<D::Tx, AuthError> {
+        let tx = self.ctx.adapter().begin().await?;
+        match self
+            .stamp_holds_on(&tx, &user.id, user.security_stamp())
+            .await
+        {
+            Ok(true) => Ok(tx),
+            Ok(false) => {
+                tx.rollback().await?;
+                Err(claimed_meanwhile())
+            }
+            Err(err) => {
+                let _ = tx.rollback().await;
+                Err(err)
+            }
+        }
     }
 
     /// Whether `user_id`'s security stamp still is `stamp`. A locking no-op write, so it waits
     /// for a claim in progress and then sees its stamp: anything inserted before this check
     /// and after a claim began is either deleted by the claim or refused here.
     async fn stamp_holds(&self, user_id: &Id, stamp: i64) -> Result<bool, AuthError> {
+        self.stamp_holds_on(self.ctx.adapter(), user_id, stamp)
+            .await
+    }
+
+    /// [`stamp_holds`](Self::stamp_holds) on `db`, a transaction that then keeps the user
+    /// row locked until it ends.
+    async fn stamp_holds_on<Q: Queries>(
+        &self,
+        db: &Q,
+        user_id: &Id,
+        stamp: i64,
+    ) -> Result<bool, AuthError> {
         let table = self.ctx.schema().expect(User::TABLE);
         let filter = User::ID
             .eq(user_id)
@@ -382,9 +418,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         let column = table
             .position(User::SECURITY_STAMP.name())
             .ok_or_else(|| AuthError::internal("user.security_stamp missing"))?;
-        let matched = self
-            .ctx
-            .adapter()
+        let matched = db
             .update(Update {
                 table,
                 filter,
@@ -459,8 +493,12 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         Ok(())
     }
 
-    /// Validates, hashes and stores a password, creating the credential account if needed.
-    pub async fn set_password(&self, user_id: &Id, password: &str) -> Result<(), AuthError> {
+    /// Validates, hashes and stores `user`'s password, creating the credential account if
+    /// needed. Pass the user as the request authorised it (the session's user, or the user a
+    /// sign-in or a token was read for): the write runs under
+    /// [`lock_user_unless_claimed`](Self::lock_user_unless_claimed), so when proof of the email
+    /// claimed the user since, nothing is stored and the call answers 401.
+    pub async fn set_password(&self, user: &UserView, password: &str) -> Result<(), AuthError> {
         self.validate_new_password(password)?;
         let hash = self
             .ctx
@@ -468,30 +506,30 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             .hash(password)
             .await
             .map_err(AuthError::internal)?;
-        let update = || {
-            self.ctx
-                .db()
-                .update::<Account>(
-                    Account::USER_ID
-                        .eq(user_id)
-                        .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL)),
-                )
-                .set(Account::PASSWORD_HASH, Some(hash.clone()))
-                .exec()
+        let credential = || {
+            Account::USER_ID
+                .eq(&user.id)
+                .and(Account::PROVIDER_ID.eq(Account::CREDENTIAL))
         };
-        if update().await? > 0 {
+        let tx = self.lock_user_unless_claimed(user).await?;
+        let db = self.ctx.db_on(&tx);
+        if db.find::<Account>(credential()).one().await?.is_some() {
+            db.update::<Account>(credential())
+                .set(Account::PASSWORD_HASH, Some(hash))
+                .exec()
+                .await?;
+            tx.commit().await?;
             return Ok(());
         }
-        match self
-            .link_account(user_id, NewAccount::credential(hash.clone()))
+        db.insert_row::<Account>(self.account_values(&user.id, NewAccount::credential(hash))?)
             .await
-        {
-            Err(err) if err.code() == codes::SOCIAL_ACCOUNT_ALREADY_LINKED => {
-                update().await?;
-                Ok(())
-            }
-            other => other.map(|_| ()),
-        }
+            .map_err(account_linked)?;
+        tx.commit().await?;
+        self.ctx.emit(AccountLinked {
+            user_id: user.id.clone(),
+            provider_id: Account::CREDENTIAL.into(),
+        });
+        Ok(())
     }
 
     /// Creates a session and sets its cookies, running no sign-in gate at all. This is the
@@ -509,6 +547,24 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     ) -> Result<SessionView, AuthError> {
         self.create_session_with(user_id, remember_me, NewSession::default())
             .await
+    }
+
+    /// [`create_session`](Self::create_session) for a user that a session or an earlier read
+    /// authorised, such as a passkey registered from a session: when proof of the email
+    /// claimed the user since `user` was read, the session is deleted again before anyone
+    /// sees its token and the call answers 401. Runs no sign-in gate.
+    pub async fn create_session_unless_claimed(
+        &self,
+        user: &UserView,
+        remember_me: bool,
+    ) -> Result<SessionView, AuthError> {
+        self.insert_session(
+            &user.id,
+            Some(user.security_stamp()),
+            remember_me,
+            NewSession::default(),
+        )
+        .await
     }
 
     /// [`create_session`](Self::create_session) with an expiry or plugin columns of its own,
@@ -896,8 +952,13 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     /// Whether this request comes from the browser that holds `user`'s credentials: it
     /// carries a live session of the user, or the signed [`PENDING_VERIFICATION`] cookie
     /// for the user's current security stamp.
+    ///
+    /// The cookie is accepted under any configured secret, like a session token, so a
+    /// rotation between sign-up and the click doesn't claim the owner. That gives a retired
+    /// secret nothing: the cookie only counts in the browser that presents it, together with
+    /// a verification link mailed to the address, for the stamp and email it names.
     async fn holds_credentials_of(&self, user: &UserView) -> Result<bool, AuthError> {
-        let binding = self.ctx.signed_cookie(PENDING_VERIFICATION);
+        let binding = self.ctx.signed_token_cookie(PENDING_VERIFICATION);
         if binding.is_some() {
             self.ctx.delete_cookie(PENDING_VERIFICATION);
         }

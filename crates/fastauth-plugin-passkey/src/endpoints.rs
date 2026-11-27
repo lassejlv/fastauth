@@ -111,8 +111,8 @@ async fn registering_session<D: Adapter>(
 
 /// Whom a registration adds the passkey to.
 enum Registrant {
-    /// The signed-in user.
-    User(Id),
+    /// The signed-in user, as the session read it.
+    User(UserView),
     /// A user passkey-first sign-up creates.
     SignUp(PasskeyUser),
 }
@@ -173,7 +173,7 @@ impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
                 } else {
                     user.email.clone()
                 };
-                (account, exclude, Registrant::User(user.id.clone()))
+                (account, exclude, Registrant::User(user.clone()))
             }
             None => {
                 let resolve = self.0.sign_up.as_ref().ok_or(AuthError::unauthorized())?;
@@ -208,8 +208,8 @@ impl<D: Adapter> Endpoint<D> for GenerateRegisterOptions {
         }
         let challenge = match pending {
             Registrant::SignUp(user) => Challenge::SignUp { user, state },
-            Registrant::User(user_id) => Challenge::Registration {
-                user_id: user_id.to_string(),
+            Registrant::User(user) => Challenge::Registration {
+                user_id: user.id.to_string(),
                 state,
             },
         };
@@ -271,11 +271,10 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
         let rp = self.0.relying_party(ctx.config())?;
         let (registrant, state) = match (take_challenge(&ctx).await?, session) {
             (Challenge::Registration { user_id, state }, Some(session)) => {
-                let user_id = Id::from(user_id);
-                if user_id != session.user.id {
+                if Id::from(user_id) != session.user.id {
                     return Err(PasskeyError::NotAllowed.into());
                 }
-                (Registrant::User(user_id), state)
+                (Registrant::User(session.user), state)
             }
             (Challenge::SignUp { user, state }, None) => (Registrant::SignUp(user), state),
             (Challenge::Registration { .. }, None) => return Err(AuthError::unauthorized()),
@@ -311,8 +310,8 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
         {
             return Err(failed.into());
         }
-        let (user_id, new_user) = match registrant {
-            Registrant::User(user_id) => (user_id, None),
+        let (user, new_user) = match registrant {
+            Registrant::User(user) => (user, false),
             Registrant::SignUp(user) => {
                 let user = ctx
                     .internal()
@@ -326,9 +325,10 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
                         None,
                     )
                     .await?;
-                (user.id.clone(), Some(user))
+                (user, true)
             }
         };
+        let user_id = user.id.clone();
         let row = PasskeyRow {
             id: ctx.new_id()?,
             name: input
@@ -350,11 +350,18 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
             created_at: ctx.now(),
             aaguid: Some(attested.aaguid),
         };
-        if let Err(err) = ctx.db().insert(&row).await {
-            if new_user.is_some() {
+        let stored = match ctx.internal().lock_user_unless_claimed(&user).await {
+            Ok(tx) => match ctx.db_on(&tx).insert(&row).await {
+                Ok(_) => tx.commit().await.map_err(AuthError::from),
+                Err(err) => Err(err.into()),
+            },
+            Err(err) => Err(err),
+        };
+        if let Err(err) = stored {
+            if new_user {
                 ctx.db().delete::<User>(User::ID.eq(&user_id)).await?;
             }
-            return Err(err.into());
+            return Err(err);
         }
         ctx.emit(PasskeyAdded {
             user_id: user_id.clone(),
@@ -362,11 +369,15 @@ impl<D: Adapter> Endpoint<D> for VerifyRegistration {
         });
         let (session, challenge) = match (input.create_session == Some(true), new_user) {
             (false, _) => (None, None),
-            (true, None) => (
-                Some(ctx.internal().create_session(&user_id, true).await?),
+            (true, false) => (
+                Some(
+                    ctx.internal()
+                        .create_session_unless_claimed(&user, true)
+                        .await?,
+                ),
                 None,
             ),
-            (true, Some(user)) => match ctx.internal().sign_in(user, Passkey::ID, true).await? {
+            (true, true) => match ctx.internal().sign_in(user, Passkey::ID, true).await? {
                 SignInResult::SignedIn(session) => (Some(*session), None),
                 SignInResult::Challenge(body) => (None, body.as_object().cloned()),
             },

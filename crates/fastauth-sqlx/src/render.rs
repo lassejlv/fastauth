@@ -574,12 +574,30 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
 /// characters for two text columns), so the prefix is the whole value in practice.
 fn key_part<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> String {
     let quoted = quote::<DB>(column);
-    let Some(budget) = DB::KEY_BYTES.filter(|_| columns.len() > 1) else {
-        return quoted;
-    };
+    match prefix_length::<DB>(table, columns, column) {
+        Some(length) => format!("{quoted}({length})"),
+        None => quoted,
+    }
+}
+
+/// The expression a unique index over `columns` compares for `column`: the column, or as
+/// many leading characters as [`key_part`] indexes. The duplicate check groups by it, so it
+/// sees exactly the rows the index would refuse.
+fn key_expr<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> String {
+    let quoted = quote::<DB>(column);
+    match prefix_length::<DB>(table, columns, column) {
+        Some(length) => format!("LEFT({quoted}, {length})"),
+        None => quoted,
+    }
+}
+
+/// The prefix length, in characters, that [`key_part`] gives `column`, or `None` for the
+/// whole value.
+fn prefix_length<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> Option<usize> {
+    let budget = DB::KEY_BYTES.filter(|_| columns.len() > 1)?;
     let ty = |name: &str| table.column(name).map(|c| stored_type(table, c.ty));
     if ty(column) != Some(ColumnType::Text) {
-        return quoted;
+        return None;
     }
     let texts = columns
         .iter()
@@ -593,11 +611,12 @@ fn key_part<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> Str
             _ => 16,
         })
         .sum();
-    format!("{quoted}({})", budget.saturating_sub(fixed) / 4 / texts)
+    Some(budget.saturating_sub(fixed) / 4 / texts)
 }
 
 /// The rows of `table` that share non-null values in `columns` (some of them), primary
-/// key first, for refusing a `Step::AddUnique` with a message that names them.
+/// key first, for refusing a `Step::AddUnique` with a message that names them. Values are
+/// compared as the index compares them, by their indexed prefix on MySQL.
 pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &[&str]) -> SqlStr {
     let qualified = names.qualified::<DB>(table.name);
     let list = |cols: &[&str]| {
@@ -606,7 +625,19 @@ pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let keys = list(columns);
+    let exprs: Vec<String> = columns
+        .iter()
+        .map(|c| key_expr::<DB>(table, columns, c))
+        .collect();
+    let keys = exprs.join(", ");
+    let named = (0..exprs.len())
+        .map(|i| format!("{} AS {}", exprs[i], quote::<DB>(&format!("k{i}"))))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let joined = (0..exprs.len())
+        .map(|i| format!("{} = dup.{}", exprs[i], quote::<DB>(&format!("k{i}"))))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     let selected: Vec<&str> = table
         .primary_key()
         .map(|pk| pk.name)
@@ -619,8 +650,8 @@ pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &
         .collect::<Vec<_>>()
         .join(" AND ");
     AssertSqlSafe(format!(
-        "SELECT {} FROM {qualified} WHERE ({keys}) IN (SELECT {keys} FROM {qualified} \
-         WHERE {not_null} GROUP BY {keys} HAVING COUNT(*) > 1) ORDER BY {keys} LIMIT 10",
+        "SELECT {} FROM {qualified} JOIN (SELECT {named} FROM {qualified} WHERE {not_null} \
+         GROUP BY {keys} HAVING COUNT(*) > 1) AS dup ON {joined} ORDER BY {keys} LIMIT 10",
         list(&selected)
     ))
     .into_sql_str()
