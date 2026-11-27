@@ -278,9 +278,47 @@ passwords. Each is meant for the migration window only:
 | argon2id (19 MiB, t=2), upgraded when parameters rise | scrypt (32 MiB, N=16384, r=16), never rehashed | No upgrade path while Better Auth reads the database; scrypt with these parameters is weaker against GPU guessing than argon2id, and each hash takes more memory. |
 | An optional signed cookie cache | Refused | One database read per request that resolves a session. |
 | `session` holds each token's SHA-256 | It holds the tokens themselves (`SessionTokens::Raw`) | A read-only leak of the database (a backup, an injection elsewhere) yields every live session, and the lookup compares the token itself in the database. The signed cookie is still checked first, and the security stamp, claim locks, sensitive and authoritative sessions, session gates and expiry rules work the same. |
-| OAuth tokens in `bytea` columns | Hex in Better Auth's text columns | Nothing for fastauth's own tokens, which stay encrypted. Tokens Better Auth stored for a provider both apps configure are plain text, which fastauth reads as bytes and can't decrypt; they are replaced on the user's next sign-in with that provider through fastauth. |
+| OAuth tokens in `bytea` columns | Hex in Better Auth's text columns | Nothing for fastauth's own tokens, which stay encrypted. Tokens Better Auth stored for a provider both apps configure are plain text, which fastauth reads as bytes and can't decrypt; they are replaced on the user's next sign-in with that provider through fastauth. The other way round, after a sign-in through fastauth Better Auth's `/get-access-token` (and app code reading `account.accessToken`) gets fastauth's ciphertext instead of a token the provider accepts, until the user signs in with that provider through Better Auth again. |
 | The migrator adds what's missing at startup | Review-only | Every fastauth upgrade that adds a column goes through `fastauth generate` and review, so nothing changes Better Auth's tables behind its back. |
 | A claim deletes all of a user's accounts | Only the accounts fastauth owns | A foreign row (`oidc`) survives a claim, which is right when the other app vouches for that identity; deleting a user with one is refused. |
+
+## Cutover checklist
+
+In order:
+
+1. **Turn Better Auth's cookie cache off first.** Set `session.cookieCache` to off (or leave it
+   at Better Auth's default, off), deploy, and wait for its `maxAge` to pass so no
+   `session_data` cookie is left. With it on, a sign-out, password change or revocation in
+   fastauth keeps working in the Better Auth app until the cache expires
+   ([The cookie cache](#cookies)); the suite shows both.
+2. **Secrets.** fastauth gets the Better Auth app's `BETTER_AUTH_SECRET` as it is, through
+   `BetterAuthCompat::from_env` (never `Secret::from_env`, which decodes a hex or base64 value
+   into other bytes), and its own new random `FASTAUTH_SECRET` for everything else. Keep both
+   in your secret manager, at least 32 random bytes each. Don't rotate `BETTER_AUTH_SECRET`
+   during the cutover: it signs everyone out of both apps.
+3. **Match the configs.** The same cookie prefix, `session.expiresIn` as `.expires_in(..)`
+   (Better Auth's default is 7 days, the preset's 14), `updateAge` as `.update_age(..)`, the
+   app's user fields as `Fields` with the same column names, and each social provider under
+   the same provider id. Put `app.config.ts` from your real `auth.ts` in
+   `compat/better-auth-dual/better-auth/`, mirror it in `compat/better-auth-dual/fastauth/src/auth.rs`
+   and run `compat/better-auth-dual/run-dual.sh` ([Verified against Better Auth 1.7.8](#verified-against-better-auth-178)).
+4. **The schema.** Take a backup, run `fastauth generate` against the production database (or a
+   fresh copy), review the four files, run the duplicate check at the top of the unique index
+   one (it must return no rows), and apply them with your own migration tool. Afterwards
+   `fastauth status` reports nothing pending and `npx auth migrate` reports
+   `No migrations needed.`
+5. **Deploy fastauth without traffic, then move routes over** behind one site, so both apps
+   see the same cookies. Links Better Auth mailed before a route moved (a reset link, a magic
+   link) stop working on that route ([Verification rows](#verification-rows)).
+6. **During the window.** SSO stays in the Better Auth app, and so does deleting a user who has
+   an `oidc` row (fastauth answers 409). Every fastauth upgrade that adds columns goes through
+   `fastauth generate` and review. App code in the Better Auth app that reads a provider's
+   access token sees fastauth's ciphertext after a sign-in through fastauth ([Trade-offs](#trade-offs)).
+7. **Rolling back** is moving the routes back: sessions and passwords fastauth wrote keep
+   working in Better Auth.
+8. **Remove compat mode only once the Better Auth app is gone:** no traffic, no code reading
+   the tables, and the SSO accounts moved or handled. [After the cutover](#after-the-cutover)
+   says which settings can go and what each costs.
 
 ## After the cutover
 
@@ -295,6 +333,80 @@ Once the Better Auth app is gone, the cookie settings can go back to fastauth's:
 again once. Keep `BetterAuthScrypt` until every password is in another format: argon2id can't
 verify the scrypt hashes, and a hasher that verifies them and rehashes on the next sign-in
 isn't built yet.
+
+## Verified against Better Auth 1.7.8
+
+`compat/better-auth-dual/run-dual.sh` (part of `scripts/ci.sh --only compat`) runs a real
+Better Auth 1.7.8 app (Node, `better-auth/node`) and a fastauth app (axum) against one
+Postgres 17, with `BetterAuthCompat`, `only_owned_accounts` and `fastauth_verification` as on
+this page. The Better Auth app's config is one file,
+`compat/better-auth-dual/better-auth/app.config.ts`: cookie prefix `vt`, 14-day sessions
+refreshed after a day, email and password, a `customerId` field and no cookie cache. Swap in
+your own and keep `compat/better-auth-dual/fastauth/src/auth.rs` in step. The run proves:
+
+- **The schema.** Better Auth's `npx auth migrate` creates it; users and sessions are created
+  through Better Auth before fastauth's columns exist. `fastauth migrate` refuses,
+  `fastauth generate` writes exactly the four migrations above, the duplicate check finds
+  nothing, they apply, and `fastauth status` is clean. Afterwards Better Auth's `npx auth
+  migrate` reports `No migrations needed.`, its old sessions and users keep working, the old
+  rows have `securityStamp` 0 from the default, and its new sign-ups get it too. Adding the
+  admin plugin later writes five more migrations (nullable columns or columns with a
+  default) that Better Auth also accepts.
+- **Sign-up and sign-in** in one app and sign-in with the other, both ways, with the email in
+  any case; a user from before fastauth signs in to it.
+- **Cookies.** Each app resolves the other's `vt.session_token` to the same user and session,
+  including a session from before fastauth and fastauth's 43-character base64url tokens in
+  Better Auth (Better Auth's are 32 alphanumeric characters), and the app's own routes see it.
+  Both refuse a changed token and a token without its signature. On https both set and read
+  `__Secure-vt.session_token` (Secure, HttpOnly, SameSite=Lax, Path=/) and ignore the name
+  without the prefix. `/list-sessions` lists the sessions of both apps.
+- **Sign-out and revocation.** A sign-out in either app deletes the row and clears the cookie,
+  and the other app signs the user out; `/revoke-session` works across apps.
+- **Passwords.** `/change-password` with `revokeOtherSessions` in either app signs out the
+  other app's sessions and keeps the current one; without it the other app's sessions keep
+  working. Either way the old password fails in the other app and the new one works.
+  fastauth's password reset signs Better Auth out; Better Auth's reset keeps fastauth's
+  sessions, as its `revokeSessionsOnPasswordReset` (off here) says.
+- **Refresh**, both ways: sessions last 14 days, a session extended 23 hours ago isn't extended
+  and gets no cookie, one extended more than a day ago is extended to 14 days with
+  `Max-Age=1209600`, the other app reads it afterwards, neither resolves an expired session,
+  and neither extends the other's `rememberMe: false` session.
+- **`customerId`** written by either app's own code is read by the other's code and returned
+  by its `/get-session`; a client can't set it at sign-up in either.
+- **scrypt.** Hashes Better Auth wrote verify in fastauth; hashes fastauth wrote verify in
+  Better Auth with fastauth stopped (a rollback), NFKC included.
+- **`oidc` rows** stay byte for byte through a magic-link sign-in, magic-link, email-code and
+  verified-social claims (which delete the owned credential account and Better Auth's old
+  sessions and change the security stamp), `/update-user` and `/revoke-sessions`.
+  fastauth's `/list-accounts` leaves them out, `/unlink-account` answers
+  `ACCOUNT_NOT_FOUND`, and `/admin/remove-user` answers `409 USER_HAS_FOREIGN_ACCOUNTS` and
+  leaves the user and row alone, while a user without one is removed. fastauth never touches
+  Better Auth's `verification` rows, expired ones included (Better Auth deletes its own
+  expired rows whenever it looks one up).
+- **Social sign-in** through a mock OAuth provider both apps configure (Better Auth's
+  `genericOAuth`, a custom `OAuthProvider` in fastauth, provider id `mock`): a user created in
+  either app signs in to the other on the same account row. fastauth reads the row Better Auth
+  wrote with plain-text tokens without an error and replaces them with its own, and Better
+  Auth writes plain ones back on its next sign-in. In between, Better Auth's
+  `/get-access-token` returns fastauth's ciphertext ([Trade-offs](#trade-offs)).
+- **The cookie cache.** With it off, a revocation in fastauth signs the user out of Better Auth
+  at once. With it on (`maxAge` 5 minutes) Better Auth keeps answering with the revoked
+  session from `vt.session_data`; `?disableCookieCache=true` and the instance with it off
+  don't. fastauth's sign-out deletes `vt.session_data`.
+
+Not covered by the run:
+
+- the production `auth.ts` itself, and any Better Auth plugin it has beyond the above
+  (their tables, columns and session fields);
+- Better Auth's SSO plugin: the `oidc` rows are seeded directly, so its own sign-in isn't run;
+- real social providers (Google, GitHub): only the mock, so whether both apps store the same
+  `accountId` for a real provider isn't checked;
+- MySQL and SQLite; Better Auth's secondary storage;
+- email verification, email change, two-factor and multi-session across the apps;
+- Better Auth's `revokeSessionsOnPasswordReset: true`, secret rotation, and refreshes racing
+  in both apps at once;
+- a real browser over TLS: the https instances have an https base URL but are served over
+  plain HTTP, so cookie names and attributes are checked, not how a browser treats them.
 
 ## Golden vectors
 

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "examples/fullstack/server"]
+members = ["crates/*", "examples/fullstack/server", "compat/better-auth-dual/fastauth"]
 exclude = ["spike"]
 
 [workspace.package]

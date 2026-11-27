@@ -165,6 +165,14 @@ start_redis() {
   echo "Redis 7 at $redis_url, Valkey 8 at $valkey_url"
 }
 
+# A new, empty Postgres database for one compat run.
+fresh_pg() {
+  local name="compat_$1_$$"
+  docker exec "$pg_container" psql -U postgres -q -c "DROP DATABASE IF EXISTS \"$name\"" -c "CREATE DATABASE \"$name\"" \
+    >/dev/null 2>&1 || return 1
+  echo "${database_url%/*}/$name"
+}
+
 # A new, empty MySQL database for one compat run.
 fresh_mysql() {
   local name="compat_$1_$$"
@@ -215,6 +223,11 @@ compat_mysql() {
   url="$(fresh_mysql "${script//[^a-z]/_}")" || return 1
   env DATABASE_URL="$url" PORT="$(free_port)" "compat/better-auth/$script"
 }
+compat_dual() {
+  local url
+  url="$(fresh_pg dual)" || return 1
+  env DATABASE_URL="$url" compat/better-auth-dual/run-dual.sh
+}
 if wanted compat; then
   run compat "compat run.sh (axum)" compat run.sh
   run compat "compat run.sh (SERVER=actix)" compat run.sh SERVER=actix
@@ -223,6 +236,11 @@ if wanted compat; then
     run-jwt.sh run-passkey.sh run-username.sh run-anonymous.sh run-multi-session.sh; do
     run compat "compat $script" compat "$script"
   done
+  if [[ $databases_ok == 1 ]]; then
+    run compat "compat better-auth-dual/run-dual.sh (Better Auth 1.7.8 + fastauth, one Postgres 17)" compat_dual
+  else
+    record "compat better-auth-dual/run-dual.sh" "FAIL (no databases)"
+  fi
   for script in run.sh run-organization.sh run-passkey.sh; do
     if [[ $databases_ok == 1 ]]; then
       run compat "compat $script (MySQL)" compat_mysql "$script"

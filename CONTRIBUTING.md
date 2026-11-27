@@ -32,7 +32,7 @@ step with its result and time, and exits non-zero if any step failed.
 | `fmt` | `cargo fmt --check` on the workspace and on `fuzz/` |
 | `clippy` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | `test` | `cargo test --workspace --all-features --no-fail-fast` against throwaway Postgres 17, MySQL 8.4 and Redis 7 containers, then `fastauth-redis`'s tests again against Valkey 8 |
-| `compat` | every Better Auth 1.7.28 client script in `compat/better-auth/` on the default backends, `run.sh` with `SERVER=actix`, `run-vectors.sh` (the Better Auth golden vectors, both directions), and `run.sh`, `run-organization.sh` and `run-passkey.sh` on MySQL |
+| `compat` | every Better Auth 1.7.28 client script in `compat/better-auth/` on the default backends, `run.sh` with `SERVER=actix`, `run-vectors.sh` (the Better Auth golden vectors, both directions), `compat/better-auth-dual/run-dual.sh` (a Better Auth 1.7.8 app and a fastauth app on one Postgres 17, each accepting the other's sign-ins), and `run.sh`, `run-organization.sh` and `run-passkey.sh` on MySQL |
 | `audit` | `cargo audit` (RustSec advisories against `Cargo.lock`) |
 | `deny` | `cargo deny check licenses advisories` with `deny.toml` |
 | `docs` | `scripts/check-docs.sh`: every Rust block in `docs/` compiles against the current code (see `scripts/docs-check/README.md`) |
