@@ -1,0 +1,35 @@
+[package]
+name = "upgrade-0-5-fixtures"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Builds the fastauth 0.5 databases that crates/fastauth/tests/upgrade_0_5.rs upgrades. Run generate.sh."
+
+# Its own workspace: it builds fastauth 0.5.0, not the crates beside it.
+[workspace]
+
+[dependencies]
+fastauth = { git = "https://github.com/lassejlv/fastauth", tag = "v0.5.0", default-features = false, features = [
+    "axum",
+    "macros",
+    "sqlite",
+    "postgres",
+    "mysql",
+    "two-factor",
+    "organization",
+    "admin",
+    "api-key",
+    "magic-link",
+    "email-otp",
+    "bearer",
+    "jwt",
+    "passkey",
+    "username",
+    "anonymous",
+    "multi-session",
+] }
+anyhow = "1"
+axum = "0.8"
+serde_json = "1"
+time = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
