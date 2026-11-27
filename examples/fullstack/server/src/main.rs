@@ -31,7 +31,15 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("applying migrations/")?;
 
-    let auth = auth::build(&config, pool.clone())?;
+    let storage = match &config.redis_url {
+        Some(url) => Some(
+            RedisStorage::connect(url)
+                .await
+                .context("connecting to REDIS_URL")?,
+        ),
+        None => None,
+    };
+    let auth = auth::build(&config, pool.clone(), storage)?;
     let pending = auth.migrator().plan().await?;
     if !pending.is_empty() {
         bail!(

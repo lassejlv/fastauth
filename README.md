@@ -114,6 +114,7 @@ on Better Auth's own client, and a Playwright suite that drives it end to end.
 | [`fastauth-axum`](https://crates.io/crates/fastauth-axum) | `auth.router()`, `Session` / `FreshSession` extractors, the session layer |
 | [`fastauth-actix`](https://crates.io/crates/fastauth-actix) | The same for actix-web: `auth.scope()`, the extractors, the session middleware (0.5) |
 | [`fastauth-sqlx`](https://crates.io/crates/fastauth-sqlx) | Postgres, SQLite and MySQL adapter, migrations, shared transactions (`.in_tx`) |
+| [`fastauth-redis`](https://crates.io/crates/fastauth-redis) | Secondary storage on Redis or Valkey, so rate limits hold across instances (unreleased) |
 | [`fastauth-macros`](https://crates.io/crates/fastauth-macros) | `#[derive(Fields, Model, AuthError)]` |
 | [`fastauth-oauth`](https://crates.io/crates/fastauth-oauth) | The `Social` plugin: GitHub and Google |
 | [`fastauth-plugin-two-factor`](https://crates.io/crates/fastauth-plugin-two-factor) | TOTP, email codes, backup codes, trusted devices |
@@ -157,6 +158,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 | [Sessions and the server API](docs/concepts/01-sessions.md) | Extractors, typed user fields, calling auth from your own code, shared transactions |
 | [Databases](docs/concepts/02-database.md) | sqlx, the schema, ids, migrations, typed queries, writing an adapter |
 | [Security](docs/concepts/03-security.md) | Tokens, cookies, password hashing, CSRF, OAuth, rate limiting, secret rotation |
+| [Running several instances](docs/concepts/04-multiple-instances.md) | What instances share, secondary storage on Redis or Valkey, the cookie cache across instances |
 
 ### Integrations
 
@@ -190,7 +192,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 | [Plugin authoring](docs/reference/01-plugin-authoring.md) | Writing a plugin: schema, endpoints, resolvers, hooks, gates, events, errors, dependencies, tests |
 | [Internals](docs/reference/02-internals.md) | How it works: the type-level plugin list, the build step, the request path, the session hot path |
 | [Decisions](docs/reference/03-decisions.md) | The design decisions, including the ones made since 0.1 |
-| [Production checklist](docs/reference/04-production-checklist.md) | What to set before real users: client IP, https, the secret, mail, cookie cache, rate limits, database TLS, logs |
+| [Production checklist](docs/reference/04-production-checklist.md) | What to set before real users: client IP, https, the secret, mail, cookie cache, rate limits and several instances, database TLS, logs |
 
 ## Agent skill
 

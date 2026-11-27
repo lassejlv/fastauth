@@ -7,9 +7,9 @@
 #   scripts/ci.sh --skip website,fuzz
 #
 # Groups, in order: fmt clippy test compat audit deny docs website fuzz.
-# `test` and the MySQL compat runs start throwaway Postgres 17 and MySQL 8.4 containers
-# (Docker) on free local ports and remove them on exit. Exits non-zero when any step fails,
-# after printing a summary table. See CONTRIBUTING.md for what each group needs.
+# `test` and the MySQL compat runs start throwaway Postgres 17 and MySQL 8.4 containers, and
+# `test` Redis 7 and Valkey 8 ones (Docker), on free local ports, and remove them on exit.
+# Exits non-zero when any step fails, after printing a summary table. See CONTRIBUTING.md for what each group needs.
 set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -98,11 +98,15 @@ free_port() {
 
 pg_container=""
 mysql_container=""
+redis_container=""
+valkey_container=""
 database_url=""
 mysql_url=""
+redis_url=""
+valkey_url=""
 
 cleanup() {
-  for c in "$pg_container" "$mysql_container"; do
+  for c in "$pg_container" "$mysql_container" "$redis_container" "$valkey_container"; do
     [[ -n "$c" ]] && docker rm -f "$c" >/dev/null 2>&1
   done
   return 0
@@ -135,8 +139,30 @@ start_databases() {
   docker exec "$mysql_container" mysql --protocol=tcp -h127.0.0.1 -uroot -pci -e 'SELECT 1' >/dev/null 2>&1 \
     || { echo "MySQL didn't start" >&2; return 1; }
   database_url="postgres://postgres:ci@127.0.0.1:$pg_port/postgres"
+  if wanted test; then
+    start_redis || return 1
+  fi
   mysql_url="mysql://root:ci@127.0.0.1:$mysql_port/fastauth"
   mysql_base="mysql://root:ci@127.0.0.1:$mysql_port"
+}
+
+# Redis 7 and Valkey 8, for fastauth-redis's tests.
+start_redis() {
+  redis_container="fastauth-ci-redis-$$"
+  valkey_container="fastauth-ci-valkey-$$"
+  docker run -d --rm --name "$redis_container" -p 127.0.0.1::6379 redis:7 >/dev/null || return 1
+  docker run -d --rm --name "$valkey_container" -p 127.0.0.1::6379 valkey/valkey:8 >/dev/null || return 1
+  local i
+  for i in $(seq 1 60); do
+    docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q PONG \
+      && docker exec "$valkey_container" valkey-cli ping 2>/dev/null | grep -q PONG && break
+    sleep 1
+  done
+  docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q PONG || { echo "Redis didn't start" >&2; return 1; }
+  docker exec "$valkey_container" valkey-cli ping 2>/dev/null | grep -q PONG || { echo "Valkey didn't start" >&2; return 1; }
+  redis_url="redis://127.0.0.1:$(docker port "$redis_container" 6379/tcp | head -1 | cut -d: -f2)"
+  valkey_url="redis://127.0.0.1:$(docker port "$valkey_container" 6379/tcp | head -1 | cut -d: -f2)"
+  echo "Redis 7 at $redis_url, Valkey 8 at $valkey_url"
 }
 
 # A new, empty MySQL database for one compat run.
@@ -153,7 +179,7 @@ wanted compat && needs_databases=1
 databases_ok=0
 if [[ $needs_databases == 1 ]]; then
   printf '\n\033[1m==> databases\033[0m\n'
-  if start_databases; then databases_ok=1; else record "databases (Postgres 17, MySQL 8.4)" FAIL; fi
+  if start_databases; then databases_ok=1; else record "databases (Postgres 17, MySQL 8.4, Redis 7, Valkey 8)" FAIL; fi
 fi
 
 # ---------------------------------------------------------------- steps
@@ -167,9 +193,12 @@ run clippy "clippy -D warnings" cargo clippy --workspace --all-targets --all-fea
 
 if wanted test; then
   if [[ $databases_ok == 1 ]]; then
-    run test "test --workspace --all-features" \
-      env DATABASE_URL="$database_url" MYSQL_DATABASE_URL="$mysql_url" \
+    run test "test --workspace --all-features (Redis 7)" \
+      env DATABASE_URL="$database_url" MYSQL_DATABASE_URL="$mysql_url" REDIS_URL="$redis_url" \
       cargo test --workspace --all-features --no-fail-fast
+    run test "test fastauth-redis (Valkey 8)" \
+      env DATABASE_URL="$database_url" REDIS_URL="$valkey_url" \
+      cargo test -p fastauth-redis --all-features --no-fail-fast
   else
     record "test --workspace --all-features" "FAIL (no databases)"
   fi

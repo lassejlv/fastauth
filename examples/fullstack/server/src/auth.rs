@@ -13,13 +13,18 @@ use crate::mailer::OutboxMailer;
 pub type AppAuth =
     Auth<Sqlx<Postgres>, (), plugins![Social, TwoFactor, Passkey, Organization, Admin, ApiKeys]>;
 
-pub fn build(config: &Config, pool: PgPool) -> Result<AppAuth, BuildError> {
+/// `storage` is the Redis that `REDIS_URL` names, for servers that run as several instances.
+pub fn build(
+    config: &Config,
+    pool: PgPool,
+    storage: Option<RedisStorage>,
+) -> Result<AppAuth, BuildError> {
     let mut social = Social::new();
     if let Some(github) = &config.github {
         social = social.provider(Github::new(&github.client_id, &github.client_secret));
     }
 
-    FastAuth::builder()
+    let builder = FastAuth::builder()
         .app_name("Acme")
         .secret(Secret::from_env("FASTAUTH_SECRET")?)
         .base_url(&config.app_url)
@@ -37,8 +42,12 @@ pub fn build(config: &Config, pool: PgPool) -> Result<AppAuth, BuildError> {
                 .invitation_url(format!("{}/accept-invitation/{{id}}", config.app_url)),
         )
         .plugin(Admin::new())
-        .plugin(ApiKeys::new().default_prefix("acme_").sessions(true))
-        .build()
+        .plugin(ApiKeys::new().default_prefix("acme_").sessions(true));
+    match storage {
+        Some(storage) => builder.secondary_storage(storage).multi_instance(true),
+        None => builder,
+    }
+    .build()
 }
 
 /// Rate limits key on the client IP. Directly on the internet the socket address is the

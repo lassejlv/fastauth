@@ -378,8 +378,10 @@ On by default: 100 requests per 10 seconds per IP and path, and 3 per 10 seconds
 (`/two-factor/enable`, `/disable`, `/get-totp-uri`, `/generate-backup-codes`), so a stolen
 session can't guess the password faster than sign-in allows. The
 limiter is GCRA (one timestamp per key, no sliding-window bookkeeping) in a sharded
-in-memory map, so each process counts on its own; a shared store is
-[planned](../get-started/01-overview.md#planned). Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
+in-memory map, so each process counts on its own, unless the app sets secondary storage:
+then every instance counts in one fixed-window counter per bucket in Redis or Valkey
+([Running several instances](04-multiple-instances.md#rate-limits-in-secondary-storage)).
+Exceeding a limit returns `429 TOO_MANY_REQUESTS`.
 
 - **IPv6 clients are limited per /64** by default, as Better Auth's `ipv6Subnet` does: a
   home connection or a cloud VM gets a whole /64, so per-address limits wouldn't limit it.
@@ -394,7 +396,8 @@ in-memory map, so each process counts on its own; a shared store is
 - **Memory is bounded.** The limiter keeps at most `RateLimit::max_keys(n)` keys (100,000
   by default). Each shard drops its expired keys every 1024 checks and when it's full, and
   if it's still full, the half of its keys closest to expiry. Account names are kept as a
-  keyed 64-bit hash, never the value from the body, so a long `email` costs no memory.
+  128-bit HMAC under a key derived from the secret, never the value from the body, so a
+  long `email` costs no memory and secondary storage never sees the address.
 
 **The client IP** decides whose limit a request counts against, so it must be one the
 client can't choose ([Configuration](../get-started/03-configuration.md#rate-limits)):

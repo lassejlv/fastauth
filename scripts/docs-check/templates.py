@@ -64,7 +64,7 @@ def expr(binding="_v", args=""):
 FEATURES = [
     "axum", "actix", "macros", "postgres", "sqlite", "mysql", "oauth", "cli",
     "two-factor", "organization", "admin", "api-key", "magic-link", "email-otp",
-    "bearer", "jwt", "passkey", "username", "anonymous", "multi-session",
+    "bearer", "jwt", "passkey", "username", "anonymous", "multi-session", "redis",
 ]
 
 
@@ -176,6 +176,12 @@ Ok(())
 }""", ctx=DB + "use fastauth::adapter::Transaction;\n"),
     excerpt("pub trait Queries: Send + Sync {"),
     block('// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }'),
+])
+
+page("concepts/04-multiple-instances.md", "", [
+    block("use fastauth::prelude::*;", ctx=""),
+    excerpt("pub trait SecondaryStorage: Send + Sync + 'static {"),
+    block('// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }', ctx=""),
 ])
 
 # ---------------------------------------------------------------- get-started

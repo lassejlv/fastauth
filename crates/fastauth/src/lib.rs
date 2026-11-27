@@ -9,6 +9,8 @@
 //! | `actix` | [`fastauth::actix`](crate::actix): `auth.scope()`, the `Session` extractors, the session middleware for actix-web |
 //! | `postgres` (default), `sqlite`, `mysql` | [`fastauth::sqlx`](crate::sqlx): `Sqlx::new(pool)`, and the pool types in the prelude |
 //! | `mysql-tls` | `mysql`, plus TLS for database connections (sqlx's rustls backend), which MySQL 8's default login needs |
+//! | `redis` | [`fastauth::redis`](crate::redis): `RedisStorage`, secondary storage on Redis or Valkey for apps that run several instances |
+//! | `redis-tls` | `redis`, plus `rediss://` URLs |
 //! | `macros` (default) | `#[derive(Fields, Model, AuthError)]` |
 //! | `oauth` | [`fastauth::social`](crate::social): the `Social` plugin with GitHub and Google |
 //! | `two-factor` | [`fastauth::plugins::two_factor`](mod@crate::plugins): TOTP, email OTP, backup codes |
@@ -35,6 +37,8 @@ pub mod prelude {
     #[cfg(feature = "axum")]
     pub use fastauth_axum::{AuthRouter, FreshSession, Session};
     pub use fastauth_core::prelude::*;
+    #[cfg(feature = "redis")]
+    pub use fastauth_redis::RedisStorage;
     #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
     pub use fastauth_sqlx::{InTx, SharedTx, Sqlx};
     #[cfg(feature = "mysql")]
@@ -58,6 +62,10 @@ pub use fastauth_actix as actix;
 /// The sqlx adapter for Postgres, SQLite and MySQL.
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub use fastauth_sqlx as sqlx;
+
+/// Secondary storage on Redis or Valkey: `.secondary_storage(RedisStorage::connect(url).await?)`.
+#[cfg(feature = "redis")]
+pub use fastauth_redis as redis;
 
 /// Social sign-in: `.plugin(Social::new().provider(Github::new(id, secret)))`.
 #[cfg(feature = "oauth")]

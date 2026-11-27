@@ -35,6 +35,8 @@ postgres = ["dep:fastauth-sqlx", "fastauth-sqlx/postgres"]
 sqlite = ["dep:fastauth-sqlx", "fastauth-sqlx/sqlite"]
 mysql = ["dep:fastauth-sqlx", "fastauth-sqlx/mysql"]
 mysql-tls = ["mysql", "fastauth-sqlx/tls-rustls"]
+redis = ["dep:fastauth-redis"]
+redis-tls = ["redis", "fastauth-redis/tls"]
 oauth = ["dep:fastauth-oauth", "fastauth-oauth/reqwest"]
 two-factor = ["dep:fastauth-plugin-two-factor"]
 organization = ["dep:fastauth-plugin-organization"]
@@ -70,6 +72,7 @@ fastauth-plugin-passkey = { version = "0.6.0", path = "../fastauth-plugin-passke
 fastauth-plugin-organization = { version = "0.6.0", path = "../fastauth-plugin-organization", optional = true }
 fastauth-plugin-two-factor = { version = "0.6.0", path = "../fastauth-plugin-two-factor", optional = true }
 fastauth-plugin-username = { version = "0.6.0", path = "../fastauth-plugin-username", optional = true }
+fastauth-redis = { version = "0.6.0", path = "../fastauth-redis", optional = true }
 fastauth-sqlx = { version = "0.6.0", path = "../fastauth-sqlx", default-features = false, optional = true }
 time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
 

@@ -11,6 +11,9 @@ pub struct Config {
     pub app_url: String,
     pub port: u16,
     pub database_url: String,
+    /// Redis or Valkey that every instance of the server shares, so rate limits hold across
+    /// instances. Without it each instance counts on its own, which is right for one.
+    pub redis_url: Option<String>,
     /// Where the dev mailer appends one JSON line per email.
     pub outbox: PathBuf,
     /// How many proxies that append to `x-forwarded-for` sit in front of the server. 0 means
@@ -61,6 +64,7 @@ impl Config {
                 .transpose()?
                 .unwrap_or(3000),
             database_url: env::var("DATABASE_URL").context("DATABASE_URL is not set")?,
+            redis_url: optional("REDIS_URL"),
             outbox: optional("MAIL_OUTBOX")
                 .unwrap_or_else(|| "outbox.jsonl".to_owned())
                 .into(),
