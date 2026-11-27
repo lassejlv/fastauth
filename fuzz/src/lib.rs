@@ -58,7 +58,7 @@ pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 
 pub fn build_auth() -> FuzzAuth {
     FastAuth::builder()
-        .secret(Secret::from_bytes(vec![7u8; 32]))
+        .secret(Secret::from_bytes(SECRET.to_vec()))
         .base_url(BASE_URL)
         .trusted_origins([TRUSTED])
         .database(MemoryAdapter::new())
@@ -145,4 +145,56 @@ pub static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| {
 pub fn session_user(headers: &HeaderMap) -> Option<String> {
     let (session, _) = RUNTIME.block_on(FIXTURE.auth.session_with_cookies(headers));
     session.ok().flatten().map(|s| s.user.email.clone())
+}
+
+pub mod authenticator;
+pub mod client;
+pub mod json;
+pub mod mock_http;
+
+/// The secret every fuzz auth instance is built with.
+pub const SECRET: [u8; 32] = [7u8; 32];
+
+/// Signs `value` the way fastauth signs the session cookie cache (HMAC-SHA256 under an HKDF
+/// key from the secret). The fuzzer knows the secret, so forged payloads get past the
+/// signature and reach the decoder behind it.
+pub fn sign_cache(value: &str) -> String {
+    use hmac::{KeyInit, Mac};
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"fastauth"), &SECRET);
+    let mut key = [0u8; 32];
+    hk.expand(b"fastauth/v1/cookie-cache", &mut key)
+        .expect("32 bytes is a valid HKDF output length");
+    let mut mac = <hmac::Hmac<sha2::Sha256> as KeyInit>::new_from_slice(&key).expect("any key");
+    mac.update(value.as_bytes());
+    format!(
+        "{value}.{}",
+        fastauth_core::crypto::base64url(&mac.finalize().into_bytes())
+    )
+}
+
+/// A value rebuilt every `every` uses, so the rows a long run piles up (sessions, users)
+/// can't grow without bound.
+pub struct Rotating<T> {
+    make: fn() -> T,
+    every: u32,
+    state: std::sync::Mutex<(u32, Option<std::sync::Arc<T>>)>,
+}
+
+impl<T> Rotating<T> {
+    pub const fn new(make: fn() -> T, every: u32) -> Self {
+        Self {
+            make,
+            every,
+            state: std::sync::Mutex::new((0, None)),
+        }
+    }
+
+    pub fn get(&self) -> std::sync::Arc<T> {
+        let mut state = self.state.lock().unwrap();
+        if state.1.is_none() || state.0 >= self.every {
+            *state = (0, Some(std::sync::Arc::new((self.make)())));
+        }
+        state.0 += 1;
+        state.1.clone().unwrap()
+    }
 }

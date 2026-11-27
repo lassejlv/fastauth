@@ -13,20 +13,31 @@ members = ["."]
 
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
+aws-lc-rs = "1"
 bytes = "1"
 fastauth-core = { path = "../crates/fastauth-core" }
+fastauth-oauth = { path = "../crates/fastauth-oauth" }
 fastauth-plugin-admin = { path = "../crates/fastauth-plugin-admin" }
 fastauth-plugin-api-key = { path = "../crates/fastauth-plugin-api-key" }
 fastauth-plugin-bearer = { path = "../crates/fastauth-plugin-bearer" }
 fastauth-plugin-email-otp = { path = "../crates/fastauth-plugin-email-otp" }
 fastauth-plugin-jwt = { path = "../crates/fastauth-plugin-jwt" }
 fastauth-plugin-magic-link = { path = "../crates/fastauth-plugin-magic-link" }
+fastauth-plugin-multi-session = { path = "../crates/fastauth-plugin-multi-session" }
 fastauth-plugin-organization = { path = "../crates/fastauth-plugin-organization" }
+fastauth-plugin-passkey = { path = "../crates/fastauth-plugin-passkey" }
 fastauth-plugin-two-factor = { path = "../crates/fastauth-plugin-two-factor" }
+fastauth-plugin-username = { path = "../crates/fastauth-plugin-username" }
+fastauth-sqlx = { path = "../crates/fastauth-sqlx", default-features = false, features = ["sqlite"] }
+hkdf = "0.13"
+hmac = "0.13"
 http = "1"
 libfuzzer-sys = "0.4"
 percent-encoding = "2"
+serde_cbor_2 = "0.13"
 serde_json = "1"
+sha2 = "0.11"
+time = "0.3"
 tokio = { version = "1", features = ["rt"] }
 url = "2"
 
@@ -68,6 +79,69 @@ bench = false
 [[bin]]
 name = "callback_url"
 path = "fuzz_targets/callback_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cookie_cache"
+path = "fuzz_targets/cookie_cache.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "multi_session_cookies"
+path = "fuzz_targets/multi_session_cookies.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oauth_callback"
+path = "fuzz_targets/oauth_callback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "otp_verify"
+path = "fuzz_targets/otp_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "passkey_json"
+path = "fuzz_targets/passkey_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "api_key_header"
+path = "fuzz_targets/api_key_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "username"
+path = "fuzz_targets/username.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "like_filter"
+path = "fuzz_targets/like_filter.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jwt_verify"
+path = "fuzz_targets/jwt_verify.rs"
 test = false
 doc = false
 bench = false
