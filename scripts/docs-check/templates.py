@@ -217,6 +217,7 @@ let _b = FastAuth::builder()
 ;
 Ok(())
 }"""),
+    block('.base_url("http://staging.internal:3000")', chain()),
     block(".email_password(", """fn block() {
 let _b = FastAuth::builder()
 @
@@ -473,6 +474,8 @@ mod stripe { pub async fn create_customer(_: &str) -> Result<(), fastauth::AuthE
     block("pub trait AccessTokensExt: AuthInstance + Sized {"),
     block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
     block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
+    block("app.prepare_user_input(|ctx, mut input, kind| async move {"),
+    block("fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {"),
     block('let remember_me = if attempt.remember_me { "1" } else { "0" };'),
     block("match ctx"),
     block("app.session_gate(|_ctx, session: SessionView, usage: SessionUse| async move {"),
@@ -493,7 +496,7 @@ pub enum BanError {
 }
 fn is_borrowed(_: &SessionView) -> bool { false }
 @4
-@13
+@15
 }
 @5
 pub struct CreateTokenFresh(Arc<AccessTokens>);
@@ -521,31 +524,43 @@ impl Plugin for Disposable {
 
 @12
 }
+pub struct ClaimTokens;
+impl Plugin for ClaimTokens {
+    const ID: &'static str = "claim-tokens";
+    type Requires = ();
+    type UserFields = ();
+    type SessionFields = ();
+
+@13
+}
+fn prepare_user_input<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
+@14
+}
 struct Tfa { two_factor_cookie_max_age: Duration }
 const PENDING_PREFIX: &str = "two-factor-pending:";
 const PENDING_COOKIE: &str = "two_factor";
 async fn two_factor_gate<D: Adapter>(plugin: &Tfa, ctx: HookCtx<D>, attempt: SignInAttempt) -> Result<Gate, AuthError> {
-@14
+@16
 }
 enum VerifyOutput { Challenge(serde_json::Value) }
 async fn verify_two_factor<D: Adapter>(ctx: &Ctx<D, MaybeAuthenticated>, user: UserView, method: Cow<'static, str>, remember_me: bool) -> Result<VerifyOutput, AuthError> {
 let _session =
-@15
+@17
 ;
 Ok(VerifyOutput::Challenge(json!(null)))
 }
 fn session_gate<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
-@16
-}
-fn fixed_session_expiry<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
-@17
-}
-fn on_session_created<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
 @18
 }
-pub struct OrgBilling;
+fn fixed_session_expiry<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
 @19
-@20""")
+}
+fn on_session_created<D: Adapter>(app: &mut PluginBuilder<'_, D>) {
+@20
+}
+pub struct OrgBilling;
+@21
+@22""")
 
 page("reference/02-internals.md", "", [
     excerpt("pub struct Nil;"),
