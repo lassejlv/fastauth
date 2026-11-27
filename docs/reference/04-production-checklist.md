@@ -130,6 +130,10 @@ See [Databases](../concepts/02-database.md#mysql).
 `Sqlx<MySql>` needs MySQL 8.0.17 or later. MariaDB isn't supported and fails at the first
 `CREATE TABLE` (DB-5).
 
+fastauth runs its transactions at READ COMMITTED on MySQL (F61-7), so keep `binlog_format` at
+`ROW`, the default, or `MIXED`: under `STATEMENT`, InnoDB refuses writes at that level. If
+you pass your own transaction with `in_tx`, begin it at READ COMMITTED too.
+
 ## 11. Migrations run to completion
 
 - Generate migrations with `cargo run --bin fastauth -- generate`, review them, and apply

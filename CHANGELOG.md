@@ -48,6 +48,10 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-6 (low):** `.build()` refused a weak *retired* secret too, so rotating off a weak 0.5
   secret forced `allow_insecure_config(true)` in production. Only the current secret is
   refused now; a weak retired one logs a warning.
+- **F61-7 (low):** first-time `/two-factor/enable` calls for *different* users deadlocked on
+  MySQL (a gap lock from deleting a missing row, then inserts into the gap), and one answered
+  500. fastauth's own MySQL transactions now begin at READ COMMITTED, as Postgres runs by
+  default; keep `binlog_format` at ROW or MIXED.
 
 ### Core
 

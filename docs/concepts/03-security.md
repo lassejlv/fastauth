@@ -476,6 +476,13 @@ user's row: the organization plugin's `organization_limit`, so parallel creates 
 see room for one more. On Postgres and MySQL the second request waits for the first; SQLite
 runs one write transaction at a time anyway.
 
+On MySQL, fastauth begins its own transactions at READ COMMITTED, the level Postgres uses by
+default, instead of InnoDB's REPEATABLE READ. Under REPEATABLE READ a locking write that
+finds no row locks the gap around it, so two requests for different users that each did that
+and then inserted into the gap deadlocked (two first-time `/two-factor/enable` calls, one of
+them answering 500). The level is set for each transaction only; the pool's connections keep
+theirs. A transaction you hand in with `in_tx` keeps the level you began it with.
+
 In production:
 
 - **Use TLS to the database, and check the certificate.** sqlx's default for MySQL is
@@ -487,6 +494,8 @@ In production:
   migration fails on it rather than running with different comparison rules.
 - **Keep MySQL's `sql_mode` strict** (the default), so a value too long for a key column is
   an error and not cut short into another value's key.
+- **Keep MySQL's `binlog_format` at ROW** (the default) or MIXED. InnoDB refuses writes in a
+  READ COMMITTED transaction under `binlog_format=STATEMENT`.
 - **UUID ids compare as UUIDs on Postgres and MySQL.** Under a UUID id strategy, other
   spellings of the same UUID (uppercase, no hyphens, braces) find the same row there, while
   SQLite stores ids as text and compares them exactly. The admin plugin's "not yourself"

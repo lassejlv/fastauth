@@ -108,6 +108,8 @@ pub trait Driver: Database {
     /// constraint over several text columns needs prefix lengths (MySQL's InnoDB: 3072,
     /// with 4 bytes per utf8mb4 character).
     const KEY_BYTES: Option<usize> = None;
+    /// The statement an owned transaction begins with, when the default `BEGIN` won't do.
+    const BEGIN: Option<&'static str> = None;
 
     fn param(n: usize, out: &mut String);
     /// Renders a case-sensitive `kind` match of `column` against the needle bound at
