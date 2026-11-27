@@ -146,7 +146,9 @@ you pass your own transaction with `in_tx`, begin it at READ COMMITTED too.
   doesn't count as the constraint (F61-8): the migrator plans the constraint again. Drop the
   invalid index (`DROP INDEX CONCURRENTLY ..`) once you've fixed the duplicates.
 - The migrator refuses to add a unique constraint to a table that holds duplicates and
-  names the rows. [Unique constraints on an existing
+  names the rows. On MySQL it compares values the way the index will, by their indexed
+  prefix (384 characters each for `account (provider_id, account_id)`), so two values that
+  differ only after it are refused before any DDL runs (F61-9). [Unique constraints on an existing
   database](../concepts/02-database.md#unique-constraints-on-an-existing-database) has a
   query to fix each table.
 

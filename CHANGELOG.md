@@ -55,6 +55,10 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-8 (low):** on Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX
   CONCURRENTLY` counted as the unique constraint, so the migrator planned nothing and
   duplicates went in. Introspection now counts only valid, ready indexes.
+- **F61-9 (info):** on MySQL the duplicate check compared whole values but a unique index
+  over two text columns keys on a 384-character prefix of each, so values that differed only
+  after it passed the check and the migration failed half-way. The check now groups by the
+  indexed prefix and refuses before any DDL.
 - **F61-10 (info):** the secret entropy estimate (length × log2 of distinct bytes) passed
   placeholders repeated to length (`"changeme"` × 6) and refused about a third of
   `openssl rand -hex 16` secrets. `Secret::entropy_bits` now counts repeated and counting
