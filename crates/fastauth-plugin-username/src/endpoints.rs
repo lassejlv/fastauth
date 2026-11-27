@@ -194,6 +194,7 @@ impl<D: Adapter> Endpoint<D> for SignInUsername {
             .as_ref()
             .is_some_and(|config| config.requires_email_verification());
         if require_verification && !user.email_verified {
+            internal.remember_password_holder(&user);
             if internal.can_send_email() {
                 internal
                     .send_verification_email(&user, input.callback_url.as_deref())

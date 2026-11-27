@@ -39,6 +39,9 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
   (as a bearer token, or from a cookie jar that dropped the marker) slid to the full
   `expires_in`. The refresh now also skips a session whose stored lifetime is shorter than
   `expires_in` and at most a day.
+- **F61-4 (low):** a username sign-in refused with `EMAIL_NOT_VERIFIED` mailed a link but left
+  no `pending_verification` cookie, so the owner opening it in that browser was claimed and
+  lost the password. It now leaves the cookie, as the email sign-in does.
 
 ### Core
 

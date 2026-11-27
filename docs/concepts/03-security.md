@@ -323,7 +323,7 @@ the same with `Internal::lock_user_unless_claimed`
 
 **Verification links.** A verification link proves the mailbox, but not that the person who
 opens it set the password. When the request also carries the user's session, or the signed
-`pending_verification` cookie that sign-up (and a sign-in refused with `EMAIL_NOT_VERIFIED`)
+`pending_verification` cookie that sign-up (and an email or username sign-in refused with `EMAIL_NOT_VERIFIED`)
 leaves in the browser that knew the password, the email is just marked verified. Otherwise
 the link claims the user: the password is deleted with everything else, and the owner signs
 in with a magic link or code, or sets a password with a reset. Without this, someone who signed
