@@ -180,6 +180,7 @@ None of this exists yet. Don't write code against it; it may change shape before
   `organization_limit`.
 - **Social:** Apple, Discord, Microsoft, GitLab and other providers, and a generic OIDC
   provider with `id_token` verification against the provider's JWKS.
-- **Tooling:** importing Better Auth scrypt password hashes, re-encrypting columns after a
+- **Tooling:** a password hasher that verifies Better Auth's scrypt hashes and rehashes them
+  with argon2id on sign-in, re-encrypting columns after a
   secret rotation, an OpenAPI document of the registered endpoints, a `TestAuth` test
   helper, and an `#[endpoint]` attribute that writes an endpoint from a function.

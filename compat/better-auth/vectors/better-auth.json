@@ -1,0 +1,883 @@
+{
+  "generator": {
+    "better-call": "1.4.2",
+    "@better-auth/utils": "0.5.0",
+    "node": "v24.22.1"
+  },
+  "cookies": [
+    {
+      "secret": "Zp1n3pXcQ3gyq0z0r1f8m2Kq4bVw9tYvJ6cL5dHs7uE=",
+      "name": "vt.session_token",
+      "signed": [
+        {
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D"
+        },
+        {
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW",
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.2dVFQPSfCmaOTsUdeEMquUp17zBNv0wJFDASJQwuMo8%3D"
+        },
+        {
+          "value": "true",
+          "cookie": "true.uXjp1I9%2B28uDRyHEpw8qD4bCmRZeoONItSe2dtoN9GI%3D"
+        },
+        {
+          "value": "a b",
+          "cookie": "a%20b.%2Bjkel4IkR21D1eWUxQaR67iu6HvNNVuRmbvNgz9covc%3D"
+        },
+        {
+          "value": "tok:1",
+          "cookie": "tok%3A1.tAAkzfFHjIboVgducEAX422L9p61bdh%2B%2BEbIj7N1xWY%3D"
+        },
+        {
+          "value": "a;b,c=d",
+          "cookie": "a%3Bb%2Cc%3Dd.aIN9YwiXnqE9vYwyzHJ0JA2rv2nqgEuRQ61MtaEmTVE%3D"
+        },
+        {
+          "value": "100%",
+          "cookie": "100%25.J4Cf%2FV8eerBUeZ0kxY1iGEr6qQS1hqKaPWwdqv1B3BM%3D"
+        },
+        {
+          "value": "+/=?&#",
+          "cookie": "%2B%2F%3D%3F%26%23.X2p%2BVz4HeXuRyLLAMclNZtTt5d%2B0qst8dNGrBJ20bPc%3D"
+        },
+        {
+          "value": "ünïcödé",
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.geUL6xSGQUiNjfZ1ZzG2PG63FZNQEWqdDNQ%2Bhyuer1w%3D"
+        },
+        {
+          "value": "🔑",
+          "cookie": "%F0%9F%94%91.8ONpx6zambwuL%2BGU8O5mRf%2FUasviWghBKgPTEuqE%2Frk%3D"
+        },
+        {
+          "value": "\"quoted\"",
+          "cookie": "%22quoted%22.0DTmyqRjYbj%2BbvZaFIUP4V874QhLJGSqSNJQVN4mpqQ%3D"
+        },
+        {
+          "value": "!~*'()-_.",
+          "cookie": "!~*'()-_..mIzDFinntKD2%2BikZmR6VsBmAUx%2FrC3LDzFiXFUdXr6c%3D"
+        },
+        {
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.cTmXpqHMOWc8CTA72xw%2BVG4AKcMv251oCfkjJy0VL6g%3D"
+        }
+      ],
+      "parse": [
+        {
+          "label": "encoded, as set",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "not encoded",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC+Ch1xYl+slXwkVvIwTG3BhkM=",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "quoted",
+          "header": "vt.session_token=\"Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D\"",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "among other cookies",
+          "header": "a=1; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D; b=2",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "spaces around the value",
+          "header": "vt.session_token=  Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D  ",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (good first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D; vt.session_token=junk",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (bad first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D",
+          "result": false
+        },
+        {
+          "label": "another name",
+          "header": "xvt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D",
+          "result": null
+        },
+        {
+          "label": "tampered value",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D",
+          "result": false
+        },
+        {
+          "label": "signed with another secret",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.pyrbSBYIIWkIwQ%2Be5g%2BMZe0jw%2Bpm063ZlEoWKIQamDQ%3D",
+          "result": false
+        },
+        {
+          "label": "signature without padding",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC+Ch1xYl+slXwkVvIwTG3BhkM",
+          "result": null
+        },
+        {
+          "label": "url-safe signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC-Ch1xYl-slXwkVvIwTG3BhkM=",
+          "result": false
+        },
+        {
+          "label": "empty value",
+          "header": "vt.session_token=.ASJxDVzE%2Fbz%2B1Q30pkyLOYgZIYSemAgURn8oJb%2Fvp5U%3D",
+          "result": null
+        },
+        {
+          "label": "no signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "result": null
+        },
+        {
+          "label": "empty cookie",
+          "header": "vt.session_token=",
+          "result": null
+        },
+        {
+          "label": "malformed escape, signed raw",
+          "header": "vt.session_token=abc%zz.V53b5eaYtpK3gHVpWFvtHNrC+j7Fj5dvEHaM/qemyzg=",
+          "result": "abc%zz"
+        },
+        {
+          "label": "malformed escape, signed decoded",
+          "header": "vt.session_token=abc%zz.osZOgygcdoQlQ2Pj6ZVJY3Hj+hZJO6HZFfKD6hDrG10=",
+          "result": false
+        },
+        {
+          "label": "invalid UTF-8 escape",
+          "header": "vt.session_token=a%FFb.GeW5ZocBkXIj7UYmjANJ//MsAX3Us837rKfqPKeYybA=",
+          "result": "a%FFb"
+        },
+        {
+          "label": "encoded dot in the value",
+          "header": "vt.session_token=a.b.4GzlYKc8r6f%2Br3EZBes26W8heKpef%2FRlc01dlKYcQQs%3D",
+          "result": "a.b"
+        },
+        {
+          "label": "percent-encoded twice",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%252BCh1xYl%252BslXwkVvIwTG3BhkM%253D",
+          "result": null
+        },
+        {
+          "label": "lowercase escapes",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2bCh1xYl%2bslXwkVvIwTG3BhkM%3d",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        }
+      ]
+    },
+    {
+      "secret": "6f1c0d5e9a2b4c7d8e3f6a1b2c5d4e7f9a0b3c6d8e1f2a5b4c7d0e9f8a3b6c1d",
+      "name": "vt.session_token",
+      "signed": [
+        {
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D"
+        },
+        {
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW",
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.EIkVvSKnx4aekJFv5LHnFHVtl6YyoMHBTUYfkuQtDg4%3D"
+        },
+        {
+          "value": "true",
+          "cookie": "true.4Bc%2FNJkndBzvR3i%2FqISMEPrpTYcehcyWv6VxvvZQ1yU%3D"
+        },
+        {
+          "value": "a b",
+          "cookie": "a%20b.FNIGBgOEotCQ2k3EKjqnv4IXGWRKiMarEj3sJmNS9AM%3D"
+        },
+        {
+          "value": "tok:1",
+          "cookie": "tok%3A1.SllxGqV1L%2FimF9Nd%2FekBmg%2Bs4NqmqPVUnruGtJHGeZc%3D"
+        },
+        {
+          "value": "a;b,c=d",
+          "cookie": "a%3Bb%2Cc%3Dd.EkUxzOdt%2FVAhiU155G9htz9xqe0DkAh5sBbcbyJWSdI%3D"
+        },
+        {
+          "value": "100%",
+          "cookie": "100%25.hiVfCREj3y2CCG3GVX%2BJhnri5hrsV4atAjjyrOTU7tg%3D"
+        },
+        {
+          "value": "+/=?&#",
+          "cookie": "%2B%2F%3D%3F%26%23.D2erRL5Q50RoK1xKnjxeAdrUNLS7gJ7cHUjPxxuvNDk%3D"
+        },
+        {
+          "value": "ünïcödé",
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.%2FwmtaZzZ6bdw%2FHO8EcIgKMRUNgVr7q%2B6IXZANxZiM4k%3D"
+        },
+        {
+          "value": "🔑",
+          "cookie": "%F0%9F%94%91.heacE2q1iOqbBMd%2Fh6wjuK8fUeVfm3F%2Faq2ermRLkhk%3D"
+        },
+        {
+          "value": "\"quoted\"",
+          "cookie": "%22quoted%22.LfVeSzPRcb6LnR5NLfxaN%2F63N7DOOU5rjhuK2wPndTQ%3D"
+        },
+        {
+          "value": "!~*'()-_.",
+          "cookie": "!~*'()-_..CdtlRjJEUQu42sNzfMB6bmMLquDnyLP5WNkgyoaQJTg%3D"
+        },
+        {
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.U9Kp70q2lA70g55FjiCKcyCq5rf6ai%2BGjUecNE2g3XY%3D"
+        }
+      ],
+      "parse": [
+        {
+          "label": "encoded, as set",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "not encoded",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ=",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "quoted",
+          "header": "vt.session_token=\"Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D\"",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "among other cookies",
+          "header": "a=1; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D; b=2",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "spaces around the value",
+          "header": "vt.session_token=  Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D  ",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (good first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D; vt.session_token=junk",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (bad first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D",
+          "result": false
+        },
+        {
+          "label": "another name",
+          "header": "xvt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D",
+          "result": null
+        },
+        {
+          "label": "tampered value",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D",
+          "result": false
+        },
+        {
+          "label": "signed with another secret",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.Dmn%2B6wZnXYdceUFBjJOq949Hqgy47rNijLybPPFHyOc%3D",
+          "result": false
+        },
+        {
+          "label": "signature without padding",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ",
+          "result": null
+        },
+        {
+          "label": "url-safe signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ=",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "empty value",
+          "header": "vt.session_token=.kRR%2BhYkBh9NKjlG7GaUi118fFabfhPLXbYuSmPyMcF0%3D",
+          "result": null
+        },
+        {
+          "label": "no signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "result": null
+        },
+        {
+          "label": "empty cookie",
+          "header": "vt.session_token=",
+          "result": null
+        },
+        {
+          "label": "malformed escape, signed raw",
+          "header": "vt.session_token=abc%zz.sjHdwXxveoa3/olChasrkAkJiuAdngsiGfbYBRmPvjs=",
+          "result": "abc%zz"
+        },
+        {
+          "label": "malformed escape, signed decoded",
+          "header": "vt.session_token=abc%zz.NybHxYp09gyGw5jf3Ul3glPTfluz7SC6zVsSLy+dUVA=",
+          "result": false
+        },
+        {
+          "label": "invalid UTF-8 escape",
+          "header": "vt.session_token=a%FFb.GnK1+9pTCRlcol0Q1w3dHE7nRzgNEt4yic7j/Ka5Q+o=",
+          "result": "a%FFb"
+        },
+        {
+          "label": "encoded dot in the value",
+          "header": "vt.session_token=a.b.ESSIn0lXl%2FmtYKvh8cYNuQxkIQJ1KGxcQnuJrp1H%2Fjw%3D",
+          "result": "a.b"
+        },
+        {
+          "label": "percent-encoded twice",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%253D",
+          "result": null
+        },
+        {
+          "label": "lowercase escapes",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3d",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        }
+      ]
+    },
+    {
+      "secret": "sécret-ünïcödé-🔑-0123456789-abcdefghijklmnop",
+      "name": "vt.session_token",
+      "signed": [
+        {
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D"
+        },
+        {
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW",
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.qv5Z8ES79Lt8CjYz2dSjANbIopPVP1CSh0KKjW%2FI7Ps%3D"
+        },
+        {
+          "value": "true",
+          "cookie": "true.lPTblGzXb6n5I3r58SgIKybPBWnQv3EOqDwPmVaNi8o%3D"
+        },
+        {
+          "value": "a b",
+          "cookie": "a%20b.6YuwnYVeI0DLJgynIhR7NUO3lv4omhUgx7qoExbs%2F1M%3D"
+        },
+        {
+          "value": "tok:1",
+          "cookie": "tok%3A1.LK5UF85IDDlyPb6bgpK6m%2FG6PKqleoHL8wP30oCjsos%3D"
+        },
+        {
+          "value": "a;b,c=d",
+          "cookie": "a%3Bb%2Cc%3Dd.t3QGXqAjrX1RLB2k%2B7BNyv678vO1NdUJMiXrgM1PsGk%3D"
+        },
+        {
+          "value": "100%",
+          "cookie": "100%25.ZWTeV2gVrVYK%2Fe90HmL4Pamr9gmeT%2BlZ8sg%2Bk9W2FAI%3D"
+        },
+        {
+          "value": "+/=?&#",
+          "cookie": "%2B%2F%3D%3F%26%23.8hhjGt2t4%2FKDNhMF76fFxcGWIi4SdK0FFcNIN5g3RCQ%3D"
+        },
+        {
+          "value": "ünïcödé",
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.sV6XDSYGh4dtOtQ9LxsjjpwHfnSYjF6QgwrqJz4Qj0M%3D"
+        },
+        {
+          "value": "🔑",
+          "cookie": "%F0%9F%94%91.fG6RueYLw62HOGePwQ%2F7ScowasYzrsvTC5Umnkym8v8%3D"
+        },
+        {
+          "value": "\"quoted\"",
+          "cookie": "%22quoted%22.BBZC9NOENT61B5ppV2OYOA8Bg64gmIfMG%2Bo5gIhmz0U%3D"
+        },
+        {
+          "value": "!~*'()-_.",
+          "cookie": "!~*'()-_..h8vqgwzCAQl%2B8GMS%2FUTcQwH%2Fyy%2BOZhCUVd34R5ZO448%3D"
+        },
+        {
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.u6G9NtAnZcDZfxi1rolf1XypSr7c%2BiRsK0my0zd%2FK0c%3D"
+        }
+      ],
+      "parse": [
+        {
+          "label": "encoded, as set",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "not encoded",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7/nqC62fql000cczoNS4Va2/4PuzGEN9eeqi3WsU=",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "quoted",
+          "header": "vt.session_token=\"Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D\"",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "among other cookies",
+          "header": "a=1; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D; b=2",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "spaces around the value",
+          "header": "vt.session_token=  Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D  ",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (good first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D; vt.session_token=junk",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "label": "first of two wins (bad first)",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D; vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D",
+          "result": false
+        },
+        {
+          "label": "another name",
+          "header": "xvt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D",
+          "result": null
+        },
+        {
+          "label": "tampered value",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dQ.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D",
+          "result": false
+        },
+        {
+          "label": "signed with another secret",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.EY0CEbY3gzOEdO3zEq2c%2Bm%2FdiZtcuPz5w04KNK2WyVQ%3D",
+          "result": false
+        },
+        {
+          "label": "signature without padding",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7/nqC62fql000cczoNS4Va2/4PuzGEN9eeqi3WsU",
+          "result": null
+        },
+        {
+          "label": "url-safe signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7_nqC62fql000cczoNS4Va2_4PuzGEN9eeqi3WsU=",
+          "result": false
+        },
+        {
+          "label": "empty value",
+          "header": "vt.session_token=.tfZa6iFqonojqyuwcIVLr3mAxbffaU6H0RrWLu%2BDyaA%3D",
+          "result": null
+        },
+        {
+          "label": "no signature",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE",
+          "result": null
+        },
+        {
+          "label": "empty cookie",
+          "header": "vt.session_token=",
+          "result": null
+        },
+        {
+          "label": "malformed escape, signed raw",
+          "header": "vt.session_token=abc%zz.BlLIs74JOqe1oK0WKCG41Xe6dtxEmLIfGuFZg1OCNY8=",
+          "result": "abc%zz"
+        },
+        {
+          "label": "malformed escape, signed decoded",
+          "header": "vt.session_token=abc%zz.K2O4g1E0IJankWPLMq7SrTJDxZ2heFNCiw3eVcTum08=",
+          "result": false
+        },
+        {
+          "label": "invalid UTF-8 escape",
+          "header": "vt.session_token=a%FFb.NkKDFqDWsBkbB7U+aOhZUYj5BVE4OCp+XZg44B0Z0/I=",
+          "result": "a%FFb"
+        },
+        {
+          "label": "encoded dot in the value",
+          "header": "vt.session_token=a.b.1dwStt9B33tarJCl%2FwRsutNQlDdz7GDjPkq6v6%2FQcQ4%3D",
+          "result": "a.b"
+        },
+        {
+          "label": "percent-encoded twice",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%252FnqC62fql000cczoNS4Va2%252F4PuzGEN9eeqi3WsU%253D",
+          "result": null
+        },
+        {
+          "label": "lowercase escapes",
+          "header": "vt.session_token=Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2fnqC62fql000cczoNS4Va2%2f4PuzGEN9eeqi3WsU%3d",
+          "result": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        }
+      ]
+    }
+  ],
+  "scrypt": [
+    {
+      "label": "plain",
+      "password": "correct horse battery staple",
+      "hash": "f999ae05bde260786c7c29e899d46b15:df95ddfb171a686ec7891fb8277f5b4eb38a266eca494af513fe140dc3c3657df8f5930e596cd175dbff7483af5b9d8808ed01e4464d42e0072636389af6ea1c",
+      "checks": [
+        {
+          "password": "correct horse battery staple",
+          "result": true
+        },
+        {
+          "password": "correct horse battery staple ",
+          "result": false
+        },
+        {
+          "password": "correct horse battery staplex",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "ligature fi",
+      "password": "ﬁnance",
+      "hash": "55a60027771f6eeec021037574a01287:e40888c978b4dea38c4a1100919d49c7c97ce5868ec04fb2583223cbcf79f7bf3df4e4fa9708635d641e75dea46e1e6239dabcaa51569e8486defee75f717ff9",
+      "checks": [
+        {
+          "password": "ﬁnance",
+          "result": true
+        },
+        {
+          "password": "finance",
+          "result": true
+        },
+        {
+          "password": "ﬁnancex",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "fi alone",
+      "password": "ﬁ",
+      "hash": "c97b75319c934ceca28db43a89f27cb8:58f9f7d2f7715d54d2908fd165611a728e26f3c78d5ef57cfa40eba3d1cc820865554fc44ca9dc1d124241a3f2c46456f264281316092373cd31771373890461",
+      "checks": [
+        {
+          "password": "ﬁ",
+          "result": true
+        },
+        {
+          "password": "fi",
+          "result": true
+        },
+        {
+          "password": "ﬁx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "combining acute",
+      "password": "café",
+      "hash": "4316df84105b8da2b3ddeaae02c4ebbf:c8d122d760796671d934782adf8c64123146ac84ef2ece7857202eb655032ac72416ead4885183706ea06e207b6880809627b38931deb64753d7a8b356c58c06",
+      "checks": [
+        {
+          "password": "café",
+          "result": true
+        },
+        {
+          "password": "café",
+          "result": true
+        },
+        {
+          "password": "caféx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "precomposed acute",
+      "password": "café",
+      "hash": "3673f7e48cfc50e2314b5c79eb112a9e:71814c87686ec753846ab8642cdb9e6f75f08bf3b834f6dc881e9c2ec5f86f6ab9022b1b8c37ea509a6fc11c6e9b3a7ca264cdaec0c421d4223e5b814a81c1b7",
+      "checks": [
+        {
+          "password": "café",
+          "result": true
+        },
+        {
+          "password": "café",
+          "result": true
+        },
+        {
+          "password": "caféx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "full-width",
+      "password": "ｐａｓｓｗｏｒｄ",
+      "hash": "9d9a1f47db0faec35fabb2eddaba03c9:125f95a018b4ae26338796c34e5a15982f8263713c3fd0da1813d12dfe93104c98d40130b4cd859d3ae77410071999403c5423e771d66ac65eddaa2d43ba1436",
+      "checks": [
+        {
+          "password": "ｐａｓｓｗｏｒｄ",
+          "result": true
+        },
+        {
+          "password": "password",
+          "result": true
+        },
+        {
+          "password": "ｐａｓｓｗｏｒｄx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "half-width katakana",
+      "password": "ﾊﾟｽﾜｰﾄﾞ",
+      "hash": "41d33f2459162c0b0cd04ae13256d261:2715246885f23156f361fea0bbabf335983bd9278ed983a824e7e1ada47b39434a5e085d74bf74e4be9a6be225ef704e4360805471d98605f7fb70619052c26f",
+      "checks": [
+        {
+          "password": "ﾊﾟｽﾜｰﾄﾞ",
+          "result": true
+        },
+        {
+          "password": "パスワード",
+          "result": true
+        },
+        {
+          "password": "ﾊﾟｽﾜｰﾄﾞx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "circled digits",
+      "password": "①②③④",
+      "hash": "ec97944e983050fda337ccd585f8a04b:7ca2fe546c6518d3aadd4a19c35f87284edc8715ba8dcb5416ac49064500b426ea969d7c10d689a33c3785893e9e965613b51957c29200b1fa0b0a1edeb4478f",
+      "checks": [
+        {
+          "password": "①②③④",
+          "result": true
+        },
+        {
+          "password": "1234",
+          "result": true
+        },
+        {
+          "password": "①②③④x",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "angstrom sign",
+      "password": "Å",
+      "hash": "3af4300c2b1f8d97c8238833f61b4621:a4d5071d077dbe5ffdda01293d1fe7b635281c7842c9c57aaa5f1486e049a2e677e728c1a3aa68f6906104860c5e72deccd7de73f979b4a9422f25b3197c6c95",
+      "checks": [
+        {
+          "password": "Å",
+          "result": true
+        },
+        {
+          "password": "Å",
+          "result": true
+        },
+        {
+          "password": "Åx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "superscript",
+      "password": "x²",
+      "hash": "389f6470a20862560df21137989b088c:702a418cceffc9ae1328817e919df4babc189cbbd07a0732b9da89c8ad5553ece02db809445d8b2debd0d8e1e7c2ae04e23572ffbb582eec47b9e5fe07e20537",
+      "checks": [
+        {
+          "password": "x²",
+          "result": true
+        },
+        {
+          "password": "x2",
+          "result": true
+        },
+        {
+          "password": "x²x",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "sharp s",
+      "password": "straße",
+      "hash": "1ae27ac28ceb14a47afd1740a7b824ad:476f069b68d84b01eef0ae0c1c23f2eb0447c4fb9c77f13fb14990bca04650a259fb1dc74fc6a06de29c907719171f583d36c64f23d37f1eeb9c054530d285cb",
+      "checks": [
+        {
+          "password": "straße",
+          "result": true
+        },
+        {
+          "password": "strasse",
+          "result": false
+        },
+        {
+          "password": "straßex",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "arabic ligature",
+      "password": "ﷺ",
+      "hash": "cc69ebc721139945fcd6f4e22795c465:8eb63ec39a730b02e76509f7846c0150756ad6a99aa28282bf2e6b78737f7720d9d2b59f55ac1679fbe4c1aebe60fc540fb9d37ca08bfaab9a09f9ddf427ee5d",
+      "checks": [
+        {
+          "password": "ﷺ",
+          "result": true
+        },
+        {
+          "password": "ﷺx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "emoji",
+      "password": "🔑🔒 secret",
+      "hash": "61a46b77d325d4d822a3b874bbfc38f1:c3ba5b996248ff51fcd7bdb26be96538685ea27e5c17cfa4d2de43dcc706c71d78152810f3098ded14e152dbbfb582fd7f4fba84da61d894eb37d73be33d5afe",
+      "checks": [
+        {
+          "password": "🔑🔒 secret",
+          "result": true
+        },
+        {
+          "password": "🔑🔒 secretx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "empty",
+      "password": "",
+      "hash": "23ffc0b172e34ca07259f15005751a46:7fd0d30f1ea38f4544b0c721715d7b43440cc668c87fbff48d02b614dbc85e215953fb83be1106cb6fcb5448655292ef411beb0f70d122d32caa6b06937924c6",
+      "checks": [
+        {
+          "password": "",
+          "result": true
+        },
+        {
+          "password": " ",
+          "result": false
+        },
+        {
+          "password": "x",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "one space",
+      "password": " ",
+      "hash": "5c20599709434129d7ee8210dca536be:f3888a4526642d5912d14c13ab963588eaa855a0a1c6cb7303e408198f85861328efbb2d4f7215ad5a5869d6e1247535eef0a17ca0c959ee3c2c56f453618536",
+      "checks": [
+        {
+          "password": " ",
+          "result": true
+        },
+        {
+          "password": "",
+          "result": false
+        },
+        {
+          "password": " x",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "whitespace",
+      "password": "\t\n ",
+      "hash": "330005b8b7f6c7e078f3fc9eb6ec6c43:98c7a211f372e5f87d3269443363cd59834256be3946bff533e9f49c1d16a6e2ee608dc4e0baad39b3e4f69d1991c30c993fe42fe52d680da9a8558496b108ef",
+      "checks": [
+        {
+          "password": "\t\n ",
+          "result": true
+        },
+        {
+          "password": "\t\n x",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "nul byte",
+      "password": "a\u0000b",
+      "hash": "5289b7cde4a9bd57301a2befba1849e1:075d1002ca8ba9effaef9969e9aa48249afeee9d9c669017b2dfdcefbf3053392a79ebd970defa6dc628000163f246427985f36c5353e1929b2854a0f5185b40",
+      "checks": [
+        {
+          "password": "a\u0000b",
+          "result": true
+        },
+        {
+          "password": "ab",
+          "result": false
+        },
+        {
+          "password": "a\u0000bx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "128 characters",
+      "password": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "hash": "5f56f5d80de4da05155960f8dfd88b87:aee77f38281127d58ce65d56acf4615348f3555ca9e4cbb4a8ac1062c12ec36b3dadd51b8da4e7b43d629c91d4e751afd2089734d7020265641a3a34e271ac18",
+      "checks": [
+        {
+          "password": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+          "result": true
+        },
+        {
+          "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+          "result": false
+        },
+        {
+          "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppx",
+          "result": false
+        }
+      ]
+    },
+    {
+      "label": "1000 characters",
+      "password": "Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lore",
+      "hash": "35cabcf0ae8e5f7aa78f7c5bbbf75f86:968e1fa7673440d88fb9429d3b5a1f573a78156d4063385fb716908c945d6dd6cfbd931bbb042692c218d2922451d69b415b8e635e89d76b3dcdf14107053cb4",
+      "checks": [
+        {
+          "password": "Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lore",
+          "result": true
+        },
+        {
+          "password": "Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorex",
+          "result": false
+        }
+      ]
+    }
+  ],
+  "malformed": [
+    {
+      "label": "extra part ignored",
+      "hash": "9127273fdb59fa35e95dc9c61422073b:43587ecea1e94f52c74cfdd1726c67ca2ffd07285a011ea53142b1a5fb5caa288e1c8f17023473abf2e0875bba48202bc4aab50e13acd2fb2acdb19e09e219ca:extra",
+      "password": "pw",
+      "result": true
+    },
+    {
+      "label": "uppercase key",
+      "hash": "9127273fdb59fa35e95dc9c61422073b:43587ECEA1E94F52C74CFDD1726C67CA2FFD07285A011EA53142B1A5FB5CAA288E1C8F17023473ABF2E0875BBA48202BC4AAB50E13ACD2FB2ACDB19E09E219CA",
+      "password": "pw",
+      "result": false
+    },
+    {
+      "label": "no colon",
+      "hash": "9127273fdb59fa35e95dc9c61422073b43587ecea1e94f52c74cfdd1726c67ca2ffd07285a011ea53142b1a5fb5caa288e1c8f17023473abf2e0875bba48202bc4aab50e13acd2fb2acdb19e09e219ca",
+      "password": "pw",
+      "result": "error"
+    },
+    {
+      "label": "empty salt",
+      "hash": ":43587ecea1e94f52c74cfdd1726c67ca2ffd07285a011ea53142b1a5fb5caa288e1c8f17023473abf2e0875bba48202bc4aab50e13acd2fb2acdb19e09e219ca",
+      "password": "pw",
+      "result": "error"
+    },
+    {
+      "label": "empty key",
+      "hash": "9127273fdb59fa35e95dc9c61422073b:",
+      "password": "pw",
+      "result": "error"
+    }
+  ]
+}

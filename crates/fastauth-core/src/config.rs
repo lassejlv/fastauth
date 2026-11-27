@@ -6,7 +6,7 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 
 use crate::auth::ClientAddr;
-use crate::crypto::{Argon2id, PasswordHasher};
+use crate::crypto::{Argon2id, PasswordHasher, Secret};
 use crate::error::AuthError;
 use crate::models::Session;
 use crate::rate_limit::RateLimit;
@@ -26,6 +26,7 @@ pub struct EmailPassword {
     pub(crate) reset_password_ttl: Duration,
     pub(crate) password_policy: Option<PasswordPolicy>,
     pub(crate) hasher: Arc<dyn PasswordHasher>,
+    pub(crate) max_concurrent_hashes: Option<usize>,
 }
 
 impl fmt::Debug for EmailPassword {
@@ -53,6 +54,7 @@ impl Default for EmailPassword {
             reset_password_ttl: Duration::hours(1),
             password_policy: None,
             hasher: Arc::new(Argon2id::owasp()),
+            max_concurrent_hashes: None,
         }
     }
 }
@@ -120,6 +122,14 @@ impl EmailPassword {
         self.hasher = Arc::new(hasher);
         self
     }
+
+    /// How many password hashes run at once at most (default: the number of CPUs). Each
+    /// holds the hasher's memory until it finishes (19 MiB for argon2id, 32 MiB for
+    /// `BetterAuthScrypt`), so this bounds what a burst of sign-ins can allocate.
+    pub fn max_concurrent_hashes(mut self, n: usize) -> Self {
+        self.max_concurrent_hashes = Some(n.max(1));
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +177,7 @@ pub struct SessionConfig {
     pub(crate) update_age: Duration,
     pub(crate) fresh_age: Duration,
     pub(crate) cookie_cache: Option<Duration>,
+    pub(crate) sliding: SlidingRefresh,
 }
 
 impl Default for SessionConfig {
@@ -176,6 +187,7 @@ impl Default for SessionConfig {
             update_age: Duration::days(1),
             fresh_age: Duration::days(1),
             cookie_cache: None,
+            sliding: SlidingRefresh::UpdatedAt,
         }
     }
 }
@@ -210,6 +222,28 @@ impl SessionConfig {
         self.cookie_cache = Some(max_age);
         self
     }
+
+    /// When a session is due for its sliding extension (default
+    /// [`SlidingRefresh::UpdatedAt`]).
+    pub fn sliding_refresh(mut self, rule: SlidingRefresh) -> Self {
+        self.sliding = rule;
+        self
+    }
+}
+
+/// When the sliding refresh extends a session's expiry to `expires_in` from now.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SlidingRefresh {
+    /// Once `update_age` has passed since the session row's `updated_at` (the default).
+    #[default]
+    UpdatedAt,
+    /// Once `update_age` has passed since the expiry was last set, read from `expires_at`
+    /// (`expires_at - expires_in + update_age <= now`): Better Auth's rule. Better Auth moves
+    /// `updatedAt` on every change to a session (an active organization, say), so on a
+    /// database it shares, `updated_at` doesn't say when the session was last extended.
+    /// A session counts as a `rememberMe: false` one, never extended, when it was created to
+    /// last one day or less (`expires_at - created_at`), as well as by its marker cookie.
+    ExpiresAt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,6 +267,7 @@ pub struct CookieConfig {
     pub(crate) same_site: SameSite,
     pub(crate) domain: Option<String>,
     pub(crate) secure: Secure,
+    pub(crate) signing: CookieSigning,
 }
 
 impl Default for CookieConfig {
@@ -242,7 +277,36 @@ impl Default for CookieConfig {
             same_site: SameSite::Lax,
             domain: None,
             secure: Secure::Auto,
+            signing: CookieSigning::Fastauth,
         }
+    }
+}
+
+/// How signed cookies (the session token, the `rememberMe: false` marker and every cookie a
+/// plugin signs) are signed and checked.
+#[derive(Clone, Debug, Default)]
+pub enum CookieSigning {
+    /// `value.signature`, an HMAC-SHA256 in base64url keyed with a key derived from the
+    /// secrets (`fastauth/v1/cookie`), every configured secret verifying session tokens.
+    #[default]
+    Fastauth,
+    /// Better Auth's format, so a Better Auth app on the same database and fastauth accept each
+    /// other's cookies: `encodeURIComponent(value + "." + signature)`, the signature an
+    /// HMAC-SHA256 in padded standard base64 keyed with this secret's bytes as they are, with
+    /// no key derivation. Cookies are verified in constant time and accepted percent-encoded or
+    /// not, as better-call does.
+    ///
+    /// Only this one secret signs and verifies cookies, as in Better Auth 1.7.8, which signs
+    /// cookies with its current secret alone: rotating it signs everyone out of both apps.
+    /// `.secrets(..)` still keys everything else. Can't be combined with the cookie cache.
+    BetterAuth(Secret),
+}
+
+impl CookieSigning {
+    /// [`CookieSigning::BetterAuth`] with the Better Auth app's `BETTER_AUTH_SECRET`, as the
+    /// app has it (its UTF-8 bytes, not decoded).
+    pub fn better_auth(secret: impl Into<Vec<u8>>) -> Self {
+        CookieSigning::BetterAuth(Secret::from_bytes(secret))
     }
 }
 
@@ -265,6 +329,12 @@ impl CookieConfig {
 
     pub fn secure(mut self, secure: Secure) -> Self {
         self.secure = secure;
+        self
+    }
+
+    /// How signed cookies are signed (default [`CookieSigning::Fastauth`]).
+    pub fn signing(mut self, signing: CookieSigning) -> Self {
+        self.signing = signing;
         self
     }
 }

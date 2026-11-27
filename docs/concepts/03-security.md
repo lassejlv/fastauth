@@ -210,8 +210,9 @@ same place either way.
   how an owner recovers from a compromise and must end the attacker's sessions too. Better
   Auth leaves them signed in unless `revokeSessionsOnPasswordReset` is set;
   `.revoke_sessions_on_password_reset(false)` gets that behaviour back.
-- `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. Verifying scrypt hashes
-  imported from a Better Auth database is [planned](../get-started/01-overview.md#planned).
+- `PasswordHasher` is a trait, set with `EmailPassword::hasher(..)`. `BetterAuthScrypt`
+  verifies and writes Better Auth's scrypt hashes, for a database a Better Auth app still
+  uses ([Migrating from Better Auth](../integrations/04-migrating-from-better-auth.md#passwords)).
 
 ## Email addresses
 
@@ -506,6 +507,25 @@ In production:
   strings, so on Postgres and MySQL an admin can get past them by spelling their own id
   differently; that only reaches their own account. If your own code compares an id from a
   client with an `Id`, compare the id the database returned instead.
+
+## Better Auth compatibility
+
+[Better Auth compatibility](../integrations/04-migrating-from-better-auth.md) lets a Better Auth
+app on the same database share sessions and passwords with fastauth during a migration. It is
+off unless the app turns it on, and it relaxes these defaults on purpose:
+
+- **Cookie signing** uses the raw Better Auth secret as the HMAC key, without HKDF, and only
+  that one secret verifies cookies, as in Better Auth. The Better Auth app holds the same key,
+  so a leak from either app lets its holder sign session cookies, and rotating the secret signs
+  everyone out of both apps. Every other key still comes from `.secrets(..)` through HKDF.
+- **Passwords** are scrypt (N = 16384, r = 16, 32 MiB each) in Better Auth's format, never
+  upgraded to argon2id, at most 8 hashes at once by default.
+- **The cookie cache** can't be turned on, since Better Auth reads its own format under the
+  same name.
+
+Everything else on this page holds in that mode too: session gates, `sensitive_session()`,
+CSRF, redirects, rate limits and the build-time checks, which also refuse a short or
+low-entropy Better Auth secret in production.
 
 ## What fastauth doesn't do for you
 

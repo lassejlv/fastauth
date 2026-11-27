@@ -1,0 +1,276 @@
+{
+  "cookies": [
+    {
+      "name": "vt.session_token",
+      "secret": "Zp1n3pXcQ3gyq0z0r1f8m2Kq4bVw9tYvJ6cL5dHs7uE=",
+      "signed": [
+        {
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.XbiFhcTtuE6iR0tqIkC%2BCh1xYl%2BslXwkVvIwTG3BhkM%3D",
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.2dVFQPSfCmaOTsUdeEMquUp17zBNv0wJFDASJQwuMo8%3D",
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW"
+        },
+        {
+          "cookie": "true.uXjp1I9%2B28uDRyHEpw8qD4bCmRZeoONItSe2dtoN9GI%3D",
+          "value": "true"
+        },
+        {
+          "cookie": "a%20b.%2Bjkel4IkR21D1eWUxQaR67iu6HvNNVuRmbvNgz9covc%3D",
+          "value": "a b"
+        },
+        {
+          "cookie": "tok%3A1.tAAkzfFHjIboVgducEAX422L9p61bdh%2B%2BEbIj7N1xWY%3D",
+          "value": "tok:1"
+        },
+        {
+          "cookie": "a%3Bb%2Cc%3Dd.aIN9YwiXnqE9vYwyzHJ0JA2rv2nqgEuRQ61MtaEmTVE%3D",
+          "value": "a;b,c=d"
+        },
+        {
+          "cookie": "100%25.J4Cf%2FV8eerBUeZ0kxY1iGEr6qQS1hqKaPWwdqv1B3BM%3D",
+          "value": "100%"
+        },
+        {
+          "cookie": "%2B%2F%3D%3F%26%23.X2p%2BVz4HeXuRyLLAMclNZtTt5d%2B0qst8dNGrBJ20bPc%3D",
+          "value": "+/=?&#"
+        },
+        {
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.geUL6xSGQUiNjfZ1ZzG2PG63FZNQEWqdDNQ%2Bhyuer1w%3D",
+          "value": "ünïcödé"
+        },
+        {
+          "cookie": "%F0%9F%94%91.8ONpx6zambwuL%2BGU8O5mRf%2FUasviWghBKgPTEuqE%2Frk%3D",
+          "value": "🔑"
+        },
+        {
+          "cookie": "%22quoted%22.0DTmyqRjYbj%2BbvZaFIUP4V874QhLJGSqSNJQVN4mpqQ%3D",
+          "value": "\"quoted\""
+        },
+        {
+          "cookie": "!~*'()-_..mIzDFinntKD2%2BikZmR6VsBmAUx%2FrC3LDzFiXFUdXr6c%3D",
+          "value": "!~*'()-_."
+        },
+        {
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.cTmXpqHMOWc8CTA72xw%2BVG4AKcMv251oCfkjJy0VL6g%3D",
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "name": "vt.session_token",
+      "secret": "6f1c0d5e9a2b4c7d8e3f6a1b2c5d4e7f9a0b3c6d8e1f2a5b4c7d0e9f8a3b6c1d",
+      "signed": [
+        {
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.wjNjTKWTUxhHKtpI2w9t94ThhPzH9y8tCIwkl1hbCtQ%3D",
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.EIkVvSKnx4aekJFv5LHnFHVtl6YyoMHBTUYfkuQtDg4%3D",
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW"
+        },
+        {
+          "cookie": "true.4Bc%2FNJkndBzvR3i%2FqISMEPrpTYcehcyWv6VxvvZQ1yU%3D",
+          "value": "true"
+        },
+        {
+          "cookie": "a%20b.FNIGBgOEotCQ2k3EKjqnv4IXGWRKiMarEj3sJmNS9AM%3D",
+          "value": "a b"
+        },
+        {
+          "cookie": "tok%3A1.SllxGqV1L%2FimF9Nd%2FekBmg%2Bs4NqmqPVUnruGtJHGeZc%3D",
+          "value": "tok:1"
+        },
+        {
+          "cookie": "a%3Bb%2Cc%3Dd.EkUxzOdt%2FVAhiU155G9htz9xqe0DkAh5sBbcbyJWSdI%3D",
+          "value": "a;b,c=d"
+        },
+        {
+          "cookie": "100%25.hiVfCREj3y2CCG3GVX%2BJhnri5hrsV4atAjjyrOTU7tg%3D",
+          "value": "100%"
+        },
+        {
+          "cookie": "%2B%2F%3D%3F%26%23.D2erRL5Q50RoK1xKnjxeAdrUNLS7gJ7cHUjPxxuvNDk%3D",
+          "value": "+/=?&#"
+        },
+        {
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.%2FwmtaZzZ6bdw%2FHO8EcIgKMRUNgVr7q%2B6IXZANxZiM4k%3D",
+          "value": "ünïcödé"
+        },
+        {
+          "cookie": "%F0%9F%94%91.heacE2q1iOqbBMd%2Fh6wjuK8fUeVfm3F%2Faq2ermRLkhk%3D",
+          "value": "🔑"
+        },
+        {
+          "cookie": "%22quoted%22.LfVeSzPRcb6LnR5NLfxaN%2F63N7DOOU5rjhuK2wPndTQ%3D",
+          "value": "\"quoted\""
+        },
+        {
+          "cookie": "!~*'()-_..CdtlRjJEUQu42sNzfMB6bmMLquDnyLP5WNkgyoaQJTg%3D",
+          "value": "!~*'()-_."
+        },
+        {
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.U9Kp70q2lA70g55FjiCKcyCq5rf6ai%2BGjUecNE2g3XY%3D",
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    },
+    {
+      "name": "vt.session_token",
+      "secret": "sécret-ünïcödé-🔑-0123456789-abcdefghijklmnop",
+      "signed": [
+        {
+          "cookie": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE.9AR7%2FnqC62fql000cczoNS4Va2%2F4PuzGEN9eeqi3WsU%3D",
+          "value": "Xq3mR8vT1kL9pZ2nB6cF4hJ7wY0sA5dE"
+        },
+        {
+          "cookie": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW.qv5Z8ES79Lt8CjYz2dSjANbIopPVP1CSh0KKjW%2FI7Ps%3D",
+          "value": "kq3_mR8vT1kL-pZ2nB6cF4hJ7wY0sA5dEu9iO8yT6rW"
+        },
+        {
+          "cookie": "true.lPTblGzXb6n5I3r58SgIKybPBWnQv3EOqDwPmVaNi8o%3D",
+          "value": "true"
+        },
+        {
+          "cookie": "a%20b.6YuwnYVeI0DLJgynIhR7NUO3lv4omhUgx7qoExbs%2F1M%3D",
+          "value": "a b"
+        },
+        {
+          "cookie": "tok%3A1.LK5UF85IDDlyPb6bgpK6m%2FG6PKqleoHL8wP30oCjsos%3D",
+          "value": "tok:1"
+        },
+        {
+          "cookie": "a%3Bb%2Cc%3Dd.t3QGXqAjrX1RLB2k%2B7BNyv678vO1NdUJMiXrgM1PsGk%3D",
+          "value": "a;b,c=d"
+        },
+        {
+          "cookie": "100%25.ZWTeV2gVrVYK%2Fe90HmL4Pamr9gmeT%2BlZ8sg%2Bk9W2FAI%3D",
+          "value": "100%"
+        },
+        {
+          "cookie": "%2B%2F%3D%3F%26%23.8hhjGt2t4%2FKDNhMF76fFxcGWIi4SdK0FFcNIN5g3RCQ%3D",
+          "value": "+/=?&#"
+        },
+        {
+          "cookie": "%C3%BCn%C3%AFc%C3%B6d%C3%A9.sV6XDSYGh4dtOtQ9LxsjjpwHfnSYjF6QgwrqJz4Qj0M%3D",
+          "value": "ünïcödé"
+        },
+        {
+          "cookie": "%F0%9F%94%91.fG6RueYLw62HOGePwQ%2F7ScowasYzrsvTC5Umnkym8v8%3D",
+          "value": "🔑"
+        },
+        {
+          "cookie": "%22quoted%22.BBZC9NOENT61B5ppV2OYOA8Bg64gmIfMG%2Bo5gIhmz0U%3D",
+          "value": "\"quoted\""
+        },
+        {
+          "cookie": "!~*'()-_..h8vqgwzCAQl%2B8GMS%2FUTcQwH%2Fyy%2BOZhCUVd34R5ZO448%3D",
+          "value": "!~*'()-_."
+        },
+        {
+          "cookie": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.u6G9NtAnZcDZfxi1rolf1XypSr7c%2BiRsK0my0zd%2FK0c%3D",
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    }
+  ],
+  "generator": "fastauth-core compat::vectors",
+  "scrypt": [
+    {
+      "hash": "b3290ca6c9c4529f931cdcdf226475d3:f8256a3a215b9595898dde8b8e4285f4324041e0b119213249354844e605b783e8844bd7806fa60a29b90d810bb3319c0469568b4732de27e03bdfcde33a316e",
+      "label": "plain",
+      "password": "correct horse battery staple"
+    },
+    {
+      "hash": "50dd57e5a69fb292805e6f895de4048e:231f464642326df1db1e878c7621e6cd925e2c9c83a2bbd63b2bd1c9099c14960995bb716b2bb421770d1590de0690e5ba960466f22251bf970d573366417924",
+      "label": "ligature fi",
+      "password": "ﬁnance"
+    },
+    {
+      "hash": "c50c1cf945052628209fb62bdea199a2:9fbc29291b6e05cdf4dacd103e8d6dd93bc13fde8a7682b87909bb466d58a0540b869ec7238ea935e3cb4d24bb4e3a08d3e28e34155c331e5da293fd049c2fd9",
+      "label": "fi alone",
+      "password": "ﬁ"
+    },
+    {
+      "hash": "ae88f79d8bbb5111d39b47761cce6be8:8d282ef173c03175823ced823e25158424065db89449fd6ddeee8d1a0815ccf16f8df73ca85ece3f9942cd2e9da197637f00bca6463fc86999a6cfcad29d10dc",
+      "label": "combining acute",
+      "password": "café"
+    },
+    {
+      "hash": "8aae1ced1ffa442ca17c10fdea413ae2:0c39ce80e0d927cb580b82120938f05becf8d4592462f1591e5d3edf9a7dd58703b1bfa459cb384ff20aa2788f9e0eae3cab42889e0227749b4999fa93c93ce9",
+      "label": "precomposed acute",
+      "password": "café"
+    },
+    {
+      "hash": "a6e70fc2627a16b2a86bee43f7003304:59b7a96fbe9d970450e8e52a83b4d5004ab21191785079e7f8ca083792233c5503841c110bf5ec55edbc944d6636d2b6384dcd966822d4f4d78b6c5962331ca1",
+      "label": "full-width",
+      "password": "ｐａｓｓｗｏｒｄ"
+    },
+    {
+      "hash": "68fe2174d5ec69963ac88cf17291482e:e47839f165c44ce7f7c505d28e4ff878a96ff41d70a3c16202da680b5f81703f273fbbb541c16251a7afffc8e77954cfcdba2d6c0f44394ac2a87b7e35d5dfdf",
+      "label": "half-width katakana",
+      "password": "ﾊﾟｽﾜｰﾄﾞ"
+    },
+    {
+      "hash": "ae0a25a698f3498c54c0dee739099faa:d08b77b9ea551618de1d907b645711a842567fd2265312624422323d2762f4a365b0bcfdade933d71202c2740b84c64c55c333dfe74b40beaf2e666cb55c53a6",
+      "label": "circled digits",
+      "password": "①②③④"
+    },
+    {
+      "hash": "2570dc6da4cae0829b77a930d1eda8f8:4676c22d01f9ed2cc00b8009d3b0c1b0651aaf7e2604e9d964ac1698583b527d5c20b3d783706ba1d5c494e3977ed8fad096aae68cfb95f444aa9d765f8913e7",
+      "label": "angstrom sign",
+      "password": "Å"
+    },
+    {
+      "hash": "a7bd5898d1706318159ff230ad75b25c:dbce4e60ec03ae3210455a4c46e1583d6e1cbb126e80c42c3cfa464566b72aee2550433ff01220973303a206c52afe8e01681d9cc2cb3989f10c8d8bb05434d3",
+      "label": "superscript",
+      "password": "x²"
+    },
+    {
+      "hash": "51f04ec42511263b899ea3a7d8ceb7ba:4976f74b072c8fb4ea03c106102c4e2da7486bd3f9125432b298dc94aa291dfcceb92d2268623f3dfa9ca5b15173274e3df7419c7c41bf28a4f61dee96a687f6",
+      "label": "sharp s",
+      "password": "straße"
+    },
+    {
+      "hash": "5388cba048662276be2cc70acc811c5a:5e12d4a7590ac338ca3b9aa58a881615ebbd92ef017ad2d68049c4d0eaf3fa68230cfd92b3a60cb1198999f94e2c622c64d97234d2d6dc35ab4000d2eb689754",
+      "label": "arabic ligature",
+      "password": "ﷺ"
+    },
+    {
+      "hash": "55105f65c73285dfe320ac0b8e422f0a:dedccb4c7b8164a54fd1182494c7fd9eeca1039890869533fbcfbb3316006de3738b5d2af359baf27f3119cfaa7673a80f05be1b4f302cc7394cf089b451b0a5",
+      "label": "emoji",
+      "password": "🔑🔒 secret"
+    },
+    {
+      "hash": "1de4922c33b44f879b0d3dcfaab53012:7076b0e7a330608a82d5d7efe082b1aa5edf3698ea8055242266e2dec1466402949675a89d626f1b98c02f4d3b4bab4fe44de7a43db05ce26c748ae4dd08b001",
+      "label": "empty",
+      "password": ""
+    },
+    {
+      "hash": "f7e3286ea637815a222f0bbf49ff2b2b:fefd63a7a99520705f777b0daac717c5feb40a41abb9a87cb70af71613fcbf6989feadd3c9f68bff1204e5e162c4a1369c5f463faecb93dfcdd533621506eb2b",
+      "label": "one space",
+      "password": " "
+    },
+    {
+      "hash": "3ca3d646ae120e0b8637d17725b34054:b48099a0e799e4fdd4e16a5a6ae01fc99d68a1948bbc879236830e756c81ee32e89846439afe38f39c805faf5135d2ca26f6590d894c47d1989b6fa62c8dc640",
+      "label": "whitespace",
+      "password": "\t\n "
+    },
+    {
+      "hash": "6abb96e6a003c0e4374fb2de2435ee18:a5ab78ad247fef358afacb02e3b6c479c258ea05ea2a7fdea140e2b53fd75d6871374a0075b2c9cc05a9412f33c075be03227612da4c20f0014dc129e7dc3ff7",
+      "label": "nul byte",
+      "password": "a\u0000b"
+    },
+    {
+      "hash": "321b6db8de48f85ed26d3fc52c1ef5bd:44daab6efd467dc3c7a3b1d4975ddf861d9568a86b651b2900400270bc8a0c2eb4caa5c9e29f712d769f88bc162aeed26935922fac6f3c52e88d3fcf7b1fc5d2",
+      "label": "128 characters",
+      "password": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    },
+    {
+      "hash": "119a2555bbd9553bc70764cdb601b834:ee1e50becbc725c8e57f8c6b522dcf374e789e1ac2ce4d7d6de89c79ee7fd2060b83371373f4715e41e31d2ebb4cf906c6b33d4bace921b75c71ebbea683e2a1",
+      "label": "1000 characters",
+      "password": "Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lore"
+    }
+  ]
+}

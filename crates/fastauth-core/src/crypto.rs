@@ -206,6 +206,7 @@ pub struct Keys {
     cache: Vec<Zeroizing<[u8; 32]>>,
     encrypt: Vec<Zeroizing<[u8; 32]>>,
     secrets: Vec<Secret>,
+    better_auth: Option<Secret>,
 }
 
 impl fmt::Debug for Keys {
@@ -236,7 +237,17 @@ impl Keys {
                 .map(|s| s.derive("fastauth/v1/encrypt"))
                 .collect(),
             secrets,
+            better_auth: None,
         }
+    }
+
+    /// Signs and verifies [`SignPurpose::Cookie`] values the way `signing` says.
+    pub(crate) fn with_cookie_signing(mut self, signing: &crate::config::CookieSigning) -> Self {
+        self.better_auth = match signing {
+            crate::config::CookieSigning::Fastauth => None,
+            crate::config::CookieSigning::BetterAuth(secret) => Some(secret.clone()),
+        };
+        self
     }
 
     fn sign_keys(&self, purpose: SignPurpose) -> &[Zeroizing<[u8; 32]>] {
@@ -253,8 +264,12 @@ impl Keys {
         mac
     }
 
-    /// `value.signature`, signature base64url.
+    /// `value.signature`, signature base64url. With `CookieSigning::BetterAuth`, a
+    /// [`SignPurpose::Cookie`] value is signed in Better Auth's format instead.
     pub fn sign(&self, purpose: SignPurpose, value: &str) -> String {
+        if let (SignPurpose::Cookie, Some(secret)) = (purpose, &self.better_auth) {
+            return crate::compat::sign_cookie(&secret.0, value);
+        }
         let tag = Self::mac(&self.sign_keys(purpose)[0], value)
             .finalize()
             .into_bytes();
@@ -263,7 +278,13 @@ impl Keys {
 
     /// The value, when the current (first) secret signed it. For values that carry their
     /// own meaning, like the cookie cache or a plugin's signed cookie.
+    ///
+    /// `signed` is the value after [`Keys::decode_cookie`]: with `CookieSigning::BetterAuth`,
+    /// a cookie as the browser sent it may be percent-encoded.
     pub fn verify<'a>(&self, purpose: SignPurpose, signed: &'a str) -> Option<&'a str> {
+        if let (SignPurpose::Cookie, Some(secret)) = (purpose, &self.better_auth) {
+            return crate::compat::verify_cookie(&secret.0, signed);
+        }
         Self::verify_with(&self.sign_keys(purpose)[..1], signed)
     }
 
@@ -272,8 +293,23 @@ impl Keys {
     /// with (the `rememberMe: false` flag): a token means nothing until its session row is
     /// found, and a forged marker only shortens a session, so a retired secret can't gain
     /// anything, and values signed before a rotation keep working.
+    ///
+    /// With `CookieSigning::BetterAuth`, only its one secret verifies, as in Better Auth.
     pub fn verify_token<'a>(&self, signed: &'a str) -> Option<&'a str> {
+        if let Some(secret) = &self.better_auth {
+            return crate::compat::verify_cookie(&secret.0, signed);
+        }
         Self::verify_with(&self.cookie, signed)
+    }
+
+    /// A signed cookie's value as [`Keys::verify`] and [`Keys::verify_token`] take it. With
+    /// `CookieSigning::BetterAuth`, a value holding a `%` is percent-decoded the way
+    /// better-call does (kept as it came when it isn't valid); otherwise it's returned as it is.
+    pub fn decode_cookie<'a>(&self, raw: &'a str) -> std::borrow::Cow<'a, str> {
+        match self.better_auth {
+            Some(_) => crate::compat::decode_cookie(raw),
+            None => std::borrow::Cow::Borrowed(raw),
+        }
     }
 
     fn verify_with<'a>(keys: &[Zeroizing<[u8; 32]>], signed: &'a str) -> Option<&'a str> {
@@ -414,11 +450,17 @@ impl fmt::Debug for Passwords {
 }
 
 impl Passwords {
+    /// At most as many hashes at once as there are CPUs.
     pub fn new(hasher: Arc<dyn PasswordHasher>) -> Self {
         let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
+        Self::with_concurrency(hasher, cpus)
+    }
+
+    /// At most `permits` hashes at once (at least one).
+    pub fn with_concurrency(hasher: Arc<dyn PasswordHasher>, permits: usize) -> Self {
         Self {
             hasher,
-            permits: Arc::new(Semaphore::new(cpus)),
+            permits: Arc::new(Semaphore::new(permits.max(1))),
             dummy_hash: Arc::default(),
         }
     }

@@ -313,6 +313,10 @@ let _app =
     block("use fastauth::ApiResponse;"),
 ])
 
+page("integrations/04-migrating-from-better-auth.md", "", [
+    block("pub fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, BuildError> {"),
+])
+
 # ---------------------------------------------------------------- plugins
 
 page("plugins/README.md", "", [
