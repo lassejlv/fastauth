@@ -61,10 +61,10 @@ fastauth-cli                   `fastauth secret`; schema and migrations run from
 
 ```toml
 [dependencies]
-fastauth = "0.5" # default = ["axum", "postgres", "macros"]
+fastauth = "0.6" # default = ["axum", "postgres", "macros"]
 
 # SQLite instead of Postgres, plus social sign-in and two-factor:
-fastauth = { version = "0.5", default-features = false, features = [
+fastauth = { version = "0.6", default-features = false, features = [
     "axum", "sqlite", "macros", "oauth", "two-factor",
 ] }
 ```

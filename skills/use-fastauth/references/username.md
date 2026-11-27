@@ -44,7 +44,7 @@ pub async fn server_side(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Auth
 
 Full page: `docs/plugins/sign-in/04-username.md`.
 
-- `fastauth = { version = "0.5", features = ["username"] }`; path `fastauth::plugins::username`.
+- `fastauth = { version = "0.6", features = ["username"] }`; path `fastauth::plugins::username`.
   Adds nullable `username` (unique) and `display_username` columns to `user`: run migrations.
 - Clients send `username` (and optionally `displayUsername`) on `/sign-up/email` and
   `/update-user`. It's validated (3 to 30 characters, ASCII letters, digits, `_`, `.`),

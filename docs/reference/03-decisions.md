@@ -197,4 +197,28 @@ using the compile-checked extension traits.
 6. Breaking for exhaustive matches only: `EmailOtpError` gained variants. No public trait
    changed, and no table or column was added.
 
+## Released: 0.6.0 (2026-11-27)
+
+1. Fixes for the 41 findings of the second security review, of 0.5.0, and for two from
+   fuzzing. Among them are the four highs, ways to take over an account by signing up with
+   its email first (ATO-1 to ATO-4), and admin rights that outlived a revoked session under
+   the cookie cache (SESS-1). All versions before 0.6.0 are affected.
+2. One claim model: every proof of an email makes the prover the only owner of its user, in
+   one transaction (`Internal::claim_user`, `PluginBuilder::on_claim`), and the new
+   `user.security_stamp` column stops sign-ins that started before a claim
+   ([Claiming an email](../concepts/03-security.md#claiming-an-email)).
+3. Admin, organization and revoke decisions read the session from the database even when
+   the cookie cache answered (`Ctx::authoritative_session`).
+4. Unique constraints on `account`, `member` and `two_factor`. The migrator adds missing
+   unique constraints to existing tables and refuses, naming the rows, when duplicates exist
+   ([Unique constraints on an existing database](../concepts/02-database.md#unique-constraints-on-an-existing-database)).
+5. Safer defaults: `.build()` refuses an `http://` `base_url` and a guessable secret on a
+   production host (`allow_insecure_config` for development), a retired secret no longer
+   verifies self-contained cookies, rate limits cover IPv6 /64s and each account, and request
+   text with a NUL byte answers `400`. The [Production checklist](04-production-checklist.md)
+   lists what to set.
+6. Breaking for exhaustive matches and struct literals: `migrate::Step` and
+   `OrganizationError` gained variants, `LiveSchema` a public field and `SessionView` a
+   private one. No public trait changed.
+
 The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.

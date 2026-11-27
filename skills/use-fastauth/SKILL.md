@@ -13,7 +13,7 @@ Auth's routes and JSON. The whole configuration is one value,
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches fastauth 0.5 on crates.io and the code on `main`, and so does the repo's
+This skill matches fastauth 0.6 on crates.io and the code on `main`, and so does the repo's
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
 plugins, organization teams, `TestAuth`,
 `#[endpoint]` and secondary storage (Redis)
@@ -29,7 +29,7 @@ builder). Never parse them or assume a format.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.5", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.6", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -67,8 +67,12 @@ yourself so the pool types match.
 ### The secret
 
 `Secret::from_env("FASTAUTH_SECRET")` reads at least 32 bytes: base64url, or else the raw
-string. `openssl rand -hex 32` makes one. It signs cookies and derives every other key, so
-losing it signs everyone out. Rotate with `.secrets([new, old])`: the first signs, all verify.
+string. `fastauth secret` (from `cargo install fastauth-cli`) or `openssl rand -hex 32` makes
+one; on a production `base_url`, `.build()` refuses a secret with less than about 120 bits of
+estimated entropy. It signs cookies and derives every other key, so losing it signs everyone
+out. Rotate with `.secrets([new, old])`: the first signs. Older ones still verify session
+tokens and decrypt, so nobody is signed out, but they no longer verify the cookie cache or
+plugin cookies.
 
 ### The auth instance and the server
 
@@ -156,6 +160,11 @@ The rules these samples follow:
 - `.build()` only exists once `secret`, `base_url` and `database` are set. It returns
   `Err(BuildError)` listing every problem at once: a short secret, a bad URL, two plugins
   claiming a route or column, a hook on an endpoint nothing registered.
+- On a `base_url` whose host isn't local (`localhost`, `*.localhost` or a loopback address),
+  `.build()` also refuses `http://` and a guessable secret; locally they only log warnings.
+  `.allow_insecure_config(true)` turns them into warnings on any host, for development, CI
+  and private staging only. Never hard-code it on: read it from an environment variable
+  that production doesn't set.
 - `.email_password(EmailPassword::default())` turns on `/sign-up/email` and
   `/sign-in/email`. Without it there is no password sign-in.
 - `auth.migrator().run()` creates or extends the tables and is safe on every start.
@@ -166,6 +175,10 @@ The rules these samples follow:
 
 All auth routes live under `/api/auth` (`.base_path(..)` changes it). A route that needs a
 signed-in user takes `Session<AppAuth>`, which answers `401` without one.
+
+Before real users, go through `docs/reference/04-production-checklist.md`: the client IP
+behind proxies, an https `base_url`, a generated secret, a mailer that answers quickly, the
+cookie cache, database TLS and migrations.
 
 ## Where to go next
 
@@ -268,3 +281,12 @@ At runtime:
   other frontends in `.trusted_origins([..])`.
 - `400 INVALID_FIELD` (`field \`stripeCustomerId\` can't be set`): a client sent an app
   column without `#[field(input)]` ([database.md](references/database.md#app-columns-on-user)).
+- `BuildError`: `base_url \`http://app.acme.dk/\` is http:// on a host other than localhost` or
+  `a secret has about 0 bits of entropy, less than 120`. Use https and a generated secret,
+  or `.allow_insecure_config(true)` in development only.
+- `400 INVALID_EMAIL`: the email isn't one plain address (no lists, spaces, quotes or
+  non-ASCII). `400 INVALID_REQUEST_BODY`: the JSON body or query holds a NUL byte, which
+  every endpoint refuses.
+- Signing up on one device and opening the verification link signed out on another deletes
+  the password: the link claims the account, and the user signs in with a link or code or
+  resets the password (`docs/concepts/03-security.md#claiming-an-email`).

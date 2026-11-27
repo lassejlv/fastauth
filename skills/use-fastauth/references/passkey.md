@@ -30,7 +30,7 @@ pub async fn rename_first(auth: &AppAuth, headers: &HeaderMap) -> Result<(), Aut
 
 Full page: `docs/plugins/sign-in/03-passkey.md`.
 
-- `fastauth = { version = "0.5", features = ["passkey"] }`; path `fastauth::plugins::passkey`.
+- `fastauth = { version = "0.6", features = ["passkey"] }`; path `fastauth::plugins::passkey`.
   Built on webauthn-rs 0.6.
 - Adds the `passkey` table with Better Auth's columns and encodings. Run migrations.
 - Options: `rp_id` (the base URL's host), `rp_name` (the app name), `origin` (repeatable;

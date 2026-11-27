@@ -52,7 +52,7 @@ pub fn app(auth: AppAuth) -> Router {
 
 ## Setup
 
-- `fastauth = { version = "0.5", features = ["admin"] }`; import from `fastauth::plugins::admin`.
+- `fastauth = { version = "0.6", features = ["admin"] }`; import from `fastauth::plugins::admin`.
   `RequireRole` also needs the facade's `axum` feature (on by default).
 - Add `Admin` to the `plugins![..]` alias. It requires no other plugin.
 - Run migrations after adding it: it adds `user.role`, `user.banned`, `user.ban_reason`,
@@ -86,7 +86,13 @@ pub fn app(auth: AppAuth) -> Router {
 - No session: `401 UNAUTHORIZED`. Missing permission: `403` with Better Auth's code, such as
   `YOU_ARE_NOT_ALLOWED_TO_LIST_USERS`.
 - list-users search (`searchValue` on `email` or `name`) and the text filters are
-  case-sensitive and run in SQL. Lowercase email searches.
+  case-sensitive and run in SQL. Lowercase email searches. Without `limit` it answers at
+  most 100 users; page with `limit` and `offset`.
+- `create-user` needs `user:set-email` to set `emailVerified`. `create-user` and
+  `update-user` answer `400 INVALID_FIELD` for columns another plugin owns, such as
+  `twoFactorEnabled`.
+- Admin checks always read the session and user from the database, cookie cache or not, so
+  a revoked, demoted or banned admin loses access at once.
 
 ## Server API: `auth.admin()` (trait `AdminExt`)
 

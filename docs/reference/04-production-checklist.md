@@ -73,12 +73,13 @@ Emails are sent in the background on tokio's blocking pool, at most 8 at once pe
 `SessionConfig::cookie_cache(..)` is off by default. It saves a database read per request
 and costs this:
 
-- A revoked session keeps working until the cache cookie expires. That includes the admin
-  routes and impersonation, which decide on the cached session: an admin whose sessions you
-  revoke or whose role you remove keeps admin rights for the cache's max age (SESS-1). In
-  apps with the admin plugin, leave it off or keep it to a minute or two.
-- The cache cookie is signed, not encrypted, and carries the user row: a column marked
-  `#[field(returned = false)]` is readable in the browser (SESS-6).
+- A revoked session keeps working wherever the cached session is enough, your own routes
+  included, until the cache cookie expires. Admin and organization routes that change
+  something, the `has-permission` routes and the `/revoke-*` routes read the session from
+  the database, so a revoked, demoted or banned admin loses admin rights at once (SESS-1).
+  Keep the max age to a few minutes.
+- The cache cookie is signed and carries the user row, which the browser can read. Columns
+  marked `#[field(returned = false)]` are encrypted inside it (SESS-6).
 - Whoever holds the current secret can sign a cache cookie for any user (CRYPTO-1). Rotate a
   leaked secret out at once (item 3).
 
@@ -128,10 +129,13 @@ See [Databases](../concepts/02-database.md#mysql).
 - Generate migrations with `cargo run --bin fastauth -- generate`, review them, and apply
   them before the new version serves traffic.
 - Run `cargo run --bin fastauth -- status` in CI; it exits 1 when a migration is missing.
-- MySQL commits each DDL statement on its own. If a migration stops between adding a
-  unique column and adding its constraint, running it again doesn't add the constraint
-  (DB-1). After a failed MySQL migration, check that every `<table>_<column>_key`
-  constraint exists.
+- MySQL commits each DDL statement on its own, so a migration that fails can stop half-way.
+  Run the migrator again: it reads the unique constraints back and adds any that are
+  missing (DB-1).
+- The migrator refuses to add a unique constraint to a table that holds duplicates and
+  names the rows. [Unique constraints on an existing
+  database](../concepts/02-database.md#unique-constraints-on-an-existing-database) has a
+  query to fix each table.
 
 [Databases](../concepts/02-database.md#migrations) has the commands.
 

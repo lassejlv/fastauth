@@ -45,7 +45,9 @@ sqlx 0.9 yourself so the pool types match. What it does with the database:
   `DefaultValue::Now` column gets the migration time as its default for existing rows.
 - **Text search is case-sensitive.** `contains`, `starts_with` and `ends_with` match their
   string literally (`%` and `_` are not wildcards): Postgres and MySQL use `LIKE .. ESCAPE`,
-  SQLite uses `GLOB` with escapes, because SQLite's `LIKE` ignores case.
+  and SQLite compares bytes with `instr` and `substr` on `CAST(.. AS BLOB)`, because
+  SQLite's `LIKE` ignores case and its `GLOB` stops at a NUL. Postgres can't store a NUL,
+  so there a needle containing one matches nothing.
 - **In-memory SQLite** (`sqlite::memory:`) is one shared-cache database per pool. A query on
   the pool waits while another connection's transaction holds uncommitted writes to the same
   table, so code that holds a transaction must run every query through it (`ctx.db_on(&tx)`)
@@ -113,7 +115,7 @@ supported: it lacks the `utf8mb4_0900_bin` collation. Turn on the facade's `mysq
 feature:
 
 ```toml
-fastauth = { version = "0.5", default-features = false, features = ["axum", "mysql-tls", "macros"] }
+fastauth = { version = "0.6", default-features = false, features = ["axum", "mysql-tls", "macros"] }
 ```
 
 **Connecting.** MySQL 8's default login, `caching_sha2_password`, sends the password over
@@ -443,7 +445,7 @@ violation must map to `DbError::UniqueViolation`, so sign-up can answer "email t
 A new adapter is done when this passes:
 
 ```rust
-// [dev-dependencies] fastauth-core = { version = "0.5", features = ["testing"] }
+// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }
 #[tokio::test]
 async fn conformance() {
     fastauth_core::testing::run_adapter_conformance(async || fastauth::prelude::MemoryAdapter::new()).await;

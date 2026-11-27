@@ -99,6 +99,15 @@ impl Plugin for AccessTokens {
             ctx.db().delete::<AccessToken>(AccessToken::USER_ID.eq(e.user_id)).await?;
             Ok(())
         });
+        app.on_claim(|claim| {
+            Box::pin(async move {
+                claim
+                    .db()
+                    .delete::<AccessToken>(AccessToken::USER_ID.eq(claim.user_id()))
+                    .await?;
+                Ok(())
+            })
+        });
     }
 }
 ```
@@ -107,6 +116,11 @@ impl Plugin for AccessTokens {
 - `UserFields` and `SessionFields` are `#[derive(Fields)]` structs of columns added to
   `user` and `session` ([gates](#gates) has one), `()` for none. They're added for you.
 - `init` runs once, inside `.build()`. The builder methods chain.
+- `on_claim` deletes the plugin's credentials when proof of an email claims an unverified
+  user (`docs/concepts/03-security.md#claiming-an-email`). It runs inside the claim's
+  transaction, and an error rolls the claim back. Never do this cleanup on the `UserClaimed`
+  event: events are dropped when the request then fails. Check user columns a client writes
+  with `app.prepare_user_input(..)` (`docs/reference/01-plugin-authoring.md`).
 
 ## Endpoints
 
@@ -204,8 +218,9 @@ impl<D: Adapter> Endpoint<D> for ListTokens {
 Also on `ctx`: `db()`, `new_id()?` (fallible: a custom id strategy can fail; ids are opaque
 strings, ULIDs by default), `now()`, `emit(event)`, `plugin::<P>()` (panics
 unless `P` is required) and `try_plugin::<P>()`, `config()`, `headers()`, `ip()`,
-`set_signed_cookie`/`signed_cookie`, `redirect(url)`, and `internal()` for core
-operations (`find_user_by_email`, `complete_sign_in`, `send_email`, verification values).
+`set_signed_cookie`/`signed_cookie` (current secret only; read a session token kept in
+your own cookie with `signed_token_cookie`, which survives a rotation), `redirect(url)`, and
+`internal()` for core operations (`find_user_by_email`, `complete_sign_in`, `send_email`, verification values).
 Code outside a request that is generic over `AuthInstance` (an axum extractor) reads a
 plugin's config with `auth.try_plugin::<P>()` and its tables with `auth.api().db()`.
 `ctx.db()` errors convert into `AuthError` with `?`.

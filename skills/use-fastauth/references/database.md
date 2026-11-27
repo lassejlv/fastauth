@@ -26,8 +26,13 @@ it on `.ids(IdStrategy::UuidV7)`. Treat `Id` as an opaque string.
 ## Migrations
 
 fastauth derives the schema from the config (plugins decide it) and diffs it against the
-live database. The diff only adds tables, columns and indexes; a dropped plugin's table or a
-changed type becomes a warning for you to handle.
+live database. The diff only adds tables, columns, indexes and unique constraints; a dropped
+plugin's table or a changed type becomes a warning for you to handle. Before it changes
+anything, `apply` (and `run`) checks that no rows would break a new unique constraint; if
+some would, it changes nothing and fails with `DbError::Schema` naming them. A 0.5 database
+gets `user.security_stamp` and unique constraints on `account (provider_id, account_id)`,
+`member (organization_id, user_id)` and `two_factor (user_id)`; the fix-up queries for
+duplicates are in `docs/concepts/02-database.md#unique-constraints-on-an-existing-database`.
 
 - Development or a small deployment: `auth.migrator().run().await?` at startup. It is a
   no-op when nothing changed.

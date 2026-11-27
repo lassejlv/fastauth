@@ -15,7 +15,7 @@ cargo add fastauth --features admin
 
 ```toml
 [dependencies]
-fastauth = { version = "0.5", features = ["admin"] }
+fastauth = { version = "0.6", features = ["admin"] }
 ```
 
 The plugin lives at `fastauth::plugins::admin` (crate `fastauth-plugin-admin`). The
