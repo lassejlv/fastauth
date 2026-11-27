@@ -555,7 +555,7 @@ impl<D: Adapter> Endpoint<D> for RevokeSession {
             (Some(id), _) => Some(id),
             (None, Some(token)) => ctx
                 .db()
-                .find::<Session>(Session::TOKEN_HASH.eq(crate::crypto::Hash::sha256(token)))
+                .find::<Session>(ctx.config().session_token_eq(&token))
                 .one()
                 .await?
                 .map(|s| s.id),

@@ -35,6 +35,8 @@ pub mod codes {
     pub const SESSION_NOT_FOUND: &str = "SESSION_NOT_FOUND";
     pub const INVALID_FIELD: &str = "INVALID_FIELD";
     pub const FEATURE_DISABLED: &str = "FEATURE_DISABLED";
+    /// A user can't be deleted while it has accounts of a provider fastauth doesn't own.
+    pub const USER_HAS_FOREIGN_ACCOUNTS: &str = "USER_HAS_FOREIGN_ACCOUNTS";
 }
 
 /// The one error type every endpoint, hook and extractor returns. It leaves the server as

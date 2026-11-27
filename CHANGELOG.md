@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased
+
+### Better Auth database compatibility: schema and storage
+
+fastauth can now run on the tables of a Better Auth app and share them with it during a
+phased cutover ([Migrating from Better Auth](docs/integrations/04-migrating-from-better-auth.md)).
+Every setting is opt-in: an app that sets none of them keeps 0.7's schema, SQL and security
+defaults exactly.
+
+- **Column names.** `Builder::column_naming(ColumnNaming::CamelCase)` stores every column of
+  core, the plugins and the app's `Fields` under its camelCase name (`"emailVerified"`,
+  `"userId"`), and `Builder::rename_column(table, column, to)` overrides one column, such
+  as `account.password_hash` as Better Auth's `password`. Code, filters and sorts keep the
+  declared names; the sqlx adapter uses the stored names in every query, index, constraint
+  and migration on Postgres, SQLite and MySQL, and recognises Better Auth's index names.
+  `Builder::bytes_as_hex_text(table, column)` stores a byte column as hex in a text column
+  (Better Auth's `accessToken` and `refreshToken`).
+- **Raw session tokens.** `Builder::session_tokens(SessionTokens::Raw)` stores and looks up
+  the token itself in `session.token`, as Better Auth does, so both apps resolve each other's
+  sessions. It gives up the protection hashed tokens give a leaked table; hashing stays the
+  default. `CoreConfig::session_token_eq(token)` filters by a token under either setting.
+- **Accounts another app owns.** `Builder::only_owned_accounts(true)` limits fastauth to
+  `credential` rows and the providers plugins register (`PluginBuilder::account_provider`,
+  which `Social` calls for each provider). Claims, `/list-accounts`, `/unlink-account` and
+  the admin and anonymous user deletions leave other rows (an `oidc` provider) alone, and
+  deleting a user that has one answers `409 USER_HAS_FOREIGN_ACCOUNTS`.
+- **Review-only migrations.** `Builder::migrations(Migrations::ReviewOnly)` makes
+  `Migrator::run` and `apply` (and `fastauth migrate`) refuse with `ReviewOnly`;
+  `fastauth generate` writes one file per change from the new `Migrator::sql_steps`, with a
+  duplicate check above each unique constraint on an existing table. On Better Auth 1.7.8's
+  schema the changes are an additive `"securityStamp" bigint NOT NULL DEFAULT 0`, an index on
+  `account."accountId"`, the unique `("providerId", "accountId")` index and fastauth's own
+  verification table.
+- **Verification pruning.** `Auth::prune_verifications()` deletes expired verification rows,
+  and `Auth::prune_verifications_every(interval)` runs it on a Tokio task until the `Auth`
+  is dropped.
+- **Tests.** `testing::run_adapter_conformance_renamed` runs the adapter suite with renamed
+  columns (MemoryAdapter and all three sqlx databases pass), and `fastauth-sqlx`'s
+  `better_auth_schema` tests run on the schema Better Auth 1.7.8's CLI generates for each
+  database (`crates/fastauth-sqlx/tests/better-auth/generate.sh`).
+
+### Core changes
+
+All additive: `ColumnNaming`, `TableDef::stored_name` / `stored_column` /
+`column_stored_as` / `is_hex_text` / `stored_reference`;
+`SessionTokens`, `Session::TOKEN` and `CoreConfig::{session_tokens, session_token_eq,
+owns_account_provider, owned_account_providers}`; `Migrations`, `ReviewOnly`,
+`MigrationSql`, `Migrator::{mode, sql_steps}`; two `Adapter` methods with defaults,
+`session_with_user_by_token` (with `SessionWithUserByToken`) and `duplicates_query`;
+`Internal::{accounts_of, refuse_foreign_accounts}`; `PluginBuilder::account_provider`; the
+`USER_HAS_FOREIGN_ACCOUNTS` code. `LiveSchema` now holds stored column names, which are the
+declared names unless a naming setting changes them.
+
 ## 0.7.0 (2026-11-27)
 
 ### Highlights

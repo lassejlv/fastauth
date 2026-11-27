@@ -113,6 +113,62 @@ pub struct SessionWithUser<'a> {
     pub token_hash: &'a Hash,
 }
 
+/// [`SessionWithUser`] for sessions stored with
+/// [`SessionTokens::Raw`](crate::config::SessionTokens::Raw): the session whose `token`
+/// column holds `token`.
+#[derive(Clone, Debug)]
+pub struct SessionWithUserByToken<'a> {
+    pub session: &'a Arc<TableDef>,
+    pub user: &'a Arc<TableDef>,
+    pub token: &'a str,
+}
+
+/// The default session lookup: the session row where `column` is `value`, then its user.
+async fn session_then_user<A: Adapter + ?Sized>(
+    adapter: &A,
+    session: &Arc<TableDef>,
+    user: &Arc<TableDef>,
+    column: &str,
+    value: Value,
+) -> DbResult<Option<(Row, Row)>> {
+    let position = session
+        .position(column)
+        .ok_or_else(|| DbError::Schema(format!("session.{column} missing")))?;
+    let select = Select {
+        table: session,
+        filter: Filter::Cmp {
+            column: position,
+            op: Op::Eq,
+            value,
+        },
+        order: Vec::new(),
+        limit: Some(1),
+        offset: None,
+    };
+    let Some(found) = adapter.find_one(select).await? else {
+        return Ok(None);
+    };
+    let user_id = found
+        .value("user_id")
+        .cloned()
+        .ok_or_else(|| DbError::Schema("session.user_id missing".into()))?;
+    let user_pk = user
+        .position("id")
+        .ok_or_else(|| DbError::Schema("user.id missing".into()))?;
+    let select = Select {
+        table: user,
+        filter: Filter::Cmp {
+            column: user_pk,
+            op: Op::Eq,
+            value: user_id,
+        },
+        order: Vec::new(),
+        limit: Some(1),
+        offset: None,
+    };
+    Ok(adapter.find_one(select).await?.map(|row| (found, row)))
+}
+
 /// CRUD over dynamic rows. Implemented by adapters and by their transactions.
 pub trait Queries: Send + Sync {
     fn insert(&self, q: Insert<'_>) -> impl Future<Output = DbResult<Row>> + Send;
@@ -150,45 +206,27 @@ pub trait Adapter: Queries + 'static {
         &self,
         q: SessionWithUser<'_>,
     ) -> impl Future<Output = DbResult<Option<(Row, Row)>>> + Send {
-        async move {
-            let session_hash = q
-                .session
-                .position("token_hash")
-                .ok_or_else(|| DbError::Schema("session.token_hash missing".into()))?;
-            let select = Select {
-                table: q.session,
-                filter: Filter::Cmp {
-                    column: session_hash,
-                    op: Op::Eq,
-                    value: Value::Bytes(q.token_hash.as_bytes().to_vec()),
-                },
-                order: Vec::new(),
-                limit: Some(1),
-                offset: None,
-            };
-            let Some(session) = self.find_one(select).await? else {
-                return Ok(None);
-            };
-            let user_id = session
-                .value("user_id")
-                .cloned()
-                .ok_or_else(|| DbError::Schema("session.user_id missing".into()))?;
-            let user_pk = q
-                .user
-                .position("id")
-                .ok_or_else(|| DbError::Schema("user.id missing".into()))?;
-            let select = Select {
-                table: q.user,
-                filter: Filter::Cmp {
-                    column: user_pk,
-                    op: Op::Eq,
-                    value: user_id,
-                },
-                order: Vec::new(),
-                limit: Some(1),
-                offset: None,
-            };
-            Ok(self.find_one(select).await?.map(|user| (session, user)))
-        }
+        let value = Value::Bytes(q.token_hash.as_bytes().to_vec());
+        session_then_user(self, q.session, q.user, "token_hash", value)
+    }
+
+    /// [`session_with_user`](Self::session_with_user) by the token itself, for sessions
+    /// stored with [`SessionTokens::Raw`](crate::config::SessionTokens::Raw). The default
+    /// does two lookups; SQL adapters override.
+    fn session_with_user_by_token(
+        &self,
+        q: SessionWithUserByToken<'_>,
+    ) -> impl Future<Output = DbResult<Option<(Row, Row)>>> + Send {
+        let value = Value::Text(q.token.to_owned());
+        session_then_user(self, q.session, q.user, "token", value)
+    }
+
+    /// A query listing the rows of `table` that share values in `columns`, which a unique
+    /// constraint over them would refuse, for the comment above such a migration in
+    /// [`Migrator::sql_steps`](crate::migrate::Migrator::sql_steps). `None` (the default)
+    /// when the adapter has no query language.
+    fn duplicates_query(&self, table: &TableDef, columns: &[&str]) -> Option<String> {
+        let _ = (table, columns);
+        None
     }
 }

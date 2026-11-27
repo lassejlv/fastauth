@@ -24,6 +24,55 @@ pub enum IdStorage {
     Text,
 }
 
+/// How a column's name is stored in the database. Code always uses the name a column is
+/// declared with (`email_verified`); the adapter stores and queries the stored name.
+/// [`Builder::column_naming`](crate::Builder::column_naming) picks it for every table, and
+/// [`Builder::rename_column`](crate::Builder::rename_column) overrides it for one column.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ColumnNaming {
+    /// As declared: `email_verified`, `user_id`. The default.
+    #[default]
+    SnakeCase,
+    /// `email_verified` is stored as `emailVerified`, `user_id` as `userId`: Better Auth's
+    /// naming, so fastauth can share its tables.
+    CamelCase,
+}
+
+impl ColumnNaming {
+    /// The stored name of a column declared as `name`.
+    pub fn apply(self, name: &str) -> String {
+        match self {
+            ColumnNaming::SnakeCase => name.to_owned(),
+            ColumnNaming::CamelCase => {
+                let mut out = String::with_capacity(name.len());
+                let mut upper = false;
+                for (i, ch) in name.char_indices() {
+                    if ch == '_' && i > 0 && i + 1 < name.len() {
+                        upper = true;
+                    } else if upper {
+                        out.extend(ch.to_uppercase());
+                        upper = false;
+                    } else {
+                        out.push(ch);
+                    }
+                }
+                out
+            }
+        }
+    }
+}
+
+/// How the columns of a schema are stored: the naming strategy, per-column renames and
+/// byte columns stored as text. Collected by the builder and applied at `.build()`.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Storage {
+    pub(crate) naming: ColumnNaming,
+    /// `(table, column, stored name)`.
+    pub(crate) renames: Vec<(String, String, String)>,
+    /// `(table, column)` of byte columns stored as hex text.
+    pub(crate) hex_text: Vec<(String, String)>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DefaultValue {
     Bool(bool),
@@ -151,6 +200,12 @@ pub struct TableDef {
     pub uniques: Vec<UniqueDef>,
     positions: HashMap<&'static str, usize>,
     id_storage: IdStorage,
+    /// The stored name of each column, in column order. Empty until the schema is built.
+    stored: Vec<String>,
+    /// For each column, whether it is a byte column stored as hex text.
+    hex_text: Vec<bool>,
+    /// For each column with a foreign key, the stored name of the column it references.
+    referenced: Vec<Option<String>>,
 }
 
 impl TableDef {
@@ -162,7 +217,45 @@ impl TableDef {
             uniques: Vec::new(),
             positions: HashMap::new(),
             id_storage: IdStorage::default(),
+            stored: Vec::new(),
+            hex_text: Vec::new(),
+            referenced: Vec::new(),
         }
+    }
+
+    /// The stored name of the column the foreign key of the column at `position` points at.
+    pub fn stored_reference(&self, position: usize) -> Option<&str> {
+        match self.referenced.get(position) {
+            Some(stored) => stored.as_deref(),
+            None => self.columns[position].references.map(|r| r.column),
+        }
+    }
+
+    /// The name the column at `position` is stored under: its declared name, unless
+    /// [`ColumnNaming`] or a rename changed it. Adapters use it in every statement.
+    pub fn stored_name(&self, position: usize) -> &str {
+        self.stored
+            .get(position)
+            .map_or(self.columns[position].name, String::as_str)
+    }
+
+    /// The stored name of `column`, by its declared name.
+    pub fn stored_column(&self, column: &str) -> Option<&str> {
+        self.position(column).map(|i| self.stored_name(i))
+    }
+
+    /// The column stored under `stored`, the inverse of [`stored_name`](Self::stored_name).
+    pub fn column_stored_as(&self, stored: &str) -> Option<&ColumnDef> {
+        (0..self.columns.len())
+            .find(|&i| self.stored_name(i) == stored)
+            .map(|i| &self.columns[i])
+    }
+
+    /// Whether the [`ColumnType::Bytes`] column at `position` is stored as lowercase hex
+    /// text instead of bytes, to share a text column another app owns
+    /// ([`Builder::bytes_as_hex_text`](crate::Builder::bytes_as_hex_text)).
+    pub fn is_hex_text(&self, position: usize) -> bool {
+        self.hex_text.get(position).copied().unwrap_or(false)
     }
 
     /// How this table's [`ColumnType::Id`] columns are stored; the same for every table
@@ -315,8 +408,99 @@ impl SchemaBuilder {
         self.table(M::TABLE, M::columns())
     }
 
-    pub(crate) fn finish(self, id_storage: IdStorage) -> Result<Schema, Vec<String>> {
-        let mut errors = self.errors;
+    pub(crate) fn finish(
+        mut self,
+        id_storage: IdStorage,
+        storage: &Storage,
+    ) -> Result<Schema, Vec<String>> {
+        let mut errors = std::mem::take(&mut self.errors);
+        for table in &mut self.tables {
+            table.stored = table
+                .columns
+                .iter()
+                .map(|c| storage.naming.apply(c.name))
+                .collect();
+            table.hex_text = vec![false; table.columns.len()];
+        }
+        fn find<'t>(
+            tables: &'t mut [TableDef],
+            (table, column): (&str, &str),
+            what: &str,
+            errors: &mut Vec<String>,
+        ) -> Option<(&'t mut TableDef, usize)> {
+            let found = tables
+                .iter_mut()
+                .find(|t| t.name == table)
+                .and_then(|t| t.position(column).map(|i| (t, i)));
+            if found.is_none() {
+                errors.push(format!(
+                    "{what} names `{table}.{column}`, which is not in the schema"
+                ));
+            }
+            found
+        }
+        for (table, column, to) in &storage.renames {
+            let target = (table.as_str(), column.as_str());
+            if let Some((def, i)) = find(&mut self.tables, target, "rename_column", &mut errors) {
+                def.stored[i] = to.clone();
+            }
+        }
+        for (table, column) in &storage.hex_text {
+            let target = (table.as_str(), column.as_str());
+            if let Some((def, i)) = find(&mut self.tables, target, "bytes_as_hex_text", &mut errors)
+            {
+                if def.columns[i].ty == ColumnType::Bytes {
+                    def.hex_text[i] = true;
+                } else {
+                    errors.push(format!(
+                        "bytes_as_hex_text names `{table}.{column}`, which is {:?}, not Bytes",
+                        def.columns[i].ty
+                    ));
+                }
+            }
+        }
+        let stored: HashMap<(&str, &str), String> = self
+            .tables
+            .iter()
+            .flat_map(|t| {
+                t.columns
+                    .iter()
+                    .zip(&t.stored)
+                    .map(|(c, s)| ((t.name, c.name), s.clone()))
+            })
+            .collect();
+        let referenced: Vec<Vec<Option<String>>> = self
+            .tables
+            .iter()
+            .map(|t| {
+                t.columns
+                    .iter()
+                    .map(|c| {
+                        let r = c.references?;
+                        Some(
+                            stored
+                                .get(&(r.table, r.column))
+                                .cloned()
+                                .unwrap_or(r.column.to_owned()),
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        for (table, referenced) in self.tables.iter_mut().zip(referenced) {
+            table.referenced = referenced;
+        }
+        for table in &self.tables {
+            let mut seen = std::collections::HashSet::new();
+            for (i, stored) in table.stored.iter().enumerate() {
+                if !seen.insert(stored.as_str()) {
+                    errors.push(format!(
+                        "two columns of `{}` are stored as `{stored}` (one is `{}`)",
+                        table.name, table.columns[i].name
+                    ));
+                }
+            }
+        }
         for table in &self.tables {
             for column in &table.columns {
                 if let Some(r) = column.references {

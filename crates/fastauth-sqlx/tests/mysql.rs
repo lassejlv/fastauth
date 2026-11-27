@@ -6,7 +6,9 @@ use std::sync::Mutex;
 use fastauth_core::adapter::Adapter;
 use fastauth_core::config::IdStrategy;
 use fastauth_core::migrate::MigrationPlan;
-use fastauth_core::testing::{conformance_schema, run_adapter_conformance};
+use fastauth_core::testing::{
+    conformance_schema, run_adapter_conformance, run_adapter_conformance_renamed,
+};
 use fastauth_core::value::Id;
 use fastauth_sqlx::sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use fastauth_sqlx::sqlx::{AssertSqlSafe, Executor};
@@ -105,6 +107,21 @@ async fn conformance() {
         let name = fresh_name();
         databases.lock().unwrap().push(name.clone());
         Sqlx::new(server.clone()).schema(name).table_prefix("fa_")
+    })
+    .await;
+    drop_databases(&server, databases.into_inner().unwrap()).await;
+}
+
+#[tokio::test]
+async fn conformance_with_camel_case_columns() {
+    let Some(server) = server().await else {
+        return;
+    };
+    let databases = Mutex::new(Vec::new());
+    run_adapter_conformance_renamed(async || {
+        let name = fresh_name();
+        databases.lock().unwrap().push(name.clone());
+        Sqlx::new(server.clone()).schema(name)
     })
     .await;
     drop_databases(&server, databases.into_inner().unwrap()).await;

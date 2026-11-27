@@ -219,16 +219,14 @@ impl Driver for MySql {
             .strip_prefix(physical)
             .and_then(|key| key.strip_prefix('.'))
             .unwrap_or(key);
-        table
-            .columns
-            .iter()
-            .find(|column| {
-                if column.primary_key {
+        (0..table.columns.len())
+            .find(|&i| {
+                if table.columns[i].primary_key {
                     key == "PRIMARY" || key == Self::ident(primary_key_name(physical))
                 } else {
-                    key == Self::ident(unique_name(physical, column.name))
+                    key == Self::ident(unique_name(physical, table.stored_name(i)))
                 }
             })
-            .map(|column| column.name.to_owned())
+            .map(|i| table.columns[i].name.to_owned())
     }
 }

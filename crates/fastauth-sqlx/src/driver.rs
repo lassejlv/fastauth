@@ -88,6 +88,56 @@ pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
     }
 }
 
+/// The type the column at `position` of `table` is stored as: [`stored_type`], or text for
+/// a byte column stored as hex text.
+pub fn column_type(table: &TableDef, position: usize) -> ColumnType {
+    if table.is_hex_text(position) {
+        return ColumnType::Text;
+    }
+    stored_type(table, table.columns[position].ty)
+}
+
+/// `value` as the column at `position` stores it: a hex text column gets bytes as
+/// lowercase hex.
+pub fn to_stored(table: &TableDef, position: usize, value: Value) -> Value {
+    match value {
+        Value::Bytes(bytes) if table.is_hex_text(position) => {
+            Value::Text(bytes.iter().map(|b| format!("{b:02x}")).collect())
+        }
+        value => value,
+    }
+}
+
+/// The inverse of [`to_stored`]. Text that isn't hex, which only another app writes to a
+/// shared column, comes back as its UTF-8 bytes instead of failing the read.
+pub fn from_stored(table: &TableDef, position: usize, value: Value) -> Value {
+    match value {
+        Value::Text(text) if table.is_hex_text(position) => {
+            Value::Bytes(unhex(&text).unwrap_or_else(|| text.into_bytes()))
+        }
+        value => value,
+    }
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| {
+            let pair = text.get(i..i + 2)?;
+            if !pair
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return None;
+            }
+            u8::from_str_radix(pair, 16).ok()
+        })
+        .collect()
+}
+
 pub trait Driver: Database {
     /// The character identifiers are quoted with.
     const QUOTE: char;

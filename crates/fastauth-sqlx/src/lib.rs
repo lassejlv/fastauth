@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use fastauth_core::adapter::{
     Adapter, DbError, DbResult, Delete, Filter, Insert, Op, Queries, Select, SessionWithUser,
-    Transaction, Update,
+    SessionWithUserByToken, Transaction, Update,
 };
 use fastauth_core::migrate::{
     LiveSchema, MigrationPlan, Step, duplicates_error, index_name, unique_key,
@@ -47,7 +47,7 @@ pub use sqlx::{PgPool, Postgres};
 #[cfg(feature = "sqlite")]
 pub use sqlx::{Sqlite, SqlitePool};
 
-use crate::driver::stored_type;
+use crate::driver::{column_type, from_stored};
 use crate::render::{Names, Sql, Statement};
 pub use crate::tx::{InTx, SharedTx};
 
@@ -170,10 +170,11 @@ impl<DB: Dialect> Sqlx<DB> {
             if columns.iter().any(|c| new_here.contains(&(table.name, *c))) {
                 continue;
             }
-            let selected: Vec<&ColumnDef> = table
+            let selected: Vec<(usize, &ColumnDef)> = table
                 .primary_key()
                 .into_iter()
                 .chain(columns.iter().filter_map(|c| table.column(c)))
+                .filter_map(|c| Some((table.position(c.name)?, c)))
                 .collect();
             let sql = render::duplicates::<DB>(&self.sql.names, table, columns);
             let rows = DB::fetch_all(&mut *self.conn().await?, sql, Vec::new())
@@ -188,9 +189,9 @@ impl<DB: Dialect> Sqlx<DB> {
                     selected
                         .iter()
                         .enumerate()
-                        .map(|(i, c)| {
-                            DB::decode(row, i, stored_type(table, c.ty))
-                                .map(|value| (c.name, value))
+                        .map(|(i, (position, c))| {
+                            DB::decode(row, i, column_type(table, *position))
+                                .map(|value| (c.name, from_stored(table, *position, value)))
                                 .map_err(|m| DecodeError::new(c.name, m).into())
                         })
                         .collect::<DbResult<Vec<_>>>()
@@ -301,7 +302,8 @@ fn decode<DB: Dialect>(table: &Arc<TableDef>, row: &DB::Row, offset: usize) -> D
         .iter()
         .enumerate()
         .map(|(i, column)| {
-            DB::decode(row, offset + i, stored_type(table, column.ty))
+            DB::decode(row, offset + i, column_type(table, i))
+                .map(|value| from_stored(table, i, value))
                 .map_err(|m| DecodeError::new(column.name, m))
         })
         .collect::<Result<_, _>>()?;
@@ -430,13 +432,11 @@ async fn delete<DB: Dialect>(conn: &mut DB::Connection, sql: &Sql, q: Delete<'_>
 async fn session_with_user<DB: Dialect>(
     conn: &mut DB::Connection,
     sql: &Sql,
-    q: SessionWithUser<'_>,
+    session: &Arc<TableDef>,
+    user: &Arc<TableDef>,
+    (by, value): (&str, Value),
 ) -> DbResult<Option<(Row, Row)>> {
-    for (table, column) in [
-        (q.session, "token_hash"),
-        (q.session, "user_id"),
-        (q.user, "id"),
-    ] {
+    for (table, column) in [(session, by), (session, "user_id"), (user, "id")] {
         if table.position(column).is_none() {
             return Err(DbError::Schema(format!(
                 "`{}.{column}` missing",
@@ -444,15 +444,14 @@ async fn session_with_user<DB: Dialect>(
             )));
         }
     }
-    let statement =
-        sql.session_with_user::<DB>(q.session, q.user, q.token_hash.as_bytes().to_vec());
-    let rows = fetch::<DB>(conn, sql, statement, q.session).await?;
+    let statement = sql.session_with_user::<DB>(session, user, by, value);
+    let rows = fetch::<DB>(conn, sql, statement, session).await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
-    let session = decode::<DB>(q.session, row, 0)?;
-    let user = decode::<DB>(q.user, row, q.session.columns.len())?;
-    Ok(Some((session, user)))
+    let found = decode::<DB>(session, row, 0)?;
+    let user = decode::<DB>(user, row, session.columns.len())?;
+    Ok(Some((found, user)))
 }
 
 impl<DB: Dialect> Queries for Sqlx<DB> {
@@ -583,8 +582,11 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
         for (table, columns) in &live.tables {
             let physical = names.physical(table);
             for column in columns {
-                let name = DB::ident(index_name(&physical, column));
-                if indexes.contains(&(physical.clone(), name)) {
+                let fastauth = DB::ident(index_name(&physical, column));
+                let better_auth = DB::ident(format!("{physical}_{column}_idx"));
+                if indexes.contains(&(physical.clone(), fastauth))
+                    || indexes.contains(&(physical.clone(), better_auth))
+                {
                     live.indexes.insert((table.clone(), column.clone()));
                 }
             }
@@ -630,6 +632,23 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
     }
 
     async fn session_with_user(&self, q: SessionWithUser<'_>) -> DbResult<Option<(Row, Row)>> {
-        session_with_user::<DB>(&mut *self.conn().await?, &self.sql, q).await
+        let by = ("token_hash", Value::Bytes(q.token_hash.as_bytes().to_vec()));
+        session_with_user::<DB>(&mut *self.conn().await?, &self.sql, q.session, q.user, by).await
+    }
+
+    async fn session_with_user_by_token(
+        &self,
+        q: SessionWithUserByToken<'_>,
+    ) -> DbResult<Option<(Row, Row)>> {
+        let by = ("token", Value::Text(q.token.to_owned()));
+        session_with_user::<DB>(&mut *self.conn().await?, &self.sql, q.session, q.user, by).await
+    }
+
+    fn duplicates_query(&self, table: &TableDef, columns: &[&str]) -> Option<String> {
+        Some(
+            render::duplicates::<DB>(&self.sql.names, table, columns)
+                .as_str()
+                .to_owned(),
+        )
     }
 }

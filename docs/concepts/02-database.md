@@ -108,6 +108,26 @@ The types are the schema's column types (`id`, `text`, `bool`, `int`, `timestamp
 | `json` | `Json<T>` | `jsonb` | `text` | `json` |
 | `bytes` | `Hash`, `Vec<u8>` | `bytea` | `blob` | `longblob`; `varbinary(255)` when unique or indexed |
 
+### Column names
+
+Columns are stored under the names they are declared with (`email_verified`), unless the
+builder says otherwise:
+
+- `.column_naming(ColumnNaming::CamelCase)` stores every column, core's, the plugins' and
+  the app's `Fields`, under its camelCase name (`"emailVerified"`, `"userId"`), as Better
+  Auth does.
+- `.rename_column("account", "password_hash", "password")` stores one column under another
+  name, over the strategy. `.build()` fails on a column the schema doesn't have and on two
+  columns of a table stored under one name.
+- `.bytes_as_hex_text("account", "access_token")` stores a `bytes` column as lowercase hex
+  in a `text` column. Text that isn't hex, which only another app writes, reads as its bytes.
+
+Code, filters and sorts keep the declared names (`User::EMAIL_VERIFIED`); the adapter
+writes the stored names into every statement, index, constraint and migration.
+`fastauth schema` lists a column's stored name (`stored as emailVerified`) when it differs.
+Table names are the adapter's: `table_prefix` and `rename` above. [Migrating from Better
+Auth](../integrations/04-migrating-from-better-auth.md) puts these together.
+
 ### MySQL
 
 `Sqlx<MySql>` needs MySQL 8.0.17 or later (it's tested on 8.4) with InnoDB. MariaDB isn't
@@ -287,6 +307,16 @@ Every command reads `DATABASE_URL` from the environment or `.env`, or takes
 `--database-url`. `status` in CI catches a forgotten migration after adding a plugin; it
 also exits 1 when it can't reach the database.
 
+**Review-only.** When another app's migrations own the schema (Better Auth's, while both
+share the database), build with `.migrations(Migrations::ReviewOnly)`. `migrate`,
+`migrator().run()` and `migrator().apply(..)` then refuse with a `ReviewOnly` error and
+change nothing, while `status` and `plan()` work as before. `generate` writes one file per
+change, `<timestamp>_fastauth_<change>.sql` (`add_user_securityStamp`,
+`unique_account_providerId_accountId`, `create_two_factor`), from
+`migrator().sql_steps()`: a new table comes with its indexes, every other change stands
+alone, and a unique constraint on an existing table starts with a comment holding the query
+that lists the rows it would refuse.
+
 ### Unique constraints on an existing database
 
 The migrator also adds unique constraints that an existing table is missing, single-column
@@ -458,6 +488,9 @@ variant (the text matches with `%`, `_` and mixed case), ordering, limit and off
 and deletes, unique violations, transaction commit, rollback and drop,
 `session_with_user`, and the migrator round trip (create, then an empty plan, then added
 columns on a table with rows). `MemoryAdapter` and all three `fastauth-sqlx` databases run it.
+`run_adapter_conformance_renamed` runs the same cases with every column stored under
+another name (camelCase, a rename and a hex text column), which an adapter must pass to
+work with [renamed columns](#column-names).
 
 Secondary storage for apps that run several instances (Redis, Valkey) is a separate trait; see
 [Running several instances](04-multiple-instances.md).

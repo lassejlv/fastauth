@@ -203,17 +203,15 @@ impl Driver for Postgres {
         table: &TableDef,
     ) -> Option<String> {
         let constraint = err.constraint()?;
-        table
-            .columns
-            .iter()
-            .find(|column| {
-                let name = if column.primary_key {
+        (0..table.columns.len())
+            .find(|&i| {
+                let name = if table.columns[i].primary_key {
                     primary_key_name(physical)
                 } else {
-                    unique_name(physical, column.name)
+                    unique_name(physical, table.stored_name(i))
                 };
                 Self::ident(name) == constraint
             })
-            .map(|column| column.name.to_owned())
+            .map(|i| table.columns[i].name.to_owned())
     }
 }

@@ -5,7 +5,9 @@ use std::sync::Mutex;
 use fastauth_core::adapter::Adapter;
 use fastauth_core::config::IdStrategy;
 use fastauth_core::migrate::MigrationPlan;
-use fastauth_core::testing::{conformance_schema, run_adapter_conformance};
+use fastauth_core::testing::{
+    conformance_schema, run_adapter_conformance, run_adapter_conformance_renamed,
+};
 use fastauth_core::value::Id;
 use fastauth_sqlx::sqlx::postgres::PgPoolOptions;
 use fastauth_sqlx::sqlx::{AssertSqlSafe, Executor};
@@ -87,6 +89,21 @@ async fn conformance() {
         let schema = fresh_schema();
         schemas.lock().unwrap().push(schema.clone());
         Sqlx::new(pool.clone()).schema(schema).table_prefix("fa_")
+    })
+    .await;
+    drop_schemas(&pool, schemas.into_inner().unwrap()).await;
+}
+
+#[tokio::test]
+async fn conformance_with_camel_case_columns() {
+    let Some(pool) = database().await else {
+        return;
+    };
+    let schemas = Mutex::new(Vec::new());
+    run_adapter_conformance_renamed(async || {
+        let schema = fresh_schema();
+        schemas.lock().unwrap().push(schema.clone());
+        Sqlx::new(pool.clone()).schema(schema)
     })
     .await;
     drop_schemas(&pool, schemas.into_inner().unwrap()).await;

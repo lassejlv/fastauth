@@ -8,7 +8,10 @@ use crate::adapter::{Adapter, DbError, DbResult};
 use crate::schema::{ColumnDef, ColumnType, IdStorage, Schema, TableDef};
 use crate::value::Value;
 
-/// What exists in the database, as reported by `Adapter::introspect`.
+/// What exists in the database, as reported by `Adapter::introspect`. Tables are named
+/// as the schema names them (adapters undo their prefixes and renames); columns by their
+/// stored names ([`TableDef::stored_name`]), which are the declared names unless a
+/// [`ColumnNaming`](crate::schema::ColumnNaming) or rename says otherwise.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveSchema {
     /// Table name to its column names.
@@ -165,8 +168,9 @@ impl MigrationPlan {
                 }
                 continue;
             };
-            for column in &table.columns {
-                let key = (table.name.to_owned(), column.name.to_owned());
+            for (position, column) in table.columns.iter().enumerate() {
+                let stored = table.stored_name(position);
+                let key = (table.name.to_owned(), stored.to_owned());
                 if column.ty == ColumnType::Id
                     && live
                         .id_storage
@@ -175,7 +179,7 @@ impl MigrationPlan {
                 {
                     mismatched_ids.push(format!("{}.{}", table.name, column.name));
                 }
-                if !live_columns.contains(column.name) {
+                if !live_columns.contains(stored) {
                     if !column.nullable && column.default.is_none() {
                         plan.warnings.push(format!(
                             "{}.{} is NOT NULL without a default; adding it fails if the table has rows",
@@ -200,10 +204,14 @@ impl MigrationPlan {
             }
             if let Some(live_uniques) = &live.uniques {
                 for columns in table.unique_sets() {
+                    let stored: Vec<&str> = columns
+                        .iter()
+                        .map(|c| table.stored_column(c).unwrap_or(c))
+                        .collect();
                     let added_with_its_column =
-                        columns.len() == 1 && !live_columns.contains(columns[0]);
+                        columns.len() == 1 && !live_columns.contains(stored[0]);
                     if !added_with_its_column
-                        && !live_uniques.contains(&unique_key(table.name, &columns))
+                        && !live_uniques.contains(&unique_key(table.name, &stored))
                     {
                         plan.steps.push(Step::AddUnique {
                             table: table.clone(),
@@ -212,7 +220,10 @@ impl MigrationPlan {
                     }
                 }
             }
-            for extra in live_columns.iter().filter(|c| table.column(c).is_none()) {
+            for extra in live_columns
+                .iter()
+                .filter(|c| table.column_stored_as(c).is_none())
+            {
                 plan.warnings.push(format!(
                     "{}.{extra} exists in the database but not in the config",
                     table.name
@@ -239,15 +250,63 @@ impl MigrationPlan {
     }
 }
 
+/// Whether `auth.migrator()` may change the database
+/// ([`Builder::migrations`](crate::Builder::migrations)).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Migrations {
+    /// `run` and `apply` create and extend fastauth's tables. The default.
+    #[default]
+    Apply,
+    /// The schema belongs to someone else's migrations, such as Better Auth's while both apps
+    /// share one database. `run` and `apply` refuse with [`ReviewOnly`], so nothing
+    /// changes the tables behind the other app's back; `plan`, `sql` and
+    /// [`sql_steps`](Migrator::sql_steps) still work, so `fastauth generate` writes each step
+    /// as its own migration to review and apply yourself.
+    ReviewOnly,
+}
+
+/// The error `run` and `apply` answer with [`Migrations::ReviewOnly`].
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "fastauth's migrations are review-only (`.migrations(Migrations::ReviewOnly)`), so the \
+     migrator doesn't change the database; write the SQL with `fastauth generate`, review it \
+     and apply it with your own migrations"
+)]
+pub struct ReviewOnly;
+
+/// One migration of [`Migrator::sql_steps`]: a name for its file and its SQL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationSql {
+    /// What it does, as a file name part: `add_user_securityStamp`,
+    /// `unique_account_providerId_accountId`, `create_two_factor`.
+    pub name: String,
+    pub sql: String,
+}
+
 /// `auth.migrator()`.
 pub struct Migrator<'a, D> {
     adapter: &'a D,
     schema: &'a Schema,
+    mode: Migrations,
 }
 
 impl<'a, D: Adapter> Migrator<'a, D> {
     pub(crate) fn new(adapter: &'a D, schema: &'a Schema) -> Self {
-        Self { adapter, schema }
+        Self {
+            adapter,
+            schema,
+            mode: Migrations::Apply,
+        }
+    }
+
+    pub(crate) fn with_mode(mut self, mode: Migrations) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Whether this migrator may change the database.
+    pub fn mode(&self) -> Migrations {
+        self.mode
     }
 
     pub async fn plan(&self) -> DbResult<MigrationPlan> {
@@ -255,7 +314,11 @@ impl<'a, D: Adapter> Migrator<'a, D> {
         Ok(MigrationPlan::diff(self.schema, &live))
     }
 
+    /// Applies `plan`. Refused with [`ReviewOnly`] under [`Migrations::ReviewOnly`].
     pub async fn apply(&self, plan: &MigrationPlan) -> DbResult<()> {
+        if self.mode == Migrations::ReviewOnly {
+            return Err(DbError::other(ReviewOnly));
+        }
         for warning in &plan.warnings {
             tracing::warn!("fastauth migrate: {warning}");
         }
@@ -276,6 +339,80 @@ impl<'a, D: Adapter> Migrator<'a, D> {
     pub async fn sql(&self) -> DbResult<String> {
         let plan = self.plan().await?;
         self.adapter.render_sql(&plan)
+    }
+
+    /// The plan as separate migrations, one per change, for review: a new table comes with
+    /// its indexes and unique constraints, and every other step stands alone. A unique
+    /// constraint on an existing table starts with a comment holding the query that lists
+    /// the rows it would refuse, when the adapter can render one
+    /// ([`Adapter::duplicates_query`]); run it first, it must return no rows.
+    pub async fn sql_steps(&self) -> DbResult<Vec<MigrationSql>> {
+        let plan = self.plan().await?;
+        let mut groups: Vec<(String, Vec<Step>)> = Vec::new();
+        let mut created: Vec<&str> = Vec::new();
+        for step in &plan.steps {
+            let (name, follows_create) = match step {
+                Step::CreateTable(table) => {
+                    created.push(table.name);
+                    (format!("create_{}", table.name), false)
+                }
+                Step::AddColumn { table, column } => (
+                    format!(
+                        "add_{}_{}",
+                        table.name,
+                        table.stored_column(column.name).unwrap_or(column.name)
+                    ),
+                    false,
+                ),
+                Step::CreateIndex { table, column } => (
+                    format!(
+                        "index_{}_{}",
+                        table.name,
+                        table.stored_column(column.name).unwrap_or(column.name)
+                    ),
+                    created.contains(&table.name),
+                ),
+                Step::AddUnique { table, columns } => (
+                    format!(
+                        "unique_{}_{}",
+                        table.name,
+                        columns
+                            .iter()
+                            .map(|c| table.stored_column(c).unwrap_or(c))
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    ),
+                    created.contains(&table.name),
+                ),
+            };
+            match groups.last_mut() {
+                Some((_, steps)) if follows_create => steps.push(step.clone()),
+                _ => groups.push((name, vec![step.clone()])),
+            }
+        }
+        let mut out = Vec::with_capacity(groups.len());
+        for (name, steps) in groups {
+            let mut sql = String::new();
+            if let [Step::AddUnique { table, columns }] = steps.as_slice()
+                && let Some(query) = self.adapter.duplicates_query(table, columns)
+            {
+                sql.push_str(
+                    "-- Before applying: this query lists rows that share the new unique key.\n\
+                     -- It must return no rows: merge or delete the duplicates it finds first.\n",
+                );
+                for line in query.lines() {
+                    sql.push_str("--   ");
+                    sql.push_str(line);
+                    sql.push('\n');
+                }
+            }
+            sql.push_str(&self.adapter.render_sql(&MigrationPlan {
+                steps,
+                warnings: Vec::new(),
+            })?);
+            out.push(MigrationSql { name, sql });
+        }
+        Ok(out)
     }
 }
 

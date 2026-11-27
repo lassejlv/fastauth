@@ -16,7 +16,7 @@ use url::Url;
 use crate::adapter::{Adapter, Transaction};
 use crate::config::{
     ClientIp, CookieConfig, CoreConfig, EmailPassword, EmailVerification, IdStrategy, Secure,
-    SessionConfig,
+    SessionConfig, SessionTokens,
 };
 use crate::crypto::{Argon2id, Keys, Passwords, Secret, SignPurpose};
 use crate::endpoint::{
@@ -27,14 +27,14 @@ use crate::error::{AuthError, BuildError, codes};
 use crate::events::{DeferredEvents, Event};
 use crate::hlist::{Append, Has, Nil, PluginSet, Satisfied};
 use crate::mail::{DynMailer, Mailer};
-use crate::migrate::Migrator;
+use crate::migrate::{Migrations, Migrator};
 use crate::model::{Fields, Model};
-use crate::models::{Session, User};
+use crate::models::{Account, Session, User, Verification};
 use crate::plugin::{Plugin, PluginBuilder, Registry};
 use crate::query::Db;
 use crate::rate_limit::{RateLimit, RateLimiter};
 use crate::routes;
-use crate::schema::Schema;
+use crate::schema::{ColumnNaming, Schema, Storage};
 use crate::session::{self, SessionData, UserView};
 use crate::storage::{DEFAULT_STORAGE_TIMEOUT, DynStorage, GuardedStorage, SecondaryStorage};
 
@@ -74,6 +74,10 @@ impl FastAuth {
             secondary_storage_timeout: DEFAULT_STORAGE_TIMEOUT,
             multi_instance: false,
             allow_insecure: false,
+            storage: Storage::default(),
+            session_tokens: SessionTokens::default(),
+            only_owned_accounts: false,
+            migrations: Migrations::default(),
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -104,6 +108,10 @@ pub struct Builder<D, U, P, S, B> {
     secondary_storage_timeout: Duration,
     multi_instance: bool,
     allow_insecure: bool,
+    storage: Storage,
+    session_tokens: SessionTokens,
+    only_owned_accounts: bool,
+    migrations: Migrations,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
 }
@@ -140,6 +148,10 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             secondary_storage_timeout: self.secondary_storage_timeout,
             multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
+            storage: self.storage,
+            session_tokens: self.session_tokens,
+            only_owned_accounts: self.only_owned_accounts,
+            migrations: self.migrations,
             app_init: self.app_init,
             _state: PhantomData,
         }
@@ -275,6 +287,74 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// How column names are stored in the database, for every table: core's, the plugins'
+    /// and the app's fields. [`ColumnNaming::CamelCase`] stores `email_verified` as
+    /// `emailVerified`, as Better Auth does. Code keeps using the declared names
+    /// (`User::EMAIL_VERIFIED`, `#[derive(Fields)]` field names); only the SQL changes.
+    /// Default: [`ColumnNaming::SnakeCase`], the declared names.
+    pub fn column_naming(mut self, naming: ColumnNaming) -> Self {
+        self.storage.naming = naming;
+        self
+    }
+
+    /// Stores `table.column` (declared names) as `to`, over the naming strategy:
+    /// `.rename_column("account", "password_hash", "password")` keeps the password hash in
+    /// Better Auth's `password` column. `.build()` fails on a column the schema doesn't have.
+    pub fn rename_column(
+        mut self,
+        table: impl Into<String>,
+        column: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.storage
+            .renames
+            .push((table.into(), column.into(), to.into()));
+        self
+    }
+
+    /// Stores the byte column `table.column` as lowercase hex text, for a text column
+    /// another app created, such as Better Auth's `account.accessToken`. The values stay
+    /// what they are (`access_token` is still encrypted); only their encoding changes.
+    /// Text that isn't hex, which only the other app writes, reads as its UTF-8 bytes.
+    pub fn bytes_as_hex_text(
+        mut self,
+        table: impl Into<String>,
+        column: impl Into<String>,
+    ) -> Self {
+        self.storage.hex_text.push((table.into(), column.into()));
+        self
+    }
+
+    /// How session tokens are stored: [`SessionTokens::Hashed`] (the default) or
+    /// [`SessionTokens::Raw`], the token itself in `session.token`, as Better Auth stores
+    /// it. Raw tokens let both apps resolve each other's sessions while they share a
+    /// database, and give up the protection hashing gives a leaked table; see
+    /// `docs/concepts/03-security.md`.
+    pub fn session_tokens(mut self, tokens: SessionTokens) -> Self {
+        self.session_tokens = tokens;
+        self
+    }
+
+    /// Leaves `account` rows of providers fastauth doesn't own alone: it never reads them
+    /// as a sign-in method, lists, changes, unlinks or deletes them, and refuses to delete a
+    /// user that has one (409 `USER_HAS_FOREIGN_ACCOUNTS`, since the foreign key would
+    /// delete it too). fastauth owns `credential` and the providers plugins register (each
+    /// social provider). For a database another app writes accounts to, such as the
+    /// `oidc` rows of an SSO integration. Off by default: fastauth manages every row.
+    pub fn only_owned_accounts(mut self, on: bool) -> Self {
+        self.only_owned_accounts = on;
+        self
+    }
+
+    /// Whether `auth.migrator()` may change the database. [`Migrations::ReviewOnly`] makes
+    /// `run` and `apply` (and `fastauth migrate`) refuse, for a schema another app's
+    /// migrations own, and `fastauth generate` write each step as its own migration to
+    /// review. Default: [`Migrations::Apply`].
+    pub fn migrations(mut self, mode: Migrations) -> Self {
+        self.migrations = mode;
+        self
+    }
+
     /// The app's own columns on `user`.
     pub fn user_fields<U2: Fields>(self) -> Builder<D, U2, P, S, B> {
         self.retype(|p| p)
@@ -312,6 +392,10 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             secondary_storage_timeout: self.secondary_storage_timeout,
             multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
+            storage: self.storage,
+            session_tokens: self.session_tokens,
+            only_owned_accounts: self.only_owned_accounts,
+            migrations: self.migrations,
             app_init: Vec::new(),
             _state: PhantomData,
         }
@@ -426,7 +510,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
         }
 
         let mut registry = Registry::<D>::new();
-        crate::models::register(&mut registry.schema);
+        crate::models::register_with(&mut registry.schema, self.session_tokens);
         routes::register(
             &mut PluginBuilder {
                 registry: &mut registry,
@@ -468,7 +552,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             }
         }
 
-        let schema = match registry.schema.finish(self.ids.storage()) {
+        let schema = match registry.schema.finish(self.ids.storage(), &self.storage) {
             Ok(schema) => schema,
             Err(mut errors) => {
                 problems.append(&mut errors);
@@ -514,6 +598,12 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             client_ip: self.client_ip,
             ids: self.ids,
             secure_cookies,
+            session_tokens: self.session_tokens,
+            owned_accounts: self.only_owned_accounts.then(|| {
+                std::iter::once(Account::CREDENTIAL.to_owned())
+                    .chain(registry.account_providers.iter().cloned())
+                    .collect()
+            }),
         };
         let keys = Keys::new(self.secrets);
         let rate_limiter = RateLimiter::new(
@@ -524,6 +614,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
                 .map(|storage| GuardedStorage::new(storage, self.secondary_storage_timeout)),
         );
         let shared = Shared {
+            migrations: self.migrations,
             db: self.db,
             schema,
             keys,
@@ -551,6 +642,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             _user: PhantomData,
         })
     }
+}
+
+async fn prune_verifications<D: Adapter>(shared: &Shared<D>) -> Result<u64, AuthError> {
+    let expired = Verification::EXPIRES_AT.lt(time::OffsetDateTime::now_utc());
+    Ok(Db::new(&shared.db, &shared.schema)
+        .delete::<Verification>(expired)
+        .await?)
 }
 
 /// Whether `url` points at this machine: `localhost`, `*.localhost` or a loopback address.
@@ -617,7 +715,38 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
     }
 
     pub fn migrator(&self) -> Migrator<'_, D> {
-        Migrator::new(&self.shared.db, &self.shared.schema)
+        Migrator::new(&self.shared.db, &self.shared.schema).with_mode(self.shared.migrations)
+    }
+
+    /// Deletes every expired `verification` row (email verification and reset links,
+    /// OAuth states, codes) and answers how many. fastauth already deletes expired rows
+    /// before it stores a new one; call this, or
+    /// [`prune_verifications_every`](Self::prune_verifications_every), to keep the table
+    /// small when few new rows arrive.
+    pub async fn prune_verifications(&self) -> Result<u64, AuthError> {
+        prune_verifications(&self.shared).await
+    }
+
+    /// Runs [`prune_verifications`](Self::prune_verifications) every `every` on the
+    /// current Tokio runtime, first after one interval, until every clone of this `Auth` is
+    /// dropped or the handle is aborted. A failed run is logged and the next one runs on
+    /// time. Panics outside a Tokio runtime, as `tokio::spawn` does.
+    pub fn prune_verifications_every(&self, every: Duration) -> tokio::task::JoinHandle<()> {
+        let shared = Arc::downgrade(&self.shared);
+        tokio::spawn(async move {
+            let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+            ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticks.tick().await;
+                let Some(shared) = shared.upgrade() else {
+                    return;
+                };
+                match prune_verifications(&shared).await {
+                    Ok(pruned) => tracing::debug!(pruned, "fastauth: pruned expired verifications"),
+                    Err(err) => tracing::warn!("fastauth: pruning verifications failed: {err}"),
+                }
+            }
+        })
     }
 
     /// A registered plugin's config. Doesn't compile when the plugin isn't registered.
