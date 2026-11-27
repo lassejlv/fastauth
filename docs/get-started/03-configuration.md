@@ -228,8 +228,8 @@ other devices until the cache cookie expires. Endpoints that create or change a 
 the database, so a revoked session can't mint one ([Security](../concepts/03-security.md#sessions-that-arent-a-sign-in)). An
 impersonation session is never extended: it ends after the admin plugin's
 `impersonation_session_duration`. [Internals](../reference/02-internals.md#the-session-hot-path)
-shows the cost of each tier. Sessions live in the database; secondary storage such as Redis
-is [planned](01-overview.md#planned), not built.
+shows the cost of each tier. Sessions live in the database, which every instance of the app
+shares ([Running several instances](../concepts/04-multiple-instances.md#sessions-and-the-cookie-cache)).
 
 ## Cookies
 
@@ -265,7 +265,9 @@ password: `/two-factor/enable`, `/disable`, `/get-totp-uri` and `/generate-backu
 then core's 3 per 10 seconds on `/sign-in/*`, `/sign-up/*`, `/request-password-reset`,
 `/forget-password`, `/send-verification-email` and `/change-password`.
 `RateLimit::disabled()` turns limiting off, which is useful in tests. The counters live in
-memory, per process.
+memory, per process, unless you set `.secondary_storage(..)`: then they live in Redis or
+Valkey and hold across every instance of the app
+([Running several instances](../concepts/04-multiple-instances.md)).
 
 - `account_limit` is a second limit on every route with a rule of its own: each account the
   JSON body names (`email` and `username`) gets that many requests per rule, whatever the

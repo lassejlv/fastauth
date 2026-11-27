@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Secondary storage for several instances
+
+- **`.secondary_storage(..)`**, Better Auth's `secondaryStorage`: a key-value store every
+  instance of an app shares. Rate limit counters live there, so a limit holds across every
+  instance instead of once per instance. Each bucket is a fixed-window counter, as in Better
+  Auth's secondary-storage limiter; without secondary storage the in-memory GCRA limiter
+  stays. When the storage fails, the instance falls back to its in-memory limiter and logs
+  an error at most once a minute.
+- **New crate `fastauth-redis`** (facade features `redis` and `redis-tls`): `RedisStorage`
+  on Redis or Valkey through a reconnecting connection manager. A rate-limit step is one Lua
+  script (`INCR`, then `PEXPIRE` on a new counter), so instances never both take the last
+  request. Tested against Redis 7 and Valkey 8, including two `Auth` instances on one
+  Postgres and one Redis.
+- **`.multi_instance(true)`** says the app runs several instances; `.build()` then warns
+  when rate limiting is on without secondary storage.
+- Sessions, verification values and code attempts stay in the database, which instances
+  already share and which consumes tokens atomically; nothing on the wire changes. New page:
+  [Running several instances](docs/concepts/04-multiple-instances.md). The Production
+  checklist now says multi-instance apps need secondary storage.
+
+### Core
+
+- Additive: `fastauth_core::storage` with the `SecondaryStorage` trait (`get`, `set` with a
+  TTL, `delete`, atomic `increment` with a TTL set on creation) and `StorageError`, and
+  `testing::run_storage_conformance` behind the `testing` feature.
+- Account rate-limit buckets are keyed by an HMAC under a key derived from the first secret
+  instead of a per-process hash, so instances agree on them and storage never sees the
+  email or username. Rotating the first secret starts account buckets afresh.
+
 ## 0.6.0 (2026-11-27)
 
 ### Highlights and security

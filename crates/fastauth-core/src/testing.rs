@@ -1054,3 +1054,118 @@ impl<D: Adapter> Fixture<D> {
         assert!(found.is_none());
     }
 }
+
+/// The [`SecondaryStorage`](crate::storage::SecondaryStorage) conformance suite: get, set
+/// with and without a TTL, delete, and an increment that is atomic under concurrent callers
+/// and whose TTL is set once, on the first increment. Keys are random under
+/// `fastauth:conformance:`, so a store with other data works. Takes about a second, for
+/// the TTLs to run out. Panics on the first failure.
+pub async fn run_storage_conformance<S: crate::storage::SecondaryStorage + Clone>(storage: S) {
+    use std::time::Duration as Ttl;
+
+    let prefix = format!(
+        "fastauth:conformance:{}:",
+        crate::crypto::random_string(16, b"abcdefghijklmnopqrstuvwxyz0123456789")
+    );
+    let key = |name: &str| format!("{prefix}{name}");
+    let wait = Ttl::from_millis(700);
+    let short = Ttl::from_millis(300);
+    let long = Ttl::from_secs(60);
+
+    assert_eq!(storage.get(&key("missing")).await.unwrap(), None);
+
+    storage.set(&key("kept"), "one", None).await.unwrap();
+    assert_eq!(
+        storage.get(&key("kept")).await.unwrap().as_deref(),
+        Some("one")
+    );
+    storage.set(&key("kept"), "two", None).await.unwrap();
+    assert_eq!(
+        storage.get(&key("kept")).await.unwrap().as_deref(),
+        Some("two"),
+        "set replaces the value"
+    );
+    storage
+        .set(&key("expiring"), "soon", Some(short))
+        .await
+        .unwrap();
+    storage
+        .set(&key("replaced"), "soon", Some(short))
+        .await
+        .unwrap();
+    storage
+        .set(&key("replaced"), "later", Some(long))
+        .await
+        .unwrap();
+    storage
+        .set(&key("unexpired"), "soon", Some(short))
+        .await
+        .unwrap();
+    storage.set(&key("unexpired"), "never", None).await.unwrap();
+    assert_eq!(
+        storage.get(&key("expiring")).await.unwrap().as_deref(),
+        Some("soon")
+    );
+
+    storage.set(&key("deleted"), "x", None).await.unwrap();
+    storage.delete(&key("deleted")).await.unwrap();
+    assert_eq!(storage.get(&key("deleted")).await.unwrap(), None);
+    storage.delete(&key("deleted")).await.unwrap();
+
+    assert_eq!(storage.increment(&key("counter"), long).await.unwrap(), 1);
+    assert_eq!(storage.increment(&key("counter"), long).await.unwrap(), 2);
+    assert_eq!(storage.increment(&key("window"), short).await.unwrap(), 1);
+    assert_eq!(
+        storage.increment(&key("window"), long).await.unwrap(),
+        2,
+        "a later increment keeps the counter"
+    );
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..50 {
+        let storage = storage.clone();
+        let key = key("concurrent");
+        tasks.spawn(async move { storage.increment(&key, long).await.unwrap() });
+    }
+    let mut seen = tasks.join_all().await;
+    seen.sort_unstable();
+    assert_eq!(
+        seen,
+        (1..=50).collect::<Vec<u64>>(),
+        "concurrent increments each get their own value"
+    );
+
+    tokio::time::sleep(wait).await;
+    assert_eq!(
+        storage.get(&key("expiring")).await.unwrap(),
+        None,
+        "a value expires after its TTL"
+    );
+    assert_eq!(
+        storage.get(&key("replaced")).await.unwrap().as_deref(),
+        Some("later"),
+        "set replaces the TTL"
+    );
+    assert_eq!(
+        storage.get(&key("unexpired")).await.unwrap().as_deref(),
+        Some("never"),
+        "set without a TTL removes the old one"
+    );
+    assert_eq!(
+        storage.increment(&key("window"), long).await.unwrap(),
+        1,
+        "the counter expires a TTL after its first increment, whatever later increments pass"
+    );
+    assert_eq!(storage.increment(&key("counter"), long).await.unwrap(), 3);
+
+    for name in [
+        "kept",
+        "replaced",
+        "unexpired",
+        "counter",
+        "window",
+        "concurrent",
+    ] {
+        storage.delete(&key(name)).await.unwrap();
+    }
+}

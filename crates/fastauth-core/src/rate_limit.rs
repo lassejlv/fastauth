@@ -1,15 +1,19 @@
-//! GCRA rate limiting: one timestamp per key, in sharded in-memory maps.
+//! Rate limiting: GCRA in sharded in-memory maps, or fixed windows in secondary storage.
 
 use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::net::{IpAddr, Ipv6Addr};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::Sha256;
 use time::Duration;
+use zeroize::Zeroizing;
 
 use crate::config::ClientIp;
+use crate::storage::{DynStorage, StorageError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limit {
@@ -181,25 +185,47 @@ pub(crate) struct RateLimiter {
     config: RateLimit,
     shards: Vec<Mutex<Shard>>,
     hasher: RandomState,
+    /// Keys account buckets, so they name no email and agree across instances that share
+    /// the secret.
+    account_key: Zeroizing<[u8; 32]>,
+    /// Where counters live when the app configured secondary storage; in `shards` otherwise.
+    storage: Option<Arc<dyn DynStorage>>,
+    last_storage_error: Mutex<Option<Instant>>,
     warned_no_ip: AtomicBool,
     production: bool,
 }
 
+/// How often a failing secondary storage is logged.
+const STORAGE_ERROR_LOG_EVERY: StdDuration = StdDuration::from_secs(60);
+
 impl RateLimiter {
     /// `production` logs a request without a client IP as an error rather than a warning.
-    pub(crate) fn new(config: RateLimit, production: bool) -> Self {
+    /// With `storage`, counters live there and every instance sharing it shares the limits.
+    pub(crate) fn new(
+        config: RateLimit,
+        production: bool,
+        account_key: Zeroizing<[u8; 32]>,
+        storage: Option<Arc<dyn DynStorage>>,
+    ) -> Self {
         Self {
             config,
             shards: (0..SHARDS).map(|_| Mutex::default()).collect(),
             hasher: RandomState::new(),
+            account_key,
+            storage,
+            last_storage_error: Mutex::new(None),
             warned_no_ip: AtomicBool::new(false),
             production,
         }
     }
 
     /// Whether a request from `ip` may proceed. `path` is relative to the base path.
-    pub(crate) fn check(&self, ip: IpAddr, path: &str, body: &[u8]) -> bool {
-        self.check_at(&self.client_key(ip), path, body, Instant::now())
+    pub(crate) async fn check(&self, ip: IpAddr, path: &str, body: &[u8]) -> bool {
+        if !self.config.enabled {
+            return true;
+        }
+        self.take_all(self.buckets(&self.client_key(ip), path, body))
+            .await
     }
 
     /// The bucket of a client address: the address for IPv4, its network prefix for IPv6.
@@ -214,16 +240,28 @@ impl RateLimiter {
         }
     }
 
-    /// A fixed-size key for an account, so a long `email` in a body costs no memory.
+    /// A fixed-size key for an account: a keyed hash, so a long `email` in a body costs no
+    /// memory and secondary storage never sees the address.
     fn account_key(&self, account: &str) -> String {
-        format!("{:016x}", self.hasher.hash_one(account))
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(self.account_key.as_slice())
+            .expect("HMAC takes any key length");
+        mac.update(account.as_bytes());
+        mac.finalize().into_bytes()[..16]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     /// Whether a request without a client IP may proceed. A JSON body naming an account
     /// (`email` or `username`) is limited per account, so one client guessing passwords can't
     /// throttle sign-in for everybody; other requests share one bucket, as in Better Auth.
     /// The first such request is logged.
-    pub(crate) fn check_without_ip(&self, source: &ClientIp, path: &str, body: &[u8]) -> bool {
+    pub(crate) async fn check_without_ip(
+        &self,
+        source: &ClientIp,
+        path: &str,
+        body: &[u8],
+    ) -> bool {
         if !self.config.enabled {
             return true;
         }
@@ -253,43 +291,104 @@ impl RateLimiter {
                 tracing::warn!(header, "{message}");
             }
         }
-        let now = Instant::now();
         let accounts = accounts_in(body);
         if accounts.is_empty() {
-            return self.take_rule(NO_CLIENT_IP, path, now);
+            return self
+                .take_all(vec![self.rule_bucket(NO_CLIENT_IP, path)])
+                .await;
         }
-        accounts.iter().all(|account| {
-            let client = format!("{NO_CLIENT_IP}:{}", self.account_key(account));
-            self.take_rule(&client, path, now)
-        })
+        let buckets = accounts
+            .iter()
+            .map(|account| {
+                let client = format!("{NO_CLIENT_IP}:{}", self.account_key(account));
+                self.rule_bucket(&client, path)
+            })
+            .collect();
+        self.take_all(buckets).await
     }
 
-    /// The client's bucket for the route, then, on routes with a rule of their own, the
-    /// bucket of each account the body names.
-    fn check_at(&self, client: &str, path: &str, body: &[u8], now: Instant) -> bool {
-        if !self.config.enabled {
-            return true;
-        }
-        if !self.take_rule(client, path, now) {
-            return false;
-        }
+    /// The buckets a request takes from, in order: the client's bucket for the route, then,
+    /// on routes with a rule of their own, the bucket of each account the body names.
+    fn buckets(&self, client: &str, path: &str, body: &[u8]) -> Vec<(String, Limit)> {
+        let mut buckets = vec![self.rule_bucket(client, path)];
         let (rule, _) = self.config.limit_for(path);
-        let Some(limit) = self.config.account.filter(|_| rule != "*") else {
-            return true;
-        };
-        accounts_in(body).iter().all(|account| {
-            let key = format!("account:{}|{rule}", self.account_key(account));
-            self.take(key, limit, now)
-        })
+        if let Some(limit) = self.config.account.filter(|_| rule != "*") {
+            buckets.extend(accounts_in(body).iter().map(|account| {
+                let key = format!("account:{}|{rule}", self.account_key(account));
+                (key, limit)
+            }));
+        }
+        buckets
     }
 
-    fn take_rule(&self, client: &str, path: &str, now: Instant) -> bool {
+    fn rule_bucket(&self, client: &str, path: &str) -> (String, Limit) {
         let (rule, limit) = self.config.limit_for(path);
         let key = format!(
             "{client}|{rule}|{}",
             if rule.ends_with('*') { "" } else { path }
         );
-        self.take(key, limit, now)
+        (key, limit)
+    }
+
+    /// Takes one request from each bucket in turn and stops at the first that is empty.
+    async fn take_all(&self, buckets: Vec<(String, Limit)>) -> bool {
+        let now = Instant::now();
+        for (key, limit) in buckets {
+            let allowed = match &self.storage {
+                Some(storage) => self.take_shared(storage.as_ref(), key, limit, now).await,
+                None => self.take(key, limit, now),
+            };
+            if !allowed {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A fixed window in secondary storage: the first request in a window sets the counter's
+    /// TTL to the period, and the window allows `max` requests (Better Auth's
+    /// secondary-storage limiter). When the storage fails, this instance's in-memory bucket
+    /// decides, so limits still hold per instance.
+    async fn take_shared(
+        &self,
+        storage: &dyn DynStorage,
+        key: String,
+        limit: Limit,
+        now: Instant,
+    ) -> bool {
+        match storage
+            .increment(&format!("fastauth:rate-limit:{key}"), limit.burst())
+            .await
+        {
+            Ok(count) => count <= u64::from(limit.max),
+            Err(err) => {
+                self.log_storage_error(&err);
+                self.take(key, limit, now)
+            }
+        }
+    }
+
+    fn log_storage_error(&self, err: &StorageError) {
+        let mut last = self.last_storage_error.lock().unwrap();
+        if last.is_some_and(|at| at.elapsed() < STORAGE_ERROR_LOG_EVERY) {
+            return;
+        }
+        *last = Some(Instant::now());
+        tracing::error!(
+            error = %err,
+            "fastauth: secondary storage failed, so rate limits fall back to this instance's \
+             memory until it answers again"
+        );
+    }
+
+    /// The in-memory check of a request at `now`, for tests.
+    #[cfg(test)]
+    fn check_at(&self, client: &str, path: &str, body: &[u8], now: Instant) -> bool {
+        !self.config.enabled
+            || self
+                .buckets(client, path, body)
+                .into_iter()
+                .all(|(key, limit)| self.take(key, limit, now))
     }
 
     /// GCRA on one key. Each shard holds at most its share of `max_keys`.
@@ -322,12 +421,12 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::fake::FakeStorage;
 
     #[test]
     fn allows_burst_then_limits() {
-        let limiter = RateLimiter::new(
+        let limiter = in_memory(
             RateLimit::default().rule("/sign-in/*", Limit::per(Duration::seconds(10), 3)),
-            false,
         );
         let now = Instant::now();
         assert!((0..3).all(|_| limiter.check_at("1.2.3.4", "/sign-in/email", b"", now)));
@@ -344,40 +443,34 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn without_a_client_ip_limits_apply_per_named_account() {
-        let limiter = RateLimiter::new(
+    #[tokio::test]
+    async fn without_a_client_ip_limits_apply_per_named_account() {
+        let limiter = in_memory(
             RateLimit::default().rule("/sign-in/*", Limit::per(Duration::seconds(10), 3)),
-            false,
         );
         let source = ClientIp::Socket;
+        let check =
+            async |path: &str, body: &[u8]| limiter.check_without_ip(&source, path, body).await;
         let attacker = br#"{"email":"someone@acme.dk","password":"x"}"#;
-        assert!((0..3).all(|_| limiter.check_without_ip(&source, "/sign-in/email", attacker)));
-        assert!(!limiter.check_without_ip(&source, "/sign-in/email", attacker));
+        for _ in 0..3 {
+            assert!(check("/sign-in/email", attacker).await);
+        }
+        assert!(!check("/sign-in/email", attacker).await);
         assert!(
-            !limiter.check_without_ip(
-                &source,
-                "/sign-in/email",
-                br#"{"email":" SOMEONE@acme.dk "}"#
-            ),
+            !check("/sign-in/email", br#"{"email":" SOMEONE@acme.dk "}"#).await,
             "the account key is normalized"
         );
-        assert!(limiter.check_without_ip(
-            &source,
-            "/sign-in/email",
-            br#"{"email":"victim@acme.dk"}"#
-        ));
-        assert!(limiter.check_without_ip(&source, "/sign-in/username", br#"{"username":"ada"}"#));
-        assert!((0..3).all(|_| limiter.check_without_ip(&source, "/sign-in/x", b"{}")));
-        assert!(
-            !limiter.check_without_ip(&source, "/sign-in/x", b""),
-            "the rest share a bucket"
-        );
+        assert!(check("/sign-in/email", br#"{"email":"victim@acme.dk"}"#).await);
+        assert!(check("/sign-in/username", br#"{"username":"ada"}"#).await);
+        for _ in 0..3 {
+            assert!(check("/sign-in/x", b"{}").await);
+        }
+        assert!(!check("/sign-in/x", b"").await, "the rest share a bucket");
     }
 
     #[test]
     fn ipv6_clients_share_their_prefix() {
-        let limiter = RateLimiter::new(RateLimit::default(), false);
+        let limiter = in_memory(RateLimit::default());
         let a: IpAddr = "2001:db8:1:2::1".parse().unwrap();
         let b: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
         let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
@@ -386,15 +479,15 @@ mod tests {
         assert_ne!(limiter.client_key(a), limiter.client_key(other));
         let mapped: IpAddr = "::ffff:203.0.113.9".parse().unwrap();
         assert_eq!(limiter.client_key(mapped), "203.0.113.9");
-        let full = RateLimiter::new(RateLimit::default().ipv6_prefix(128), false);
+        let full = in_memory(RateLimit::default().ipv6_prefix(128));
         assert_ne!(full.client_key(a), full.client_key(b));
-        let all = RateLimiter::new(RateLimit::default().ipv6_prefix(0), false);
+        let all = in_memory(RateLimit::default().ipv6_prefix(0));
         assert_eq!(all.client_key(a), "::/0");
     }
 
     #[test]
     fn keys_stay_under_max_keys() {
-        let limiter = RateLimiter::new(RateLimit::default().max_keys(SHARDS * 10), false);
+        let limiter = in_memory(RateLimit::default().max_keys(SHARDS * 10));
         let now = Instant::now();
         for n in 0..5_000 {
             assert!(limiter.check_at(&format!("10.0.{}.{}", n / 256, n % 256), "/x", b"", now));
@@ -409,11 +502,10 @@ mod tests {
 
     #[test]
     fn account_limit_spans_clients_on_ruled_routes() {
-        let limiter = RateLimiter::new(
+        let limiter = in_memory(
             RateLimit::default()
                 .rule("/sign-in/*", Limit::per(Duration::seconds(10), 3))
                 .account_limit(Some(Limit::per(Duration::minutes(10), 5))),
-            false,
         );
         let now = Instant::now();
         let body = br#"{"email":"ada@acme.dk"}"#;
@@ -425,5 +517,134 @@ mod tests {
             (0..10).all(|n| limiter.check_at(&format!("10.0.1.{n}"), "/other", body, now)),
             "routes on the default limit have no account limit"
         );
+    }
+
+    fn in_memory(config: RateLimit) -> RateLimiter {
+        RateLimiter::new(config, false, Zeroizing::new([7; 32]), None)
+    }
+
+    fn shared(config: RateLimit, storage: &FakeStorage) -> RateLimiter {
+        RateLimiter::new(
+            config,
+            false,
+            Zeroizing::new([7; 32]),
+            Some(Arc::new(storage.clone())),
+        )
+    }
+
+    fn sign_in_rule() -> RateLimit {
+        RateLimit::default().rule("/sign-in/*", Limit::per(Duration::seconds(10), 3))
+    }
+
+    #[tokio::test]
+    async fn instances_sharing_storage_share_limits() {
+        let storage = FakeStorage::default();
+        let a = shared(sign_in_rule(), &storage);
+        let b = shared(sign_in_rule(), &storage);
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        assert!(a.check(ip, "/sign-in/email", b"").await);
+        assert!(b.check(ip, "/sign-in/email", b"").await);
+        assert!(a.check(ip, "/sign-in/email", b"").await);
+        assert!(
+            !b.check(ip, "/sign-in/email", b"").await,
+            "the fourth request is refused, whichever instance gets it"
+        );
+        assert!(!a.check(ip, "/sign-in/email", b"").await);
+        assert!(
+            a.check("203.0.113.8".parse().unwrap(), "/sign-in/email", b"")
+                .await,
+            "other clients are unaffected"
+        );
+
+        let alone = [in_memory(sign_in_rule()), in_memory(sign_in_rule())];
+        let mut allowed = 0;
+        for n in 0..8 {
+            allowed += usize::from(alone[n % 2].check(ip, "/sign-in/email", b"").await);
+        }
+        assert_eq!(
+            allowed, 6,
+            "without shared storage, each instance allows the limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_windows_reset_after_the_period() {
+        let storage = FakeStorage::default();
+        let config =
+            RateLimit::default().rule("/sign-in/*", Limit::per(Duration::milliseconds(300), 2));
+        let limiter = shared(config, &storage);
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        assert!(!limiter.check(ip, "/sign-in/email", b"").await);
+        tokio::time::sleep(StdDuration::from_millis(400)).await;
+        assert!(limiter.check(ip, "/sign-in/email", b"").await);
+    }
+
+    #[tokio::test]
+    async fn account_limits_are_shared_and_name_no_email() {
+        let storage = FakeStorage::default();
+        let config = sign_in_rule().account_limit(Some(Limit::per(Duration::minutes(10), 5)));
+        let instances = [shared(config.clone(), &storage), shared(config, &storage)];
+        let body = br#"{"email":"ada@acme.dk"}"#;
+        let mut allowed = 0;
+        for n in 0..10 {
+            let ip: IpAddr = format!("10.0.0.{n}").parse().unwrap();
+            allowed += usize::from(instances[n % 2].check(ip, "/sign-in/email", body).await);
+        }
+        assert_eq!(allowed, 5, "the account limit spans clients and instances");
+        assert!(
+            storage
+                .keys()
+                .iter()
+                .all(|key| key.starts_with("fastauth:rate-limit:")
+                    && !key.contains("ada")
+                    && !key.contains("acme")),
+            "{:?}",
+            storage.keys()
+        );
+
+        let other_secret =
+            RateLimiter::new(RateLimit::default(), false, Zeroizing::new([8; 32]), None);
+        assert_eq!(
+            instances[0].account_key("ada@acme.dk"),
+            instances[1].account_key("ada@acme.dk")
+        );
+        assert_ne!(
+            instances[0].account_key("ada@acme.dk"),
+            other_secret.account_key("ada@acme.dk")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failing_storage_falls_back_to_memory() {
+        let storage = FakeStorage::default();
+        let limiter = shared(sign_in_rule(), &storage);
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        storage.set_down(true);
+        for _ in 0..3 {
+            assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        }
+        assert!(
+            !limiter.check(ip, "/sign-in/email", b"").await,
+            "the in-memory limit still applies"
+        );
+        storage.set_down(false);
+        assert!(
+            limiter.check(ip, "/sign-in/email", b"").await,
+            "the shared counter decides again once the storage answers"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_limiter_never_calls_the_storage() {
+        let storage = FakeStorage::default();
+        let limiter = shared(RateLimit::disabled(), &storage);
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        for _ in 0..200 {
+            assert!(limiter.check(ip, "/sign-in/email", b"").await);
+        }
+        assert!(storage.keys().is_empty());
     }
 }

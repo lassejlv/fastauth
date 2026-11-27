@@ -35,6 +35,7 @@ use crate::rate_limit::{RateLimit, RateLimiter};
 use crate::routes;
 use crate::schema::Schema;
 use crate::session::{self, SessionData, UserView};
+use crate::storage::{DynStorage, SecondaryStorage};
 
 /// Entry point: `FastAuth::builder()`.
 #[derive(Debug)]
@@ -68,6 +69,8 @@ impl FastAuth {
             client_ip: ClientIp::Socket,
             ids: IdStrategy::default(),
             mailer: None,
+            secondary_storage: None,
+            multi_instance: false,
             allow_insecure: false,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -95,6 +98,8 @@ pub struct Builder<D, U, P, S, B> {
     client_ip: ClientIp,
     ids: IdStrategy,
     mailer: Option<Arc<dyn DynMailer>>,
+    secondary_storage: Option<Arc<dyn DynStorage>>,
+    multi_instance: bool,
     allow_insecure: bool,
     app_init: Vec<AppInit<D>>,
     _state: PhantomData<BuilderState<U, S, B>>,
@@ -128,6 +133,8 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
             client_ip: self.client_ip,
             ids: self.ids,
             mailer: self.mailer,
+            secondary_storage: self.secondary_storage,
+            multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
             app_init: self.app_init,
             _state: PhantomData,
@@ -220,6 +227,23 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
         self
     }
 
+    /// A key-value store every instance of the app shares, such as Redis
+    /// (`fastauth_redis::RedisStorage`). Rate limit counters live there, so a limit holds
+    /// across all instances. Without it, each instance keeps its own counters in memory.
+    pub fn secondary_storage(mut self, storage: impl SecondaryStorage) -> Self {
+        self.secondary_storage = Some(Arc::new(storage));
+        self
+    }
+
+    /// Says the app runs as several instances (processes, containers, machines) behind a
+    /// load balancer. `.build()` then warns when rate limiting is on without
+    /// [`secondary_storage`](Self::secondary_storage), since each instance would allow the
+    /// full limit.
+    pub fn multi_instance(mut self, multi_instance: bool) -> Self {
+        self.multi_instance = multi_instance;
+        self
+    }
+
     /// Builds a configuration that `.build()` refuses for production, logging each problem
     /// as a warning instead: an `http://` `base_url` on a host other than localhost, or a
     /// secret with too little entropy. For local development, CI and staging setups on a
@@ -262,6 +286,8 @@ impl<U, P, S, B> Builder<NoDatabase, U, P, S, B> {
             client_ip: self.client_ip,
             ids: self.ids,
             mailer: self.mailer,
+            secondary_storage: self.secondary_storage,
+            multi_instance: self.multi_instance,
             allow_insecure: self.allow_insecure,
             app_init: Vec::new(),
             _state: PhantomData,
@@ -421,6 +447,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
         let mut rate_limit = self.rate_limit;
         rate_limit.rules.extend(registry.rate_rules);
         rate_limit.rules.extend(RateLimit::core_rules());
+        if self.multi_instance && rate_limit.enabled && self.secondary_storage.is_none() {
+            tracing::warn!(
+                "fastauth: the app runs several instances, but rate limits are counted in each \
+                 instance's memory, so n instances allow n times every limit; configure \
+                 .secondary_storage(..), such as fastauth_redis::RedisStorage"
+            );
+        }
 
         let secure_cookies = match self.cookies.secure {
             Secure::Always => true,
@@ -447,10 +480,17 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             ids: self.ids,
             secure_cookies,
         };
+        let keys = Keys::new(self.secrets);
+        let rate_limiter = RateLimiter::new(
+            rate_limit,
+            !local && !self.allow_insecure,
+            keys.rate_limit_key(),
+            self.secondary_storage,
+        );
         let shared = Shared {
             db: self.db,
             schema,
-            keys: Keys::new(self.secrets),
+            keys,
             config,
             passwords: Passwords::new(hasher),
             mailer: self.mailer,
@@ -466,7 +506,7 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
             user_input_hooks: registry.user_input_hooks,
             events: registry.events,
             router,
-            rate_limiter: RateLimiter::new(rate_limit, !local && !self.allow_insecure),
+            rate_limiter,
             cache_fingerprint,
         };
         Ok(Auth {
@@ -592,10 +632,13 @@ impl<D: Adapter, U: Fields, P: PluginSet> Auth<D, U, P> {
 
         let client = config.client_ip.resolve(&parts);
         let allowed = match client {
-            Some(client) => shared.rate_limiter.check(client, path, &body),
-            None => shared
-                .rate_limiter
-                .check_without_ip(&config.client_ip, path, &body),
+            Some(client) => shared.rate_limiter.check(client, path, &body).await,
+            None => {
+                shared
+                    .rate_limiter
+                    .check_without_ip(&config.client_ip, path, &body)
+                    .await
+            }
         };
         let ip = client.map(|ip| ip.to_string());
         if !allowed {

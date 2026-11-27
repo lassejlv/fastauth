@@ -31,7 +31,7 @@ step with its result and time, and exits non-zero if any step failed.
 |---|---|
 | `fmt` | `cargo fmt --check` on the workspace and on `fuzz/` |
 | `clippy` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| `test` | `cargo test --workspace --all-features --no-fail-fast` against throwaway Postgres 17 and MySQL 8.4 containers |
+| `test` | `cargo test --workspace --all-features --no-fail-fast` against throwaway Postgres 17, MySQL 8.4 and Redis 7 containers, then `fastauth-redis`'s tests again against Valkey 8 |
 | `compat` | every Better Auth 1.7.28 client script in `compat/better-auth/` on the default backends, `run.sh` with `SERVER=actix`, and `run.sh`, `run-organization.sh` and `run-passkey.sh` on MySQL |
 | `audit` | `cargo audit` (RustSec advisories against `Cargo.lock`) |
 | `deny` | `cargo deny check licenses advisories` with `deny.toml` |
@@ -43,9 +43,12 @@ The script starts its database containers on free local ports and removes them w
 exits, including on Ctrl-C. Each compat script gets its own free port, and each MySQL compat run
 gets its own empty database.
 
-To run the database tests by hand, point `DATABASE_URL` at a Postgres database and
-`MYSQL_DATABASE_URL` at a MySQL database. Each test creates and drops its own schema or
-database. Without them, the Postgres and MySQL tests print a skip notice and pass.
+To run the database tests by hand, point `DATABASE_URL` at a Postgres database,
+`MYSQL_DATABASE_URL` at a MySQL database and `REDIS_URL` at Redis or Valkey
+(`redis://127.0.0.1:6379`). Each test creates and drops its own schema or database, and the
+Redis tests use random keys. Without them, the Postgres, MySQL and Redis tests print a skip
+notice and pass; the two-instance test in `fastauth-redis` needs both `DATABASE_URL` and
+`REDIS_URL`.
 
 On a machine several people build on, keep `target/` small:
 

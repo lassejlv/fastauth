@@ -96,8 +96,11 @@ On by default; keep them on (DOS-1, DOS-2, DOS-6, DOS-8).
   `username`) also has a limit of 30 requests per 10 minutes, whatever the client IP.
   `RateLimit::account_limit(None)` turns it off; you shouldn't need to.
 - The limiter keeps at most 100,000 keys in memory (`RateLimit::max_keys(n)`).
-- Counters are per process. With several instances, a client gets the limit once per
-  instance it reaches.
+- Counters are per process unless you set secondary storage. **An app that runs more than
+  one instance needs `.secondary_storage(..)`** (the facade's `redis` feature): otherwise a
+  client gets every limit once per instance it reaches. Set `.multi_instance(true)` too, and
+  `.build()` warns when the storage is missing.
+  [Running several instances](../concepts/04-multiple-instances.md) has the details.
 
 ## 8. Shared caches and CDNs
 

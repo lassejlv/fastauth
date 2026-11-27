@@ -60,6 +60,18 @@ Create an OAuth app on GitHub with the callback URL
 set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Without them the server registers no
 provider and the sign-in page hides the button.
 
+### Running several instances
+
+One server process counts rate limits in its own memory. To run more than one behind a load
+balancer, give them a Redis or Valkey to share: set `REDIS_URL` (for example
+`redis://localhost:6379`; `docker run -d --name acme-redis -p 6379:6379 redis:7` starts one)
+in each instance's `.env`. The server then connects on start and passes
+`RedisStorage` to `.secondary_storage(..)` in `server/src/auth.rs`, so the sign-in limit
+holds across every instance. Every instance also needs the same `FASTAUTH_SECRET` and
+`DATABASE_URL`. Sessions and bans already reach every instance through the database.
+[Running several instances](../../docs/concepts/04-multiple-instances.md) explains what's
+shared.
+
 ### Migrations
 
 The tables come from SQL files in `server/migrations/`, which the server applies with
@@ -117,6 +129,7 @@ how the rate-limit test proves limits are per client.
 | API keys, sessions from `x-api-key` | `server/src/auth.rs`, `web/src/pages/ApiKeys.tsx` | [API keys](../../docs/plugins/tokens/03-api-keys.md) |
 | `Session` on app routes, `FromRef` state | `server/src/routes.rs` | [Sessions](../../docs/concepts/01-sessions.md), [HTTP integrations](../../docs/integrations/01-http.md) |
 | Client IP behind proxies, rate limits | `server/src/auth.rs` | [Configuration: rate limits](../../docs/get-started/03-configuration.md#rate-limits) |
+| `REDIS_URL`, secondary storage for several instances | `server/src/config.rs`, `server/src/main.rs`, `server/src/auth.rs` | [Running several instances](../../docs/concepts/04-multiple-instances.md) |
 | Migrations through the CLI | `server/src/bin/fastauth.rs`, `server/migrations/` | [Quickstart: tables](../../docs/get-started/02-quickstart.md#4-tables), [Database: migrations](../../docs/concepts/02-database.md#migrations) |
 | An app table joined to `user` | `server/migrations/…_projects.sql`, `server/src/routes.rs` | [Database: the schema](../../docs/concepts/02-database.md#the-schema) |
 | Better Auth's client and its plugins | `web/src/auth-client.ts` | [Better Auth's client](../../docs/integrations/02-better-auth-client.md) |

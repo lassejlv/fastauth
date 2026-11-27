@@ -265,6 +265,11 @@ impl Keys {
         })
     }
 
+    /// The key of the rate limiter's account buckets, the same on every instance.
+    pub(crate) fn rate_limit_key(&self) -> Zeroizing<[u8; 32]> {
+        self.secrets[0].derive("fastauth/v1/rate-limit")
+    }
+
     /// A per-plugin key, so plugins can't reach core's keys.
     pub fn derive_key(&self, plugin_id: &str) -> Zeroizing<[u8; 32]> {
         self.secrets[0].derive(&format!("fastauth/v1/plugin/{plugin_id}"))
