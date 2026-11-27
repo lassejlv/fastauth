@@ -11,7 +11,7 @@ Turn on the facade's `magic-link` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.6", features = ["magic-link"] }
+fastauth = { version = "0.7", features = ["magic-link"] }
 ```
 
 The plugin lives at `fastauth::plugins::magic_link` (crate `fastauth-plugin-magic-link`).

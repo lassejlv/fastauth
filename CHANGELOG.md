@@ -1,8 +1,109 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-27)
 
-### Secondary storage for several instances
+### Highlights
+
+- **Several instances, with Redis or Valkey.** An app can now run as several processes,
+  containers or machines behind a load balancer and still enforce one set of rate limits.
+  Give the builder a store every instance shares with `.secondary_storage(..)`; the new
+  `fastauth-redis` crate (facade features `redis` and `redis-tls`) provides one for Redis and
+  Valkey. Sessions, tokens and code attempts already lived in the database, so a revoked
+  session or a ban already reached every instance; the rate limiter was the only thing each
+  process kept to itself. See [Running several instances](docs/concepts/04-multiple-instances.md).
+- **A security fix (F61-1).** A request a squatter had in flight could restore access after
+  the real owner reclaimed the email; **all versions before 0.7.0 are affected**. Someone who
+  signs up with an address they don't own could start a password change, a passkey
+  registration, an API key, a two-factor enrollment or an email change, and if the owner
+  proved the address while that request was running, the request still landed on the
+  owner's account. Each of these writes now locks the user and stores nothing when the
+  account was claimed since the request was authorised. Upgrade every app on 0.6 or earlier.
+
+0.7.0 also fixes the ten lower-severity findings of the same review (F61-2 to F61-11), listed
+under [Security](#security).
+
+### Upgrading from 0.6
+
+Bump `fastauth` (and any `fastauth-*` crate you depend on directly) to `"0.7"`, then go
+through this list.
+
+- **No database migration.** 0.7.0 adds no table, column, index or constraint, so a database
+  migrated for 0.6 is already right and `fastauth status` passes on it. The migrator only
+  reads two things more carefully:
+  - On Postgres, a unique index that a failed `CREATE UNIQUE INDEX CONCURRENTLY` left invalid
+    no longer counts as the constraint (F61-8). If you have one, `fastauth status` now exits 1
+    and the migrator plans the constraint again; drop the invalid index (`DROP INDEX
+    CONCURRENTLY ..`) after fixing the duplicates, then migrate.
+  - On MySQL, the duplicate check compares values by the prefix the index keys on (F61-9), so
+    a 0.5 database with values that differ only after 384 characters is now refused before any
+    DDL, naming the rows, instead of failing half-way.
+- **Plugin authors: `Internal::set_password` takes `&UserView`** instead of `&Id`. This
+  breaks plugins that set passwords, and there's no deprecated `&Id` version on purpose. The
+  fix for F61-1 needs the security stamp the user had when the request was authorised; a
+  version that took an id would have to read the user again and would see the stamp after
+  the claim, so the race would be back. Pass the user the request authorised:
+  `ctx.session().user` on a session route, or the `UserView` a sign-in or token was read
+  for. It answers `401` and stores nothing when the user was claimed since. For your own
+  credential writes, use the new `Internal::lock_user_unless_claimed(&user)`, which returns a
+  transaction holding the user row (write through `ctx.db_on(&tx)`, then commit), and
+  `Internal::create_session_unless_claimed(&user, remember_me)` for a session that a
+  session-authorised request creates ([Plugin authoring](docs/reference/01-plugin-authoring.md)).
+- **The rate limiter is async.** Core now awaits each rate-limit check so that it can call
+  secondary storage. No public API changed: `RateLimit`, its rules and plugins' rate rules
+  work as before, and without secondary storage the limiter is the same in-memory GCRA. With
+  secondary storage:
+  - each bucket is a fixed window, so a client can send `max` requests at the end of one
+    window and `max` more at the start of the next;
+  - a limited request makes one round trip to the store per bucket (the client's, then one
+    for each account the body names);
+  - when the store fails, each instance falls back to its own memory and logs an error at most
+    once a minute, and while the store doesn't answer, each check waits for the store's own
+    response timeout.
+- **Account rate-limit buckets reset when the first secret rotates.** The per-account buckets
+  (`RateLimit::account_limit`, 30 requests per 10 minutes by default) are now keyed by an
+  HMAC of the email or username under a key derived from the first secret, so instances agree
+  on them and the store never sees the address. Rotating with `.secrets([new, old])` gives
+  every account a fresh allowance once, and during a rolling rotation instances on different
+  first secrets count separately until all run the new one. Client-IP buckets aren't
+  affected. The upgrade itself also starts account buckets afresh, as a restart always did.
+- **No new enum variants.** No public enum gained a variant and no public struct gained a
+  field, so exhaustive matches and struct literals that compiled against 0.6 still compile.
+  Everything else new is additive: `fastauth_core::storage` (`SecondaryStorage`,
+  `StorageError`), `Builder::secondary_storage` and `Builder::multi_instance`,
+  `Internal::lock_user_unless_claimed` and `create_session_unless_claimed`,
+  `testing::run_storage_conformance`, `Transaction` in `plugin_prelude`, an associated
+  const `BEGIN` with a default on `fastauth_sqlx::Driver`, and the `fastauth-redis` crate.
+- **Behaviour changes.**
+  - Change-password, the password rehash at sign-in, password reset (core and email OTP),
+    passkey registration, API key create, two-factor enable and the first verify-totp,
+    linking a social account, email OTP change-email, `/update-user`, and admin
+    set-user-password and update-user on the admin's own account answer
+    `401 UNAUTHORIZED` when the user was claimed after the request was authorised. Each holds
+    a lock on the user row for its write, so two such writes for one user run one after the
+    other. The message of this `401`, also sent to a sign-in a claim overtook, is now "the
+    account changed meanwhile; sign in again".
+  - MySQL: transactions fastauth begins itself run at READ COMMITTED, as Postgres does by
+    default (F61-7). Keep `binlog_format` at `ROW` (MySQL's default) or `MIXED`; under
+    `STATEMENT`, InnoDB refuses writes at that level. Transactions you pass with `in_tx`
+    keep the level you began them at.
+  - Secrets: `Secret::entropy_bits` estimates differently (F61-10). Placeholders repeated to
+    length, counting runs and secrets drawn from a few characters now score low, so a secret
+    that 0.6 accepted can make `.build()` fail on a production host; generated secrets
+    (`fastauth secret`, `openssl rand -hex 32`) pass. Only the first secret is checked; a weak
+    retired secret logs a warning instead of failing the build (F61-6).
+  - Sessions: a session whose stored lifetime is at most a day and shorter than `expires_in`
+    is never extended (F61-3). That covers `rememberMe: false` sessions used without their
+    marker cookie, and sessions a plugin created with a short expiry through
+    `create_session_with`.
+  - A username sign-in refused with `EMAIL_NOT_VERIFIED` now sets the
+    `pending_verification` cookie, as the email sign-in does (F61-4), and that cookie is
+    accepted under any configured secret (F61-5).
+  - A request dropped while hashing a password keeps its hashing slot until the hash finishes
+    (F61-2), so clients that disconnect can't run more hashes than the CPU-count cap.
+  - With `.multi_instance(true)`, `.build()` logs a warning when rate limiting is on and no
+    secondary storage is set.
+
+### Several instances
 
 - **`.secondary_storage(..)`**, Better Auth's `secondaryStorage`: a key-value store every
   instance of an app shares. Rate limit counters live there, so a limit holds across every

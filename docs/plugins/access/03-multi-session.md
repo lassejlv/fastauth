@@ -13,7 +13,7 @@ Turn on the facade's `multi-session` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.6", features = ["multi-session"] }
+fastauth = { version = "0.7", features = ["multi-session"] }
 ```
 
 The plugin lives at `fastauth::plugins::multi_session` (crate

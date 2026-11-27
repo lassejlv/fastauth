@@ -115,7 +115,7 @@ supported: it lacks the `utf8mb4_0900_bin` collation. Turn on the facade's `mysq
 feature:
 
 ```toml
-fastauth = { version = "0.6", default-features = false, features = ["axum", "mysql-tls", "macros"] }
+fastauth = { version = "0.7", default-features = false, features = ["axum", "mysql-tls", "macros"] }
 ```
 
 **Connecting.** MySQL 8's default login, `caching_sha2_password`, sends the password over
@@ -445,7 +445,7 @@ violation must map to `DbError::UniqueViolation`, so sign-up can answer "email t
 A new adapter is done when this passes:
 
 ```rust
-// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }
+// [dev-dependencies] fastauth-core = { version = "0.7", features = ["testing"] }
 #[tokio::test]
 async fn conformance() {
     fastauth_core::testing::run_adapter_conformance(async || fastauth::prelude::MemoryAdapter::new()).await;

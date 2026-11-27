@@ -175,13 +175,13 @@ Ok(())
 Ok(())
 }""", ctx=DB + "use fastauth::adapter::Transaction;\n"),
     excerpt("pub trait Queries: Send + Sync {"),
-    block('// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }'),
+    block('// [dev-dependencies] fastauth-core = { version = "0.7", features = ["testing"] }'),
 ])
 
 page("concepts/04-multiple-instances.md", "", [
     block("use fastauth::prelude::*;", ctx=""),
     excerpt("pub trait SecondaryStorage: Send + Sync + 'static {"),
-    block('// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }', ctx=""),
+    block('// [dev-dependencies] fastauth-core = { version = "0.7", features = ["testing"] }', ctx=""),
 ])
 
 # ---------------------------------------------------------------- get-started

@@ -12,7 +12,7 @@ Turn on the facade's `organization` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.6", features = ["organization"] }
+fastauth = { version = "0.7", features = ["organization"] }
 ```
 
 or `cargo add fastauth --features organization`. Everything lives in
