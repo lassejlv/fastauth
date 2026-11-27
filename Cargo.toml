@@ -12,6 +12,13 @@ repository = "https://github.com/lassejlv/fastauth"
 keywords = ["auth", "authentication", "axum", "sqlx", "session"]
 categories = ["authentication", "web-programming"]
 
+# Password hashing with production parameters is far too slow unoptimized, in tests too.
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "allow"

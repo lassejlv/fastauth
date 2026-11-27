@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::adapter::{Adapter, Filter, Op, SessionWithUser, Update};
-use crate::config::CoreConfig;
+use crate::config::{CoreConfig, SlidingRefresh};
 use crate::cookies::{self, SetCookie};
 use crate::crypto::{Hash, Keys, SignPurpose, base64url, base64url_decode};
 use crate::endpoint::{Ctx, Effects, RequestInfo, Resolved, SessionUse, Shared};
@@ -431,9 +431,12 @@ pub(crate) async fn by_token<D: Adapter>(
 
 /// Whether the request carries the signed cookie of a `rememberMe: false` sign-in.
 fn dont_remember<D>(shared: &Shared<D>, request: &RequestInfo) -> bool {
-    cookies::read(&request.headers, &shared.config.cookie_name(DONT_REMEMBER))
-        .and_then(|v| shared.keys.verify_token(v))
-        .is_some()
+    cookies::read(&request.headers, &shared.config.cookie_name(DONT_REMEMBER)).is_some_and(|v| {
+        shared
+            .keys
+            .verify_token(&shared.keys.decode_cookie(v))
+            .is_some()
+    })
 }
 
 /// Whether `session` was created shorter than a remembered one: a `rememberMe: false`
@@ -443,12 +446,22 @@ fn dont_remember<D>(shared: &Shared<D>, request: &RequestInfo) -> bool {
 /// `expires_in` (from creation, or from its last refresh); a second of slack absorbs the
 /// timestamp precision of the database. When `expires_in` is one day or less, a
 /// `rememberMe: false` session is as long as any other and only the marker tells them apart.
-fn created_short(session: &Session, expires_in: time::Duration) -> bool {
-    let lifetime = session.expires_at - session.updated_at;
+///
+/// With [`SlidingRefresh::ExpiresAt`] the lifetime is read from `created_at` instead: a session
+/// that is never extended keeps the expiry it was created with, and Better Auth moves
+/// `updated_at` on any change to the row.
+fn created_short(session: &Session, config: &crate::config::SessionConfig) -> bool {
+    let since = match config.sliding {
+        SlidingRefresh::UpdatedAt => session.updated_at,
+        SlidingRefresh::ExpiresAt => session.created_at,
+    };
+    let expires_in = config.expires_in;
+    let lifetime = session.expires_at - since;
     lifetime <= DONT_REMEMBER_LIFETIME && lifetime < expires_in - time::Duration::seconds(1)
 }
 
-/// Extends the expiry at most once per `update_age`. The conditional update makes
+/// Extends the expiry at most once per `update_age`, counted from `updated_at` or, with
+/// [`SlidingRefresh::ExpiresAt`], from when `expires_at` was last set. The conditional update makes
 /// concurrent requests extend it once. Sessions a plugin marked with
 /// `PluginBuilder::fixed_session_expiry` (impersonation sessions) and `rememberMe: false`
 /// sessions (by their marker cookie or their stored lifetime, see `created_short`) are never
@@ -463,10 +476,22 @@ async fn refresh<D: Adapter>(
 ) -> Result<bool, AuthError> {
     let now = OffsetDateTime::now_utc();
     let config = &shared.config.session;
-    if now - view.session.updated_at < config.update_age
+    let (due, column, current) = match config.sliding {
+        SlidingRefresh::UpdatedAt => (
+            now - view.session.updated_at >= config.update_age,
+            "updated_at",
+            view.session.updated_at,
+        ),
+        SlidingRefresh::ExpiresAt => (
+            view.session.expires_at - config.expires_in + config.update_age <= now,
+            "expires_at",
+            view.session.expires_at,
+        ),
+    };
+    if !due
         || shared.fixed_expiry.iter().any(|fixed| fixed(view))
         || dont_remember(shared, request)
-        || created_short(&view.session, config.expires_in)
+        || created_short(&view.session, config)
     {
         return Ok(true);
     }
@@ -483,9 +508,9 @@ async fn refresh<D: Adapter>(
             value: Value::Text(view.session.id.to_string()),
         },
         Filter::Cmp {
-            column: position("updated_at"),
+            column: position(column),
             op: Op::Eq,
-            value: Value::Timestamp(view.session.updated_at),
+            value: Value::Timestamp(current),
         },
     ]);
     let set = vec![
@@ -518,7 +543,11 @@ pub(crate) async fn resolve<D: Adapter>(
     let db = within.map_or(&shared.db, |db| &**db);
     let cookie_name = shared.config.cookie_name(SESSION_TOKEN);
     if let Some(raw) = cookies::read(&request.headers, &cookie_name) {
-        let Some(token) = shared.keys.verify_token(raw).map(str::to_owned) else {
+        let Some(token) = shared
+            .keys
+            .verify_token(&shared.keys.decode_cookie(raw))
+            .map(str::to_owned)
+        else {
             clear_session_cookies(&shared.config, effects);
             return Ok(None);
         };

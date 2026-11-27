@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Better Auth database compatibility: cookies, password hashes and session refresh.** A
+  fastauth app can now share sign-ins with a Better Auth app on the same database during a
+  migration. Everything is opt-in and the defaults don't change.
+  `FastAuth::builder().better_auth_compat(BetterAuthCompat::new(secret).cookie_prefix("vt"))`
+  sets it all; each piece is also a knob of its own:
+  - `CookieConfig::signing(CookieSigning::better_auth(secret))`: cookies named
+    `{prefix}.session_token` (`__Secure-` on https) whose value is
+    `encodeURIComponent(token + "." + base64(HMAC-SHA256(raw secret, token)))`, signed and
+    verified byte for byte like better-call 1.4.2, percent-encoded or not, in constant time.
+  - `BetterAuthScrypt`: verifies and writes Better Auth's `"<saltHex>:<keyHex>"` scrypt hashes
+    (N = 16384, r = 16, p = 1, 64 bytes, NFKC), never rehashed, so a rollback keeps working.
+  - `SessionConfig::sliding_refresh(SlidingRefresh::ExpiresAt)`: Better Auth's refresh rule,
+    counted from `expires_at` because Better Auth moves `updatedAt` on every session update.
+    The preset uses a 14-day lifetime and a one-day `update_age`.
+  - `EmailPassword::max_concurrent_hashes(n)` bounds the hashing pool (scrypt takes 32 MiB per
+    hash); the preset allows 8.
+  - Golden vectors from better-call 1.4.2 and `@better-auth/utils` 0.5.0 in
+    `compat/better-auth/vectors`, checked in both directions by `run-vectors.sh`.
+
+  The mode relaxes fastauth's defaults on purpose for the migration window: the cookie key is
+  the raw shared secret without HKDF and only it verifies cookies, passwords are scrypt instead
+  of argon2id, and the cookie cache is refused. See
+  [Migrating from Better Auth](docs/integrations/04-migrating-from-better-auth.md#trade-offs).
+- `Keys::decode_cookie` and `Passwords::with_concurrency`, used by the above.
+
 ## 0.7.0 (2026-11-27)
 
 ### Highlights

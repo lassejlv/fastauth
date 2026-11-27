@@ -26,9 +26,9 @@ fn device_cookies<D: Adapter, A>(ctx: &Ctx<D, A>) -> Vec<(String, Option<String>
         .filter_map(|pair| pair.trim().split_once('='))
         .filter(|(name, _)| name.contains(MARKER))
         .map(|(name, value)| {
-            let token = ctx
-                .keys()
-                .verify_token(value.trim_matches('"'))
+            let keys = ctx.keys();
+            let token = keys
+                .verify_token(&keys.decode_cookie(value.trim_matches('"')))
                 .map(str::to_owned);
             (name.to_owned(), token)
         })
