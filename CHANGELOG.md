@@ -42,6 +42,9 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-4 (low):** a username sign-in refused with `EMAIL_NOT_VERIFIED` mailed a link but left
   no `pending_verification` cookie, so the owner opening it in that browser was claimed and
   lost the password. It now leaves the cookie, as the email sign-in does.
+- **F61-5 (low):** `pending_verification` was read with the current secret only, so a secret
+  rotation between sign-up and the click claimed the owner and deleted the password. It is now
+  accepted under any configured secret, like a session token.
 
 ### Core
 

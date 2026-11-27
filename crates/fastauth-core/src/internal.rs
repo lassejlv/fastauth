@@ -952,8 +952,13 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
     /// Whether this request comes from the browser that holds `user`'s credentials: it
     /// carries a live session of the user, or the signed [`PENDING_VERIFICATION`] cookie
     /// for the user's current security stamp.
+    ///
+    /// The cookie is accepted under any configured secret, like a session token, so a
+    /// rotation between sign-up and the click doesn't claim the owner. That gives a retired
+    /// secret nothing: the cookie only counts in the browser that presents it, together with
+    /// a verification link mailed to the address, for the stamp and email it names.
     async fn holds_credentials_of(&self, user: &UserView) -> Result<bool, AuthError> {
-        let binding = self.ctx.signed_cookie(PENDING_VERIFICATION);
+        let binding = self.ctx.signed_token_cookie(PENDING_VERIFICATION);
         if binding.is_some() {
             self.ctx.delete_cookie(PENDING_VERIFICATION);
         }

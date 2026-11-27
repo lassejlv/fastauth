@@ -19,10 +19,12 @@ So a bug that leaks one derived key doesn't expose the others, and plugins can't
 core's keys.
 
 **Rotation.** `.secrets([new, old])`: the first secret signs, verifies and encrypts.
-Every secret in the list still decrypts, and still verifies a signed session token and the
-`rememberMe: false` marker (`Keys::verify_token`). A session token only points to a session
-row and the marker only shortens a session, so a retired secret gains nothing from them,
-and a rotation signs nobody out.
+Every secret in the list still decrypts, and still verifies a signed session token, the
+`rememberMe: false` marker and the `pending_verification` cookie (`Keys::verify_token`). A
+session token only points to a session row, the marker only shortens a session, and
+`pending_verification` only counts in the browser that also opens a verification link mailed
+to the address, so a retired secret gains nothing from them. A rotation signs nobody out,
+and a user who signed up just before it keeps their password when they verify.
 
 A retired secret verifies nothing else. Values that carry their own meaning are accepted
 only when the current secret signed them: the cookie cache, two-factor trusted-device
