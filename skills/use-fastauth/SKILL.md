@@ -13,10 +13,9 @@ Auth's routes and JSON. The whole configuration is one value,
 compiler checks it, so most mistakes are compile errors; [Common mistakes](#common-mistakes)
 lists the real ones.
 
-This skill matches fastauth 0.6 on crates.io and the code on `main`, and so does the repo's
+This skill matches fastauth 0.7 on crates.io and the code on `main`, and so does the repo's
 `docs/`. Use only what this skill, `docs/` or `crates/*/src` shows. Not built yet: other
-plugins, organization teams, `TestAuth`,
-`#[endpoint]` and secondary storage (Redis)
+plugins, organization teams, `TestAuth` and `#[endpoint]`
 (`docs/get-started/01-overview.md#planned`). actix-web works through the `actix` feature
 (`docs/integrations/03-actix.md`), and MySQL through `mysql-tls`; this skill shows axum.
 
@@ -29,7 +28,7 @@ builder). Never parse them or assume a format.
 
 ```toml
 [dependencies]
-fastauth = { version = "0.6", features = ["oauth", "two-factor"] }
+fastauth = { version = "0.7", features = ["oauth", "two-factor"] }
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -43,7 +42,7 @@ serde = { version = "1", features = ["derive"] }
 | `mysql` | no | `Sqlx<MySql>`, `MySqlPool` in the prelude |
 | `mysql-tls` | no | `mysql` plus TLS, which a default MySQL 8 login needs |
 | `actix` | no | `fastauth::actix`: `auth.scope()`, the actix-web extractors and session middleware |
-| `redis`, `redis-tls` | no | `RedisStorage` for `.secondary_storage(..)`: rate limits shared by every instance (unreleased, main only) |
+| `redis`, `redis-tls` | no | `RedisStorage` for `.secondary_storage(..)`: rate limits shared by every instance ([Several instances](#several-instances)) |
 | `macros` | yes | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | no | `fastauth::social`: `Social`, `Github`, `Google` |
 | `two-factor` | no | `fastauth::plugins::two_factor`: `TwoFactor` |
@@ -179,7 +178,48 @@ signed-in user takes `Session<AppAuth>`, which answers `401` without one.
 
 Before real users, go through `docs/reference/04-production-checklist.md`: the client IP
 behind proxies, an https `base_url`, a generated secret, a mailer that answers quickly, the
-cookie cache, database TLS and migrations.
+cookie cache, secondary storage for several instances, database TLS and migrations.
+
+### Several instances
+
+Sessions, verification tokens and code attempts live in the database, so instances behind a
+load balancer already agree on them, and a revoked session or a ban reaches every instance.
+Rate limit counters are the exception: each process counts in its own memory, so n instances
+allow n times every limit. An app that runs more than one instance (several containers,
+replicas, a rolling deploy) needs **secondary storage**, a key-value store they all share.
+Add the `redis` feature (`redis-tls` for `rediss://` URLs) and pass a `RedisStorage`:
+
+```rust
+use fastauth::prelude::*;
+use fastauth::redis::RedisStorage;
+
+pub async fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, Box<dyn std::error::Error>> {
+    let storage = RedisStorage::connect(&std::env::var("REDIS_URL")?).await?;
+    let auth = FastAuth::builder()
+        .secret(Secret::from_env("FASTAUTH_SECRET")?)
+        .base_url("https://acme.dk")
+        .database(Sqlx::new(pool))
+        .email_password(EmailPassword::default())
+        .secondary_storage(storage)
+        .multi_instance(true)
+        .build()?;
+    Ok(auth)
+}
+```
+
+- `RedisStorage::connect` fails when Redis doesn't answer, so a wrong URL shows at start-up.
+  Redis 7 and Valkey 8 work; Redis Cluster doesn't, so use one primary. Every instance needs
+  the same Redis database and the same secret.
+- `.multi_instance(true)` only makes `.build()` warn when rate limiting is on without
+  secondary storage. Set it whenever the app runs more than one instance.
+- In storage each limit is a fixed window, not the in-memory limiter's gradual refill. When
+  Redis is down, each instance falls back to its own memory and logs an error at most once a
+  minute; requests keep working.
+- Account buckets are keyed by an HMAC under a key derived from the first secret, so Redis
+  never sees an email, and rotating the first secret starts them afresh.
+- Any other store works through `fastauth_core::storage::SecondaryStorage`; check an
+  implementation with `testing::run_storage_conformance`
+  (`docs/concepts/04-multiple-instances.md`).
 
 ## Where to go next
 

@@ -14,7 +14,7 @@ readme = "../../README.md"
 workspace = true
 
 [dependencies]
-fastauth-core = { version = "0.6.0", path = "../fastauth-core", features = ["macros"] }
+fastauth-core = { version = "0.7.0", path = "../fastauth-core", features = ["macros"] }
 http = "1.5.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -23,8 +23,8 @@ time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }
 [dev-dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
 bytes = "1.12.2"
-fastauth-axum = { version = "0.6.0", path = "../fastauth-axum" }
-fastauth-sqlx = { version = "0.6.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "mysql"] }
+fastauth-axum = { version = "0.7.0", path = "../fastauth-axum" }
+fastauth-sqlx = { version = "0.7.0", path = "../fastauth-sqlx", default-features = false, features = ["sqlite", "mysql"] }
 sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
 http-body-util = "0.1.5"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }

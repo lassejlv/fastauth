@@ -34,7 +34,7 @@ Full page: `docs/plugins/tokens/02-jwt.md`.
 
 ## Setup
 
-- `fastauth = { version = "0.6", features = ["jwt"] }`; path `fastauth::plugins::jwt`.
+- `fastauth = { version = "0.7", features = ["jwt"] }`; path `fastauth::plugins::jwt`.
 - Adds the `jwks` table (`id`, `public_key`, `private_key`, `created_at`, `expires_at`, `alg`,
   `crv`). Run migrations. Private keys are encrypted with the app secret: keep the secret,
   or list the old one in `.secrets([new, old])`, or every signing fails with 500.

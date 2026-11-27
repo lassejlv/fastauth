@@ -221,4 +221,19 @@ using the compile-checked extension traits.
    `OrganizationError` gained variants, `LiveSchema` a public field and `SessionView` a
    private one. No public trait changed.
 
+## Released: 0.7.0 (2026-11-27)
+
+1. Several instances: `.secondary_storage(..)` (core's `SecondaryStorage` trait) keeps rate
+   limit counters in a store every instance shares, and the new `fastauth-redis` crate
+   implements it for Redis and Valkey. Sessions, tokens and code attempts already lived in
+   the database, so the rate limiter was the only state to move
+   ([Running several instances](../concepts/04-multiple-instances.md)).
+2. A fix for 0.6 and earlier (F61-1): a session-authorised write of a credential or identity
+   (a password, passkey, API key, two-factor, linked account, email or profile change) runs
+   under `Internal::lock_user_unless_claimed`, so a request the first registrant had in
+   flight can't land on the account after the owner claims the address.
+3. Breaking for plugins only: `Internal::set_password` takes the `&UserView` the request
+   authorised instead of an id. No shim: an id-only version would bring the race back. No
+   table or column was added.
+
 The [CHANGELOG](../../CHANGELOG.md) lists every change, including the breaking ones.

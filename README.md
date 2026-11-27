@@ -9,12 +9,12 @@ It runs on sqlx and axum out of the box, and the plugin API is checked by the co
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.6.0 is on crates.io. It's a security release: it fixes the 41 findings of a
-second security review of 0.5.0, among them four ways to take over an account by signing up
-with its email first, and admin rights that outlived a revoked session when the cookie cache
-was on. Every earlier version is affected, so upgrade, and read
-[upgrading from 0.5](CHANGELOG.md#upgrading-from-05) first: it adds a column and three unique
-constraints. The docs in `docs/` describe 0.6.
+**Status:** 0.7.0 is on crates.io. An app can now run as several instances with one set of
+rate limits, kept in Redis or Valkey through the new `fastauth-redis` crate. 0.7.0 also fixes
+a security bug: a request a squatter had in flight could restore access after the real owner
+reclaimed the email. Every earlier version is affected, so upgrade, and read
+[upgrading from 0.6](CHANGELOG.md#upgrading-from-06) first: there's no migration, but plugins
+that call `Internal::set_password` need a one-line change. The docs in `docs/` describe 0.7.
 
 ## Install
 
@@ -114,7 +114,7 @@ on Better Auth's own client, and a Playwright suite that drives it end to end.
 | [`fastauth-axum`](https://crates.io/crates/fastauth-axum) | `auth.router()`, `Session` / `FreshSession` extractors, the session layer |
 | [`fastauth-actix`](https://crates.io/crates/fastauth-actix) | The same for actix-web: `auth.scope()`, the extractors, the session middleware (0.5) |
 | [`fastauth-sqlx`](https://crates.io/crates/fastauth-sqlx) | Postgres, SQLite and MySQL adapter, migrations, shared transactions (`.in_tx`) |
-| [`fastauth-redis`](https://crates.io/crates/fastauth-redis) | Secondary storage on Redis or Valkey, so rate limits hold across instances (unreleased) |
+| [`fastauth-redis`](https://crates.io/crates/fastauth-redis) | Secondary storage on Redis or Valkey, so rate limits hold across instances (0.7) |
 | [`fastauth-macros`](https://crates.io/crates/fastauth-macros) | `#[derive(Fields, Model, AuthError)]` |
 | [`fastauth-oauth`](https://crates.io/crates/fastauth-oauth) | The `Social` plugin: GitHub and Google |
 | [`fastauth-plugin-two-factor`](https://crates.io/crates/fastauth-plugin-two-factor) | TOTP, email codes, backup codes, trusted devices |
@@ -199,7 +199,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against `main` (0.6). Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.7). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License

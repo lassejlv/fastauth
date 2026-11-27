@@ -225,6 +225,15 @@ Code outside a request that is generic over `AuthInstance` (an axum extractor) r
 plugin's config with `auth.try_plugin::<P>()` and its tables with `auth.api().db()`.
 `ctx.db()` errors convert into `AuthError` with `?`.
 
+An endpoint that writes a credential or changes who the user is (a token, a device, a factor,
+an email address) for the session's user should write it under
+`ctx.internal().lock_user_unless_claimed(&session.user).await?`: make the write through
+`ctx.db_on(&tx)`, then `tx.commit().await?`. It answers 401 and stores nothing when proof of
+the email claimed the user since the session was read, so a request the first registrant had
+in flight can't land on the owner's account. Hash and send mail before taking the lock.
+`internal().set_password(&user, ..)` takes the `&UserView` the same way
+(`docs/reference/01-plugin-authoring.md`).
+
 An endpoint only your server API calls gets no route: declare it with
 `app.server_endpoint::<E>()` so hooks can still target it. When HTTP and the server API need
 different rules, keep one type with a flag (`CreateApiKey::client(..)` / `::server(..)`) so

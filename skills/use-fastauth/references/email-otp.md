@@ -39,7 +39,7 @@ Full page: `docs/plugins/sign-in/02-email-otp.md`.
 
 ## Setup
 
-- `fastauth = { version = "0.6", features = ["email-otp"] }`; path `fastauth::plugins::email_otp`.
+- `fastauth = { version = "0.7", features = ["email-otp"] }`; path `fastauth::plugins::email_otp`.
 - Needs a mailer. No tables or columns: codes live in `verification` as an HMAC keyed from
   the secret, under the identifier `{type}-otp-{email}`.
 - Options: `otp_length` (6, at least 4), `expires_in` (5 minutes), `allowed_attempts` (3),

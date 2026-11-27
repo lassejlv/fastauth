@@ -25,7 +25,7 @@ Add the `redis` feature (`redis-tls` for `rediss://` URLs), connect, and pass th
 the builder:
 
 ```toml
-fastauth = { version = "0.6", features = ["redis"] }
+fastauth = { version = "0.7", features = ["redis"] }
 ```
 
 ```rust
@@ -170,7 +170,7 @@ shortest one the store has, never "no expiry". The conformance suite checks all 
 concurrent increments included; `fastauth-redis` runs it against Redis 7 and Valkey 8:
 
 ```rust
-// [dev-dependencies] fastauth-core = { version = "0.6", features = ["testing"] }
+// [dev-dependencies] fastauth-core = { version = "0.7", features = ["testing"] }
 #[tokio::test]
 async fn conformance() {
     let storage = fastauth::redis::RedisStorage::connect("redis://127.0.0.1:6379")

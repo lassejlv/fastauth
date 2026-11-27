@@ -46,7 +46,7 @@ Full page: `docs/plugins/tokens/03-api-keys.md`.
 
 ## Setup
 
-- `fastauth = { version = "0.6", features = ["api-key"] }`; path `fastauth::plugins::api_key`.
+- `fastauth = { version = "0.7", features = ["api-key"] }`; path `fastauth::plugins::api_key`.
 - Add `ApiKeys` to `.plugin(..)` and to the `plugins![..]` alias, in registration order.
 - It adds the `apikey` table (`key_hash`, `start`, `prefix`, `permissions`, `remaining`,
   `refill_*`, `rate_limit_*`, `request_count`, `metadata`, ...). Run migrations after adding
