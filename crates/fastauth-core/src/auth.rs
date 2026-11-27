@@ -246,7 +246,8 @@ impl<D, U, P, S, B> Builder<D, U, P, S, B> {
 
     /// Builds a configuration that `.build()` refuses for production, logging each problem
     /// as a warning instead: an `http://` `base_url` on a host other than localhost, or a
-    /// secret with too little entropy. For local development, CI and staging setups on a
+    /// current (first) secret with too little entropy. A weak retired secret is only ever
+    /// logged, so rotating off one needs no opt-out. For local development, CI and staging setups on a
     /// private network only. A localhost `base_url` gets the same leniency without it.
     pub fn allow_insecure_config(mut self, allow: bool) -> Self {
         self.allow_insecure = allow;
@@ -351,16 +352,28 @@ impl<D: Adapter, U: Fields, P: PluginSet> Builder<D, U, P, Present, Present> {
         let mut unsafe_in_production = Vec::new();
         if let Some(bits) = self
             .secrets
-            .iter()
+            .first()
             .map(Secret::entropy_bits)
-            .min_by(f64::total_cmp)
             .filter(|bits| *bits < Secret::MIN_ENTROPY_BITS)
         {
             unsafe_in_production.push(format!(
-                "a secret has about {bits:.0} bits of entropy, less than {:.0}; generate one with \
-                 `fastauth secret`",
+                "the current secret has about {bits:.0} bits of entropy, less than {:.0}; \
+                 generate one with `fastauth secret`",
                 Secret::MIN_ENTROPY_BITS
             ));
+        }
+        if self
+            .secrets
+            .iter()
+            .skip(1)
+            .any(|secret| secret.entropy_bits() < Secret::MIN_ENTROPY_BITS)
+        {
+            tracing::warn!(
+                "fastauth: a retired secret has less than {:.0} bits of entropy; it still \
+                 verifies session tokens and decrypts columns written under it, so drop it from \
+                 `.secrets(..)` once those columns are rewritten",
+                Secret::MIN_ENTROPY_BITS
+            );
         }
         if base_url.scheme() == "http" && !local {
             unsafe_in_production.push(format!(

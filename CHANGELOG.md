@@ -45,6 +45,9 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-5 (low):** `pending_verification` was read with the current secret only, so a secret
   rotation between sign-up and the click claimed the owner and deleted the password. It is now
   accepted under any configured secret, like a session token.
+- **F61-6 (low):** `.build()` refused a weak *retired* secret too, so rotating off a weak 0.5
+  secret forced `allow_insecure_config(true)` in production. Only the current secret is
+  refused now; a weak retired one logs a warning.
 
 ### Core
 

@@ -53,8 +53,10 @@ rewritten. A leaked secret still decrypts the values written under it.
 - **Always:** a `base_url` with credentials (`https://user:pw@..`), a query or a fragment.
   Emailed links are built from `base_url`, so each of these would break them.
 - **When `base_url` isn't local:** an `http://` `base_url`, since cookies would go out
-  without `Secure`, and a secret with less than `Secret::MIN_ENTROPY_BITS` (120) bits of
-  estimated entropy. The estimate (`Secret::entropy_bits`) is the length times log2 of the
+  without `Secure`, and a current (first) secret with less than `Secret::MIN_ENTROPY_BITS`
+  (120) bits of estimated entropy. A retired secret with too little entropy is logged as a
+  warning, not refused, so an app can rotate off a weak secret without
+  `allow_insecure_config`. The estimate (`Secret::entropy_bits`) is the length times log2 of the
   number of distinct bytes: a secret from `fastauth secret` scores about 370, 32 zero bytes
   score 0.
 
