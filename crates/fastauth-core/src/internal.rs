@@ -21,7 +21,8 @@ use crate::models::{Account, Session, User, Verification};
 use crate::query::Db;
 use crate::schema::Schema;
 use crate::session::{
-    SESSION_DATA, SessionView, UserView, clear_session_cookies, set_session_cookies,
+    DONT_REMEMBER_LIFETIME, SESSION_DATA, SessionView, UserView, clear_session_cookies,
+    set_session_cookies,
 };
 use crate::value::{ColumnValue, Id, Value};
 
@@ -82,9 +83,6 @@ impl NewSession {
         self
     }
 }
-
-/// How long a `rememberMe: false` session lives at most, as in Better Auth.
-const DONT_REMEMBER_LIFETIME: Duration = Duration::days(1);
 
 impl NewAccount {
     pub fn credential(password_hash: String) -> Self {

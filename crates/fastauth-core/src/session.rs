@@ -223,6 +223,8 @@ impl<U, P: PluginSet> SessionData<U, P> {
 pub(crate) const SESSION_TOKEN: &str = "session_token";
 pub(crate) const SESSION_DATA: &str = "session_data";
 pub(crate) const DONT_REMEMBER: &str = "dont_remember";
+/// How long a `rememberMe: false` session lives at most, as in Better Auth.
+pub(crate) const DONT_REMEMBER_LIFETIME: time::Duration = time::Duration::days(1);
 
 pub(crate) fn set_session_cookies(
     config: &CoreConfig,
@@ -434,11 +436,24 @@ fn dont_remember<D>(shared: &Shared<D>, request: &RequestInfo) -> bool {
         .is_some()
 }
 
+/// Whether `session` was created shorter than a remembered one: a `rememberMe: false`
+/// session, or one a plugin gave a short expiry. Read from the stored row, so it holds when
+/// the request carries the token without the `dont_remember` marker (a bearer token, a
+/// cookie jar that dropped the marker). A remembered session's stored lifetime is
+/// `expires_in` (from creation, or from its last refresh); a second of slack absorbs the
+/// timestamp precision of the database. When `expires_in` is one day or less, a
+/// `rememberMe: false` session is as long as any other and only the marker tells them apart.
+fn created_short(session: &Session, expires_in: time::Duration) -> bool {
+    let lifetime = session.expires_at - session.updated_at;
+    lifetime <= DONT_REMEMBER_LIFETIME && lifetime < expires_in - time::Duration::seconds(1)
+}
+
 /// Extends the expiry at most once per `update_age`. The conditional update makes
 /// concurrent requests extend it once. Sessions a plugin marked with
 /// `PluginBuilder::fixed_session_expiry` (impersonation sessions) and `rememberMe: false`
-/// sessions are never extended. `false` when the session is gone: it was revoked between
-/// the lookup and the update.
+/// sessions (by their marker cookie or their stored lifetime, see `created_short`) are never
+/// extended. `false` when the session is gone: it was revoked between the lookup and the
+/// update.
 async fn refresh<D: Adapter>(
     shared: &Shared<D>,
     db: &D,
@@ -451,6 +466,7 @@ async fn refresh<D: Adapter>(
     if now - view.session.updated_at < config.update_age
         || shared.fixed_expiry.iter().any(|fixed| fixed(view))
         || dont_remember(shared, request)
+        || created_short(&view.session, config.expires_in)
     {
         return Ok(true);
     }

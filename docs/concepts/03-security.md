@@ -127,7 +127,11 @@ session answered from the cookie cache after it was revoked. fastauth limits wha
   does. Read-only lists (organizations, members) still answer from the cache.
 - **Sessions end when they should.** A `rememberMe: false` sign-in gets a session that
   lives one day at most (or `expires_in`, if that's shorter) and is never extended by the
-  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. A session
+  sliding refresh; with multi-session, its device cookie has no `Max-Age` either. The
+  refresh recognises it by its stored lifetime (shorter than `expires_in` and at most a
+  day), not only by the `dont_remember` marker cookie, so using its token as a bearer token
+  or without the marker doesn't extend it. With an `expires_in` of one day or less both
+  kinds of session are equally long, and only the marker stops the refresh. A session
   revoked while a request is refreshing it gets no refreshed cookie: the request answers
   signed out and clears the cookies. When a session hook refuses a new session, the row is
   deleted and the response sets none of its cookies.

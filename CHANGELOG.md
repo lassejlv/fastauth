@@ -35,6 +35,10 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
   its hashing permit back while argon2 kept running, so disconnecting clients could run far
   more hashes at once than the CPU-count cap. The permit now moves into the blocking task and
   is held until the hash finishes.
+- **F61-3 (low):** a `rememberMe: false` session used without its `dont_remember` marker
+  (as a bearer token, or from a cookie jar that dropped the marker) slid to the full
+  `expires_in`. The refresh now also skips a session whose stored lifetime is shorter than
+  `expires_in` and at most a day.
 
 ### Core
 
