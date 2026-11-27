@@ -12,7 +12,7 @@ use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, Refer
 use fastauth_core::value::Value;
 use sqlx::{AssertSqlSafe, SqlSafeStr, SqlStr};
 
-use crate::driver::{Driver, Param, stored_type};
+use crate::driver::{Driver, Param, TextMatch, stored_type};
 
 /// How logical table names (`user`) map to stored ones (`"auth"."fa_user"`).
 #[derive(Clone, Debug, Default)]
@@ -391,10 +391,9 @@ fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, o
         Filter::StartsWith { column: c, .. }
         | Filter::Contains { column: c, .. }
         | Filter::EndsWith { column: c, .. } => {
-            let (op, suffix) = DB::TEXT_MATCH;
-            let _ = write!(out, "{} {op} ", column(*c));
-            next_param::<DB>(n, out);
-            out.push_str(suffix);
+            let mut param = String::new();
+            next_param::<DB>(n, &mut param);
+            DB::text_match(text_match(filter), &column(*c), &param, out);
         }
         Filter::And(filters) if filters.is_empty() => out.push_str("1 = 1"),
         Filter::Or(filters) if filters.is_empty() => out.push_str("1 = 0"),
@@ -430,18 +429,22 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
             let ty = stored_type(table, table.columns[column].ty);
             out.extend(values.into_iter().map(|value| Param::filter(value, ty)));
         }
-        Filter::StartsWith { prefix, .. } => {
-            out.push(text_pattern::<DB>(DB::escape_pattern(&prefix), false, true));
+        Filter::StartsWith {
+            prefix: ref needle, ..
         }
-        Filter::Contains { substring, .. } => {
-            out.push(text_pattern::<DB>(
-                DB::escape_pattern(&substring),
-                true,
-                true,
-            ));
+        | Filter::Contains {
+            substring: ref needle,
+            ..
         }
-        Filter::EndsWith { suffix, .. } => {
-            out.push(text_pattern::<DB>(DB::escape_pattern(&suffix), true, false));
+        | Filter::EndsWith {
+            suffix: ref needle, ..
+        } => {
+            let value = if !DB::TEXT_HOLDS_NUL && needle.contains('\0') {
+                Value::Null
+            } else {
+                Value::Text(DB::text_needle(text_match(&filter), needle))
+            };
+            out.push(Param::write(value, ColumnType::Text));
         }
         Filter::And(filters) | Filter::Or(filters) => {
             for filter in filters {
@@ -452,17 +455,13 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
     }
 }
 
-/// The `TEXT_MATCH` parameter for an escaped pattern, with wildcards before and after.
-fn text_pattern<DB: Driver>(escaped: String, before: bool, after: bool) -> Param {
-    let mut pattern = String::with_capacity(escaped.len() + 2);
-    if before {
-        pattern.push(DB::WILDCARD);
+fn text_match(filter: &Filter) -> TextMatch {
+    match filter {
+        Filter::StartsWith { .. } => TextMatch::StartsWith,
+        Filter::Contains { .. } => TextMatch::Contains,
+        Filter::EndsWith { .. } => TextMatch::EndsWith,
+        _ => unreachable!("only text filters have a needle"),
     }
-    pattern.push_str(&escaped);
-    if after {
-        pattern.push(DB::WILDCARD);
-    }
-    Param::write(Value::Text(pattern), ColumnType::Text)
 }
 
 /// Fails on a filter variant this adapter doesn't render, which a newer `fastauth-core` may

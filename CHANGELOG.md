@@ -101,6 +101,8 @@ email: whoever proves control of an address becomes the only owner of its user
 - **DOS-6:** routes with a rate-limit rule of their own also limit each account the body names to 30 requests per 10 minutes, whatever the client IP (`RateLimit::account_limit`).
 - **DOS-7:** an organization can have at most 100 pending invitations by default (`Organization::invitation_limit`); past it `invite-member` answers `403 INVITATION_LIMIT_REACHED`.
 - **DOS-8:** without a client IP, a request is limited on its `username` as well as its `email`, so a junk `email` doesn't give username guesses a fresh bucket.
+- **SQLX-1:** on SQLite, a NUL in a `contains`, `starts_with` or `ends_with` needle matched every row, and a stored value with a NUL hid from needles matching after it; on Postgres a NUL needle was a query error. SQLite now matches text filters byte by byte, and on Postgres, which can't store a NUL, such a needle matches nothing.
+- **SQLX-2:** request text with a NUL (`\u0000` in the JSON body or `%00` in the query), such as a sign-up name or email, answered an unauthenticated 500 on Postgres. Every core and plugin endpoint now refuses it with `400 INVALID_REQUEST_BODY` before reading the input.
 
 ### Behaviour changes
 

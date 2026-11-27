@@ -759,10 +759,17 @@ impl<D: Adapter, E: Endpoint<D>> ErasedEndpoint<D> for Erased<E> {
     }
 }
 
+/// Decodes an endpoint's input from the query (GET, HEAD) or the JSON body. Text holding a
+/// NUL character is refused with 400 `INVALID_REQUEST_BODY` before any field is read:
+/// Postgres can't store it, and SQLite cuts text at it.
 fn decode_input<I: DeserializeOwned>(request: &RequestInfo, body: &[u8]) -> Result<I, AuthError> {
     let invalid = |e: &dyn std::fmt::Display| {
         AuthError::bad_request(crate::error::codes::INVALID_BODY, e.to_string())
     };
+    let query = request.query.as_deref().unwrap_or("");
+    if query.contains('\0') || query.contains("%00") || json_has_nul(body) {
+        return Err(invalid(&"request text can't contain a NUL character"));
+    }
     if request.method == Method::GET || request.method == Method::HEAD {
         return serde_urlencoded::from_str(request.query.as_deref().unwrap_or(""))
             .map_err(|e| invalid(&e));
@@ -773,6 +780,24 @@ fn decode_input<I: DeserializeOwned>(request: &RequestInfo, body: &[u8]) -> Resu
             .map_err(|e| invalid(&e));
     }
     serde_json::from_slice(body).map_err(|e| invalid(&e))
+}
+
+/// Whether a JSON text holds the escape `\u0000`, the only way valid JSON carries a NUL
+/// (a raw one inside a string is a parse error). Every escape is skipped whole, so the text
+/// `\\u0000` (an escaped backslash) doesn't count.
+fn json_has_nul(json: &[u8]) -> bool {
+    let mut i = 0;
+    while i < json.len() {
+        if json[i] == b'\\' {
+            if json[i + 1..].starts_with(b"u0000") {
+                return true;
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 pub(crate) fn into_response(

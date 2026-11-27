@@ -35,6 +35,34 @@ impl Param {
     }
 }
 
+/// Which part of a text value a text filter's needle must match.
+#[derive(Clone, Copy, Debug)]
+pub enum TextMatch {
+    StartsWith,
+    Contains,
+    EndsWith,
+}
+
+/// `needle` as a LIKE pattern that matches it literally, with `escape` before every `%`,
+/// `_` and `escape`, and a `%` on each side `kind` leaves open.
+#[cfg(any(feature = "postgres", feature = "mysql"))]
+pub fn like_pattern(kind: TextMatch, needle: &str, escape: char) -> String {
+    let mut pattern = String::with_capacity(needle.len() + 2);
+    if !matches!(kind, TextMatch::StartsWith) {
+        pattern.push('%');
+    }
+    for ch in needle.chars() {
+        if ch == escape || ch == '%' || ch == '_' {
+            pattern.push(escape);
+        }
+        pattern.push(ch);
+    }
+    if !matches!(kind, TextMatch::EndsWith) {
+        pattern.push('%');
+    }
+    pattern
+}
+
 /// Physical table and column names from the database catalog.
 #[derive(Debug, Default)]
 pub struct Catalog {
@@ -71,11 +99,9 @@ pub trait Driver: Database {
     const INLINE_CONSTRAINTS: bool;
     /// Appended to `CREATE TABLE (..)`.
     const TABLE_OPTIONS: &'static str;
-    /// The case-sensitive pattern-match operator for text filters, and what follows its
-    /// parameter.
-    const TEXT_MATCH: (&'static str, &'static str);
-    /// The `TEXT_MATCH` wildcard for any run of characters.
-    const WILDCARD: char;
+    /// Whether a text value can hold a NUL character. Where it can't (Postgres), a text
+    /// filter whose needle holds one binds NULL, so it matches no row instead of failing.
+    const TEXT_HOLDS_NUL: bool;
     /// Whether `ALTER TABLE .. ADD COLUMN` accepts an inline UNIQUE constraint.
     const UNIQUE_ON_ADD_COLUMN: bool;
     /// The most bytes one index key may hold, when it's small enough that a unique
@@ -84,8 +110,11 @@ pub trait Driver: Database {
     const KEY_BYTES: Option<usize> = None;
 
     fn param(n: usize, out: &mut String);
-    /// `text` as a `TEXT_MATCH` pattern that matches it literally.
-    fn escape_pattern(text: &str) -> String;
+    /// Renders a case-sensitive `kind` match of `column` against the needle bound at
+    /// `param`, exact for every character, NUL included.
+    fn text_match(kind: TextMatch, column: &str, param: &str, out: &mut String);
+    /// The value `text_match` binds for `needle`.
+    fn text_needle(kind: TextMatch, needle: &str) -> String;
     /// An identifier as the database stores it (Postgres truncates to 63 bytes).
     fn ident(name: String) -> String;
     /// `keyed`: the column is an id, a key or indexed, so its type must be indexable.

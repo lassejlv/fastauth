@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use fastauth_core::schema::{ColumnType, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::{BoxDynError, DatabaseError};
@@ -5,7 +7,7 @@ use sqlx::sqlite::{SqliteArguments, SqliteConnection, SqliteRow};
 use sqlx::{Arguments, AssertSqlSafe, Decode, Row, SqlStr, Sqlite, Type};
 use time::OffsetDateTime;
 
-use crate::driver::{Catalog, Driver, Param};
+use crate::driver::{Catalog, Driver, Param, TextMatch};
 
 const NANOS_PER_MILLI: i128 = 1_000_000;
 
@@ -41,8 +43,7 @@ fn get<'r, T: Decode<'r, Sqlite> + Type<Sqlite>>(
 }
 
 impl Driver for Sqlite {
-    const TEXT_MATCH: (&'static str, &'static str) = ("GLOB", "");
-    const WILDCARD: char = '*';
+    const TEXT_HOLDS_NUL: bool = true;
     const UNIQUE_ON_ADD_COLUMN: bool = false;
     const QUOTE: char = '"';
     const RETURNING: bool = true;
@@ -54,19 +55,24 @@ impl Driver for Sqlite {
         out.push_str(&n.to_string());
     }
 
-    fn escape_pattern(text: &str) -> String {
-        let mut pattern = String::with_capacity(text.len());
-        for ch in text.chars() {
-            match ch {
-                '*' | '?' | '[' => {
-                    pattern.push('[');
-                    pattern.push(ch);
-                    pattern.push(']');
-                }
-                ch => pattern.push(ch),
-            }
-        }
-        pattern
+    /// Compares bytes, because GLOB and LIKE read the pattern and the value as C strings and
+    /// stop at a NUL. `instr` on an empty blob value answers 1 like any other, but `substr`
+    /// of one is NULL, so an ends-with also accepts a value equal to the needle.
+    fn text_match(kind: TextMatch, column: &str, param: &str, out: &mut String) {
+        let value = format!("CAST({column} AS BLOB)");
+        let needle = format!("CAST({param} AS BLOB)");
+        let _ = match kind {
+            TextMatch::StartsWith => write!(out, "instr({value}, {needle}) = 1"),
+            TextMatch::Contains => write!(out, "instr({value}, {needle}) > 0"),
+            TextMatch::EndsWith => write!(
+                out,
+                "({value} = {needle} OR substr({value}, 1 + length({value}) - length({needle})) = {needle})"
+            ),
+        };
+    }
+
+    fn text_needle(_kind: TextMatch, needle: &str) -> String {
+        needle.to_owned()
     }
 
     fn ident(name: String) -> String {
