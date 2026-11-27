@@ -116,6 +116,11 @@ through this list.
   script (`INCR`, then `PEXPIRE` on a new counter), so instances never both take the last
   request. Tested against Redis 7 and Valkey 8, including two `Auth` instances on one
   Postgres and one Redis.
+- **Bounded storage calls (F61-16):** every secondary storage call times out after 100 ms
+  (`.secondary_storage_timeout(..)`) and falls back to the in-memory limiter, and a circuit
+  breaker skips the storage for 5 seconds after 5 failures in a row, so a slow or
+  partitioned Redis no longer stalls sign-in. `RedisStorage::connect` sets a 1 s connection
+  timeout and a 250 ms response timeout.
 - **`.multi_instance(true)`** says the app runs several instances; `.build()` then warns
   when rate limiting is on without secondary storage.
 - Sessions, verification values and code attempts stay in the database, which instances

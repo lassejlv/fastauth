@@ -104,6 +104,13 @@ On by default; keep them on (DOS-1, DOS-2, DOS-6, DOS-8).
   client gets every limit once per instance it reaches. Set `.multi_instance(true)` too, and
   `.build()` warns when the storage is missing.
   [Running several instances](../concepts/04-multiple-instances.md) has the details.
+- Each secondary storage call times out after 100 ms
+  (`.secondary_storage_timeout(..)`), and after 5 failures in a row the storage is skipped
+  for 5 seconds, so a slow or unreachable Redis costs a request at most one timeout. Limits
+  then hold per instance until it answers again. Keep the timeout well above the store's
+  normal latency, and alert on `fastauth: secondary storage failed` in the logs.
+  [When the storage is slow or down](../concepts/04-multiple-instances.md#when-the-storage-is-slow-or-down)
+  has the details.
 
 ## 8. Shared caches and CDNs
 
