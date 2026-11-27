@@ -56,9 +56,12 @@ rewritten. A leaked secret still decrypts the values written under it.
   without `Secure`, and a current (first) secret with less than `Secret::MIN_ENTROPY_BITS`
   (120) bits of estimated entropy. A retired secret with too little entropy is logged as a
   warning, not refused, so an app can rotate off a weak secret without
-  `allow_insecure_config`. The estimate (`Secret::entropy_bits`) is the length times log2 of the
-  number of distinct bytes: a secret from `fastauth secret` scores about 370, 32 zero bytes
-  score 0.
+  `allow_insecure_config`. The estimate (`Secret::entropy_bits`) counts the bytes a guesser can't
+  predict (a stretch that repeats earlier bytes or counts up or down, like `changeme` again or
+  `abcd`, counts as two bytes) times log2 of the alphabet (hex, letters and digits, base64, printable
+  or any byte, capped at twice the distinct bytes seen): a secret from `fastauth secret`
+  scores about 440, `openssl rand -hex 16` about 128, `"changeme"` repeated or 32 zero bytes
+  far below 120.
 
 Local means `localhost`, `*.localhost` or a loopback address; there both problems are only
 logged as warnings. `Builder::allow_insecure_config(true)` does the same for any host, for

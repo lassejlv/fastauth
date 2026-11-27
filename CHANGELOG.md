@@ -55,6 +55,11 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-8 (low):** on Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX
   CONCURRENTLY` counted as the unique constraint, so the migrator planned nothing and
   duplicates went in. Introspection now counts only valid, ready indexes.
+- **F61-10 (info):** the secret entropy estimate (length × log2 of distinct bytes) passed
+  placeholders repeated to length (`"changeme"` × 6) and refused about a third of
+  `openssl rand -hex 16` secrets. `Secret::entropy_bits` now counts repeated and counting
+  stretches once and uses the secret's alphabet (hex, alphanumeric, base64, printable, any
+  byte): placeholders score below 25 bits, and 0.08% of 128-bit hex secrets are refused.
 
 ### Core
 

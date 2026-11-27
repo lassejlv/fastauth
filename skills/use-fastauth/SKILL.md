@@ -283,7 +283,7 @@ At runtime:
 - `400 INVALID_FIELD` (`field \`stripeCustomerId\` can't be set`): a client sent an app
   column without `#[field(input)]` ([database.md](references/database.md#app-columns-on-user)).
 - `BuildError`: `base_url \`http://app.acme.dk/\` is http:// on a host other than localhost` or
-  `a secret has about 0 bits of entropy, less than 120`. Use https and a generated secret,
+  `the current secret has about 0 bits of entropy, less than 120`. Use https and a generated secret,
   or `.allow_insecure_config(true)` in development only.
 - `400 INVALID_EMAIL`: the email isn't one plain address (no lists, spaces, quotes or
   non-ASCII). `400 INVALID_REQUEST_BODY`: the JSON body or query holds a NUL byte, which

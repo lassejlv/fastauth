@@ -59,7 +59,8 @@ under it exist ([Security](../concepts/03-security.md#secrets)).
 For a `base_url` that isn't local (`localhost`, `*.localhost` or a loopback address),
 `.build()` refuses an `http://` URL, since cookies would go out without `Secure`, and a
 secret whose estimated entropy (`Secret::entropy_bits()`) is below
-`Secret::MIN_ENTROPY_BITS`, 120 bits. A generated secret scores about 370. For a local
+`Secret::MIN_ENTROPY_BITS`, 120 bits. A generated secret scores about 440. Only the first
+(current) secret is refused; a weak retired one in `.secrets(..)` is logged. For a local
 `base_url` both are logged as warnings.
 
 ```rust
