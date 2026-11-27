@@ -12,7 +12,7 @@ Turn on the facade's `anonymous` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.7", features = ["anonymous"] }
+fastauth = { version = "0.8", features = ["anonymous"] }
 ```
 
 The plugin lives at `fastauth::plugins::anonymous` (crate `fastauth-plugin-anonymous`):

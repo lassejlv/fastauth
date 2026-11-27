@@ -9,12 +9,12 @@ It runs on sqlx and axum out of the box, and the plugin API is checked by the co
 [![crates.io](https://img.shields.io/crates/v/fastauth.svg)](https://crates.io/crates/fastauth)
 [![docs.rs](https://docs.rs/fastauth/badge.svg)](https://docs.rs/fastauth)
 
-**Status:** 0.7.0 is on crates.io. An app can now run as several instances with one set of
-rate limits, kept in Redis or Valkey through the new `fastauth-redis` crate. 0.7.0 also fixes
-a security bug: a request a squatter had in flight could restore access after the real owner
-reclaimed the email. Every earlier version is affected, so upgrade, and read
-[upgrading from 0.6](CHANGELOG.md#upgrading-from-06) first: there's no migration, but plugins
-that call `Internal::set_password` need a one-line change. The docs in `docs/` describe 0.7.
+**Status:** 0.8.0 is on crates.io. It adds an opt-in Better Auth database compatibility
+mode, for moving a live Better Auth app onto fastauth while both share one database
+([Migrating from Better Auth](docs/integrations/04-migrating-from-better-auth.md)). A suite
+runs a real Better Auth 1.7.8 app next to fastauth on one Postgres and checks 204 cross-app
+cases. Upgrading from 0.7 needs no code or database change
+([upgrading from 0.7](CHANGELOG.md#upgrading-from-07)). The docs in `docs/` describe 0.8.
 
 ## Install
 
@@ -199,7 +199,7 @@ The docs live in `docs/`, one folder per group, in the same order as the
 [`skills/use-fastauth`](skills/use-fastauth/SKILL.md) teaches coding agents to use fastauth
 in their own apps: setup, axum, migrations, user fields, the first-party plugins, the server
 API, custom plugins and tests, plus the compiler errors they'll meet. Every code sample in it
-compiles against `main` (0.7). Copy the folder into your agent's skills directory (for Claude Code,
+compiles against `main` (0.8). Copy the folder into your agent's skills directory (for Claude Code,
 `.claude/skills/use-fastauth/`).
 
 ## License

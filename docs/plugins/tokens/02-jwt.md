@@ -12,7 +12,7 @@ Turn on the facade's `jwt` feature:
 
 ```toml
 [dependencies]
-fastauth = { version = "0.7", features = ["jwt"] }
+fastauth = { version = "0.8", features = ["jwt"] }
 ```
 
 or `cargo add fastauth --features jwt`. The plugin lives at `fastauth::plugins::jwt` (crate
@@ -186,7 +186,7 @@ against it with `JwksVerifier` (in `fastauth-plugin-jwt`, which you can depend o
 
 ```toml
 [dependencies]
-fastauth-plugin-jwt = "0.7"
+fastauth-plugin-jwt = "0.8"
 ```
 
 ```rust

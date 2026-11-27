@@ -10,7 +10,7 @@ answers. It is the facade's `actix` feature, as `fastauth::actix`.
 [dependencies]
 actix-web = "4"
 # actix-web without axum: turn the defaults off and pick the database yourself.
-fastauth = { version = "0.7", default-features = false, features = ["actix", "postgres", "macros"] }
+fastauth = { version = "0.8", default-features = false, features = ["actix", "postgres", "macros"] }
 ```
 
 The `actix` and `axum` features can be on together. The prelude's `Session` is axum's, so the

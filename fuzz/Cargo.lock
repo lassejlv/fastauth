@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "argon2",
  "base64 0.23.1",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-macros"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "heck",
  "proc-macro-crate",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-oauth"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "bytes",
  "fastauth-core",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-admin"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-api-key"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "http",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-bearer"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "http",
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-email-otp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "hmac",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-jwt"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aws-lc-rs",
  "fastauth-core",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-magic-link"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-multi-session"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-organization"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-passkey"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "fastauth-core",
@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-two-factor"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "hmac",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-plugin-username"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "fastauth-sqlx"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastauth-core",
  "serde_json",
