@@ -6,7 +6,9 @@
 //! reads the pattern as a C string, so everything after the NUL is dropped and `*\0*`
 //! matches every row. Found by the `like_filter` fuzz target (input: contains "\0" over
 //! [""]). Postgres can't store NUL in text at all and rejects the parameter, so the same
-//! search is a database error there.
+//! search is a database error there. The same truncation works the other way on SQLite: a
+//! stored name with a NUL is cut there too, so a needle that only matches after the NUL
+//! misses the row (found by FAST-53's long `like_filter` run: contains ">" over ["=\0>"]).
 //!
 //! SQLX-2: Postgres rejects a NUL anywhere in a text parameter, so request input carrying
 //! `\u0000` (a sign-up name, an email) is a database error and a 500 instead of a 400. SQLite
@@ -79,6 +81,43 @@ async fn sqlx_1_nul_in_a_pattern_on_sqlite() {
         .await
         .expect("SQLite");
     nul_needles_match_nothing(Sqlx::new(pool)).await;
+}
+
+#[tokio::test]
+#[ignore = "FAST-46 SQLX-1: open until the fix lands"]
+async fn sqlx_1_nul_in_a_stored_name_on_sqlite() {
+    let pool = SqlitePool::connect("sqlite::memory:")
+        .await
+        .expect("SQLite");
+    let auth: Auth<Sqlx<fastauth_sqlx::Sqlite>> = FastAuth::builder()
+        .secret(Secret::from_bytes(vec![5u8; 32]))
+        .base_url("http://localhost:3000")
+        .database(Sqlx::new(pool))
+        .build()
+        .expect("valid config");
+    auth.migrator().run().await.expect("migrations");
+    let api = auth.api();
+    let now = time::OffsetDateTime::now_utc();
+    api.db()
+        .insert(&User {
+            id: Id::from("u0".to_owned()),
+            email: "u0@acme.dk".to_owned(),
+            email_verified: false,
+            name: "=\0>".to_owned(),
+            image: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .expect("insert");
+    let cases: [(&str, Where<User>); 2] = [
+        ("contains >", User::NAME.contains(">")),
+        ("ends_with >", User::NAME.ends_with(">")),
+    ];
+    for (label, filter) in cases {
+        let found = api.db().find::<User>(filter).all().await.expect(label);
+        assert_eq!(found.len(), 1, "{label} missed the name \"=\\0>\"");
+    }
 }
 
 #[tokio::test]
