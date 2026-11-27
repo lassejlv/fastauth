@@ -210,6 +210,9 @@ impl Plugin for Social {
             .endpoint(ListAccounts)
             .endpoint(UnlinkAccount)
             .errors::<SocialError>();
+        for configured in &self.providers {
+            app.account_provider(configured.provider.id());
+        }
     }
 }
 

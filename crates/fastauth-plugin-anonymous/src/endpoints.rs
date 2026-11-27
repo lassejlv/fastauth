@@ -23,9 +23,10 @@ async fn cookie_session<D: Adapter, A>(ctx: &Ctx<D, A>) -> Result<Option<Session
 
 /// Deletes a user with their sessions and accounts.
 async fn delete_user<D: Adapter, A>(ctx: &Ctx<D, A>, user: &UserView) -> Result<(), AuthError> {
+    ctx.internal().refuse_foreign_accounts(&user.id).await?;
     ctx.internal().revoke_user_sessions(&user.id, None).await?;
     ctx.db()
-        .delete::<Account>(Account::USER_ID.eq(&user.id))
+        .delete::<Account>(ctx.internal().accounts_of(&user.id))
         .await?;
     ctx.db().delete::<User>(User::ID.eq(&user.id)).await?;
     ctx.emit(UserDeleted {

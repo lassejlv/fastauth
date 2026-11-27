@@ -9,6 +9,7 @@ use http::StatusCode;
 use time::{Duration, OffsetDateTime};
 
 use crate::adapter::{Adapter, DbError, Queries, Transaction, Update};
+use crate::config::SessionTokens;
 use crate::crypto::{Hash, random_bytes, random_token};
 use crate::endpoint::{Ctx, Gate, SignInAttempt};
 use crate::error::{AuthError, codes};
@@ -18,7 +19,7 @@ use crate::events::{
 use crate::mail::{AuthEmail, VerifyEmail};
 use crate::model::{Col, Model, OnTable};
 use crate::models::{Account, Session, User, Verification};
-use crate::query::Db;
+use crate::query::{Db, Where};
 use crate::schema::Schema;
 use crate::session::{
     DONT_REMEMBER_LIFETIME, SESSION_DATA, SessionView, UserView, clear_session_cookies,
@@ -428,11 +429,47 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         Ok(matched == 1)
     }
 
+    /// The `account` rows of `user_id` that fastauth manages: all of them, or with
+    /// [`only_owned_accounts`](crate::Builder::only_owned_accounts) on, only those of
+    /// providers it owns ([`CoreConfig::owns_account_provider`](crate::config::CoreConfig::owns_account_provider)).
+    /// Every query that lists, changes or deletes a user's accounts goes through it.
+    pub fn accounts_of(&self, user_id: &Id) -> Where<Account> {
+        let filter = Account::USER_ID.eq(user_id);
+        match self.ctx.config().owned_account_providers() {
+            Some(owned) => filter.and(Account::PROVIDER_ID.in_(owned.iter().cloned())),
+            None => filter,
+        }
+    }
+
+    /// Fails with 409 `USER_HAS_FOREIGN_ACCOUNTS` when `user_id` has `account` rows of a
+    /// provider fastauth doesn't own (with [`only_owned_accounts`](crate::Builder::only_owned_accounts)
+    /// on). Deleting the user would delete them with it (the foreign key cascades), so
+    /// paths that delete users check this first and leave the user alone.
+    pub async fn refuse_foreign_accounts(&self, user_id: &Id) -> Result<(), AuthError> {
+        if self.ctx.config().owned_account_providers().is_none() {
+            return Ok(());
+        }
+        let db = self.ctx.db();
+        let all = db.count::<Account>(Account::USER_ID.eq(user_id)).await?;
+        let owned = db.count::<Account>(self.accounts_of(user_id)).await?;
+        if all > owned {
+            return Err(AuthError::new(
+                StatusCode::CONFLICT,
+                codes::USER_HAS_FOREIGN_ACCOUNTS,
+                "the user has accounts another app manages; remove them there first",
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn find_account(
         &self,
         provider_id: &str,
         account_id: &str,
     ) -> Result<Option<Account>, AuthError> {
+        if !self.ctx.config().owns_account_provider(provider_id) {
+            return Ok(None);
+        }
         let filter = Account::PROVIDER_ID
             .eq(provider_id)
             .and(Account::ACCOUNT_ID.eq(account_id));
@@ -614,6 +651,10 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
             updated_at: now,
         };
         let mut values = session.encode();
+        if self.ctx.config().session_tokens() == SessionTokens::Raw {
+            values.retain(|(column, _)| *column != Session::TOKEN_HASH.name());
+            values.push(Session::TOKEN.value(token.clone()));
+        }
         values.extend(options.values);
         let row = self.ctx.db().insert_row::<Session>(values).await?;
         let session = Session::decode(&row).map_err(AuthError::internal)?;
@@ -898,7 +939,7 @@ impl<'a, D: Adapter, A> Internal<'a, D, A> {
         if claimed == 0 {
             return Ok(None);
         }
-        db.delete::<Account>(Account::USER_ID.eq(user_id)).await?;
+        db.delete::<Account>(self.accounts_of(user_id)).await?;
         let revoked = db.delete::<Session>(Session::USER_ID.eq(user_id)).await?;
         db.delete::<Verification>(
             Verification::IDENTIFIER.in_(user_verification_identifiers(user_id)),

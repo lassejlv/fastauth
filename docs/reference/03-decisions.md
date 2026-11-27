@@ -43,6 +43,12 @@ database leaks, but it means:
 **Decided:** hash, and accept both `{ id }` and `{ token }` on `/revoke-session`. 0.2
 applies the same rule to API keys, which are stored as hashes and shown once.
 
+An app that shares one database with a running Better Auth app during a cutover can't hash in
+place, since Better Auth looks tokens up as they are. For that window only,
+`.session_tokens(SessionTokens::Raw)` stores and looks up raw tokens in `session.token`;
+hashing stays the default ([Migrating from Better
+Auth](../integrations/04-migrating-from-better-auth.md)).
+
 ## 4. Alias order must match registration order
 
 `plugins![A, B]` and `.plugin(B).plugin(A)` are different types. The error is clear, but

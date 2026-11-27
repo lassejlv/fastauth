@@ -2,6 +2,7 @@
 
 use time::OffsetDateTime;
 
+use crate::config::SessionTokens;
 use crate::crypto::Hash;
 use crate::model::{Col, Model, OnTable};
 use crate::schema::{ColumnDef, ColumnType as T, DefaultValue, OnDelete, SchemaBuilder};
@@ -22,10 +23,13 @@ macro_rules! columns {
     }};
 }
 
-pub(crate) fn register(schema: &mut SchemaBuilder) {
+pub(crate) fn register_with(schema: &mut SchemaBuilder, tokens: SessionTokens) {
+    schema.model::<User>();
+    match tokens {
+        SessionTokens::Hashed => schema.model::<Session>(),
+        SessionTokens::Raw => schema.table(Session::TABLE, Session::raw_token_columns()),
+    };
     schema
-        .model::<User>()
-        .model::<Session>()
         .model::<Account>()
         .unique(Account::TABLE, &["provider_id", "account_id"])
         .model::<Verification>();
@@ -109,7 +113,9 @@ impl Model for User {
     }
 }
 
-/// A row of `session`. The token itself is never stored, only its SHA-256.
+/// A row of `session`. By default the token itself is never stored, only its SHA-256;
+/// with [`SessionTokens::Raw`] the table holds the token in `token` instead, and
+/// `token_hash` is computed from it when the row is read.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Session {
     pub id: Id,
@@ -125,10 +131,31 @@ pub struct Session {
 impl Session {
     pub const ID: Col<Session, Id> = Col::new("id");
     pub const TOKEN_HASH: Col<Session, Hash> = Col::new("token_hash");
+    /// The token itself, only with [`SessionTokens::Raw`]. Never sent to clients. Filter by
+    /// a token with [`CoreConfig::session_token_eq`](crate::config::CoreConfig::session_token_eq),
+    /// which works under either setting.
+    pub const TOKEN: Col<Session, String> = Col::new("token");
     pub const USER_ID: Col<Session, Id> = Col::new("user_id");
     pub const EXPIRES_AT: Col<Session, OffsetDateTime> = Col::new("expires_at");
     pub const CREATED_AT: Col<Session, OffsetDateTime> = Col::new("created_at");
     pub const UPDATED_AT: Col<Session, OffsetDateTime> = Col::new("updated_at");
+}
+
+impl Session {
+    /// The columns with [`SessionTokens::Raw`]: `token` (text, unique) instead of
+    /// `token_hash`.
+    fn raw_token_columns() -> &'static [ColumnDef] {
+        columns![
+            ColumnDef::new("id", T::Id).primary_key(),
+            ColumnDef::new("token", T::Text).unique().hidden(),
+            ColumnDef::new("user_id", T::Id)
+                .references("user", "id", OnDelete::Cascade)
+                .index(),
+            ColumnDef::new("expires_at", T::Timestamp),
+            ColumnDef::new("ip_address", T::Text).nullable(),
+            ColumnDef::new("user_agent", T::Text).nullable(),
+        ]
+    }
 }
 
 impl OnTable for Session {
@@ -152,9 +179,13 @@ impl Model for Session {
     }
 
     fn decode(row: &Row) -> Result<Self, DecodeError> {
+        let token_hash = match row.table().position("token_hash") {
+            Some(_) => get(row, "token_hash")?,
+            None => Hash::sha256(get::<String>(row, "token")?),
+        };
         Ok(Self {
             id: get(row, "id")?,
-            token_hash: get(row, "token_hash")?,
+            token_hash,
             user_id: get(row, "user_id")?,
             expires_at: get(row, "expires_at")?,
             ip_address: get(row, "ip_address")?,

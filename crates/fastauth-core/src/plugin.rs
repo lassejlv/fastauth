@@ -76,6 +76,7 @@ pub struct Registry<D> {
     pub(crate) error_codes: Vec<(&'static str, &'static str)>,
     pub(crate) errors: Vec<String>,
     pub(crate) owner: &'static str,
+    pub(crate) account_providers: Vec<String>,
 }
 
 impl<D: Adapter> Registry<D> {
@@ -100,6 +101,7 @@ impl<D: Adapter> Registry<D> {
             error_codes: Vec::new(),
             errors: Vec::new(),
             owner: "core",
+            account_providers: Vec::new(),
         }
     }
 
@@ -353,6 +355,14 @@ impl<D: Adapter> PluginBuilder<'_, D> {
             pattern: pattern.into(),
             limit,
         });
+        self
+    }
+
+    /// Declares that this plugin writes `account` rows with `provider_id` (a social
+    /// provider's id). With [`Builder::only_owned_accounts`](crate::Builder::only_owned_accounts)
+    /// on, fastauth touches only rows of `credential` and of the providers plugins declare.
+    pub fn account_provider(&mut self, provider_id: impl Into<String>) -> &mut Self {
+        self.registry.account_providers.push(provider_id.into());
         self
     }
 

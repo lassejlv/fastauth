@@ -6,9 +6,10 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 
 use crate::auth::ClientAddr;
-use crate::crypto::{Argon2id, PasswordHasher, Secret};
+use crate::crypto::{Argon2id, Hash, PasswordHasher, Secret};
 use crate::error::AuthError;
 use crate::models::Session;
+use crate::query::Where;
 use crate::rate_limit::RateLimit;
 use crate::schema::IdStorage;
 use crate::value::Id;
@@ -244,6 +245,22 @@ pub enum SlidingRefresh {
     /// A session counts as a `rememberMe: false` one, never extended, when it was created to
     /// last one day or less (`expires_at - created_at`), as well as by its marker cookie.
     ExpiresAt,
+}
+
+/// How session tokens are kept in the `session` table
+/// ([`Builder::session_tokens`](crate::Builder::session_tokens)).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SessionTokens {
+    /// Only each token's SHA-256, in `token_hash` (bytes). The default: whoever reads the
+    /// table, from a backup or an injection, holds nothing they can sign in with.
+    #[default]
+    Hashed,
+    /// The token itself, in `token` (text, unique), looked up as is. This is how Better
+    /// Auth stores sessions, so both apps resolve each other's sessions when they share a
+    /// database. It gives up what hashing protects: anyone who can read the `session`
+    /// table can use every live session in it. Use it only while sharing the table, and
+    /// switch back once the other app is gone.
+    Raw,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -507,6 +524,8 @@ pub struct CoreConfig {
     pub client_ip: ClientIp,
     pub ids: IdStrategy,
     pub(crate) secure_cookies: bool,
+    pub(crate) session_tokens: SessionTokens,
+    pub(crate) owned_accounts: Option<Vec<String>>,
 }
 
 impl CoreConfig {
@@ -566,6 +585,35 @@ impl CoreConfig {
     pub fn is_fresh(&self, session: &Session) -> bool {
         let fresh_age = self.session.fresh_age;
         fresh_age.is_zero() || OffsetDateTime::now_utc() - session.created_at <= fresh_age
+    }
+
+    /// How session tokens are stored ([`SessionTokens`]).
+    pub fn session_tokens(&self) -> SessionTokens {
+        self.session_tokens
+    }
+
+    /// The filter that finds the session row of `token`, under the configured
+    /// [`SessionTokens`]: by its SHA-256, or by the token itself.
+    pub fn session_token_eq(&self, token: &str) -> Where<Session> {
+        match self.session_tokens {
+            SessionTokens::Hashed => Session::TOKEN_HASH.eq(Hash::sha256(token)),
+            SessionTokens::Raw => Session::TOKEN.eq(token),
+        }
+    }
+
+    /// Whether fastauth reads, changes and deletes `account` rows of `provider_id`. Every
+    /// provider, unless [`Builder::only_owned_accounts`](crate::Builder::only_owned_accounts)
+    /// is on: then only `credential` and the providers plugins register (social sign-in),
+    /// and rows another app owns, such as its `oidc` accounts, are left alone.
+    pub fn owns_account_provider(&self, provider_id: &str) -> bool {
+        self.owned_accounts
+            .as_ref()
+            .is_none_or(|owned| owned.iter().any(|p| p == provider_id))
+    }
+
+    /// The account providers fastauth owns, or `None` when it manages every row.
+    pub fn owned_account_providers(&self) -> Option<&[String]> {
+        self.owned_accounts.as_deref()
     }
 
     pub fn cookie_name(&self, name: &str) -> String {

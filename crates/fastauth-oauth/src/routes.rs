@@ -645,7 +645,7 @@ impl From<Account> for AccountInfo {
 async fn user_accounts<D: Adapter>(ctx: &Ctx<D, Authenticated>) -> Result<Vec<Account>, AuthError> {
     Ok(ctx
         .db()
-        .find::<Account>(Account::USER_ID.eq(&ctx.session().user.id))
+        .find::<Account>(ctx.internal().accounts_of(&ctx.session().user.id))
         .order_by(("created_at", Order::Asc))
         .all()
         .await?)

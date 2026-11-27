@@ -12,7 +12,7 @@ use fastauth_core::schema::{ColumnDef, ColumnType, DefaultValue, OnDelete, Refer
 use fastauth_core::value::Value;
 use sqlx::{AssertSqlSafe, SqlSafeStr, SqlStr};
 
-use crate::driver::{Driver, Param, TextMatch, stored_type};
+use crate::driver::{Driver, Param, TextMatch, column_type, to_stored};
 
 /// How logical table names (`user`) map to stored ones (`"auth"."fa_user"`).
 #[derive(Clone, Debug, Default)]
@@ -49,6 +49,11 @@ impl Names {
     }
 }
 
+/// The stored name of `column` (a declared name) of `table`.
+pub(crate) fn stored<'t>(table: &'t TableDef, column: &'t str) -> &'t str {
+    table.stored_column(column).unwrap_or(column)
+}
+
 pub(crate) fn quote<DB: Driver>(ident: &str) -> String {
     let q = DB::QUOTE;
     format!("{q}{}{q}", ident.replace(q, &format!("{q}{q}")))
@@ -79,15 +84,24 @@ struct Key {
     kind: Kind,
     table: &'static str,
     width: usize,
+    /// A hash of the stored column names, so two schemas that name columns differently
+    /// never share text.
+    stored: u64,
     shape: String,
 }
 
 impl Key {
     fn new(kind: Kind, table: &TableDef, shape: String) -> Self {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for i in 0..table.columns.len() {
+            table.stored_name(i).hash(&mut hasher);
+        }
         Self {
             kind,
             table: table.name,
             width: table.columns.len(),
+            stored: hasher.finish(),
             shape,
         }
     }
@@ -151,11 +165,11 @@ impl Sql {
             }
             sql
         });
-        let params = table
-            .columns
-            .iter()
-            .zip(q.values)
-            .map(|(column, value)| Param::write(value, stored_type(table, column.ty)))
+        let params = q
+            .values
+            .into_iter()
+            .enumerate()
+            .map(|(i, value)| Param::write(to_stored(table, i, value), column_type(table, i)))
             .collect();
         Statement { sql, params }
     }
@@ -183,7 +197,7 @@ impl Sql {
                 let _ = write!(
                     sql,
                     "{} {}",
-                    quote::<DB>(table.columns[*column].name),
+                    quote::<DB>(table.stored_name(*column)),
                     order_sql(*order)
                 );
             }
@@ -235,7 +249,7 @@ impl Sql {
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                let _ = write!(sql, "{} = ", quote::<DB>(table.columns[*column].name));
+                let _ = write!(sql, "{} = ", quote::<DB>(table.stored_name(*column)));
                 next_param::<DB>(&mut n, &mut sql);
             }
             sql.push_str(" WHERE ");
@@ -246,7 +260,7 @@ impl Sql {
             .set
             .into_iter()
             .map(|(column, value)| {
-                Param::write(value, stored_type(table, table.columns[column].ty))
+                Param::write(to_stored(table, column, value), column_type(table, column))
             })
             .collect();
         filter_params::<DB>(table, q.filter, &mut params);
@@ -271,14 +285,22 @@ impl Sql {
         Statement { sql, params }
     }
 
-    /// One row: the session's columns, then the user's.
+    /// One row: the session's columns, then the user's, for the session whose `column`
+    /// (`token_hash` or `token`, which the caller checked exist) is `value`.
     pub(crate) fn session_with_user<DB: Driver>(
         &self,
         session: &TableDef,
         user: &TableDef,
-        token_hash: Vec<u8>,
+        column: &str,
+        value: Value,
     ) -> Statement {
-        let shape = user.columns.len().to_string();
+        let position = session
+            .position(column)
+            .expect("the caller checked the column");
+        let shape = format!("{}|{column}", user.columns.len());
+        let stored = |table: &TableDef, column: &str| {
+            quote::<DB>(table.stored_column(column).unwrap_or(column))
+        };
         let sql = self.cached(Key::new(Kind::SessionWithUser, session, shape), || {
             let mut param = String::new();
             DB::param(1, &mut param);
@@ -288,21 +310,24 @@ impl Sql {
                 column_list::<DB>(user, Some("u")),
                 self.names.qualified::<DB>(session.name),
                 self.names.qualified::<DB>(user.name),
-                quote::<DB>("id"),
-                quote::<DB>("user_id"),
-                quote::<DB>("token_hash"),
+                stored(user, "id"),
+                stored(session, "user_id"),
+                stored(session, column),
             )
         });
         Statement {
             sql,
-            params: vec![Param::write(Value::Bytes(token_hash), ColumnType::Bytes)],
+            params: vec![Param::write(
+                to_stored(session, position, value),
+                column_type(session, position),
+            )],
         }
     }
 }
 
 fn column_list<DB: Driver>(table: &TableDef, alias: Option<&str>) -> String {
     let mut out = String::new();
-    for (i, column) in table.columns.iter().enumerate() {
+    for i in 0..table.columns.len() {
         if i > 0 {
             out.push_str(", ");
         }
@@ -310,7 +335,7 @@ fn column_list<DB: Driver>(table: &TableDef, alias: Option<&str>) -> String {
             out.push_str(alias);
             out.push('.');
         }
-        out.push_str(&quote::<DB>(column.name));
+        out.push_str(&quote::<DB>(table.stored_name(i)));
     }
     out
 }
@@ -357,7 +382,7 @@ fn filter_shape(filter: &Filter) -> String {
 }
 
 fn render_filter<DB: Driver>(table: &TableDef, filter: &Filter, n: &mut usize, out: &mut String) {
-    let column = |i: usize| quote::<DB>(table.columns[i].name);
+    let column = |i: usize| quote::<DB>(table.stored_name(i));
     match filter {
         Filter::All => out.push_str("1 = 1"),
         Filter::Cmp { column: c, op, .. } => {
@@ -421,13 +446,17 @@ fn filter_params<DB: Driver>(table: &TableDef, filter: Filter, out: &mut Vec<Par
         Filter::All | Filter::Null { .. } => {}
         Filter::Cmp { column, value, .. } => {
             out.push(Param::filter(
-                value,
-                stored_type(table, table.columns[column].ty),
+                to_stored(table, column, value),
+                column_type(table, column),
             ));
         }
         Filter::In { column, values } => {
-            let ty = stored_type(table, table.columns[column].ty);
-            out.extend(values.into_iter().map(|value| Param::filter(value, ty)));
+            let ty = column_type(table, column);
+            out.extend(
+                values
+                    .into_iter()
+                    .map(|value| Param::filter(to_stored(table, column, value), ty)),
+            );
         }
         Filter::StartsWith {
             prefix: ref needle, ..
@@ -492,6 +521,19 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
             quote::<DB>(schema)
         ));
     }
+    // Columns this plan creates. An index on any other column goes on a column someone else
+    // may have created, as TEXT on MySQL, which only takes an index on a prefix.
+    let created: std::collections::HashSet<(&str, &str)> = plan
+        .steps
+        .iter()
+        .flat_map(|step| match step {
+            Step::CreateTable(table) => {
+                table.columns.iter().map(|c| (table.name, c.name)).collect()
+            }
+            Step::AddColumn { table, column } => vec![(table.name, column.name)],
+            _ => Vec::new(),
+        })
+        .collect();
     for step in &plan.steps {
         match step {
             Step::CreateTable(table) => {
@@ -533,25 +575,36 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
                 }
                 out.push(add);
                 if column.unique && !DB::UNIQUE_ON_ADD_COLUMN {
-                    let name = unique_name(&names.physical(table.name), column.name);
+                    let stored = stored(table, column.name);
+                    let name = unique_name(&names.physical(table.name), stored);
                     out.push(format!(
                         "CREATE UNIQUE INDEX {} ON {qualified} ({})",
                         quote::<DB>(&DB::ident(name)),
-                        quote::<DB>(column.name)
+                        quote::<DB>(stored)
                     ));
                 }
             }
             Step::CreateIndex { table, column } => {
-                let name = index_name(&names.physical(table.name), column.name);
+                let stored = stored(table, column.name);
+                let name = index_name(&names.physical(table.name), stored);
+                let mut part = quote::<DB>(stored);
+                if let Some(bytes) = DB::KEY_BYTES
+                    && !created.contains(&(table.name, column.name))
+                    && table
+                        .position(column.name)
+                        .is_some_and(|i| column_type(table, i) == ColumnType::Text)
+                {
+                    let _ = write!(part, "({})", bytes / 4);
+                }
                 out.push(format!(
-                    "CREATE INDEX {} ON {} ({})",
+                    "CREATE INDEX {} ON {} ({part})",
                     quote::<DB>(&DB::ident(name)),
                     names.qualified::<DB>(table.name),
-                    quote::<DB>(column.name)
                 ));
             }
             Step::AddUnique { table, columns } => {
-                let name = unique_name(&names.physical(table.name), &columns.join("_"));
+                let joined: Vec<&str> = columns.iter().map(|c| stored(table, c)).collect();
+                let name = unique_name(&names.physical(table.name), &joined.join("_"));
                 let parts: Vec<String> = columns
                     .iter()
                     .map(|column| key_part::<DB>(table, columns, column))
@@ -573,7 +626,7 @@ pub(crate) fn ddl<DB: Driver>(names: &Names, plan: &MigrationPlan) -> Vec<String
 /// and the provider ids fastauth stores are far shorter than their share (at least 384
 /// characters for two text columns), so the prefix is the whole value in practice.
 fn key_part<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> String {
-    let quoted = quote::<DB>(column);
+    let quoted = quote::<DB>(stored(table, column));
     match prefix_length::<DB>(table, columns, column) {
         Some(length) => format!("{quoted}({length})"),
         None => quoted,
@@ -584,7 +637,7 @@ fn key_part<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> Str
 /// many leading characters as [`key_part`] indexes. The duplicate check groups by it, so it
 /// sees exactly the rows the index would refuse.
 fn key_expr<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> String {
-    let quoted = quote::<DB>(column);
+    let quoted = quote::<DB>(stored(table, column));
     match prefix_length::<DB>(table, columns, column) {
         Some(length) => format!("LEFT({quoted}, {length})"),
         None => quoted,
@@ -595,7 +648,7 @@ fn key_expr<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> Str
 /// whole value.
 fn prefix_length<DB: Driver>(table: &TableDef, columns: &[&str], column: &str) -> Option<usize> {
     let budget = DB::KEY_BYTES.filter(|_| columns.len() > 1)?;
-    let ty = |name: &str| table.column(name).map(|c| stored_type(table, c.ty));
+    let ty = |name: &str| table.position(name).map(|i| column_type(table, i));
     if ty(column) != Some(ColumnType::Text) {
         return None;
     }
@@ -621,7 +674,7 @@ pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &
     let qualified = names.qualified::<DB>(table.name);
     let list = |cols: &[&str]| {
         cols.iter()
-            .map(|c| quote::<DB>(c))
+            .map(|c| quote::<DB>(stored(table, c)))
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -646,7 +699,7 @@ pub(crate) fn duplicates<DB: Driver>(names: &Names, table: &TableDef, columns: &
         .collect();
     let not_null = columns
         .iter()
-        .map(|c| format!("{} IS NOT NULL", quote::<DB>(c)))
+        .map(|c| format!("{} IS NOT NULL", quote::<DB>(stored(table, c))))
         .collect::<Vec<_>>()
         .join(" AND ");
     AssertSqlSafe(format!(
@@ -673,10 +726,11 @@ fn column_def<DB: Driver>(
             .uniques
             .iter()
             .any(|u| u.columns.contains(&column.name));
+    let position = table.position(column.name).expect("a column of its table");
     let mut def = format!(
         "{} {}",
-        quote::<DB>(column.name),
-        DB::sql_type(stored_type(table, column.ty), keyed)
+        quote::<DB>(table.stored_name(position)),
+        DB::sql_type(column_type(table, position), keyed)
     );
     if !column.nullable {
         def.push_str(" NOT NULL");
@@ -697,11 +751,15 @@ fn column_def<DB: Driver>(
         let name = DB::ident(primary_key_name(&physical));
         let _ = write!(def, " CONSTRAINT {} PRIMARY KEY", quote::<DB>(&name));
     } else if column.unique && (!adding || DB::UNIQUE_ON_ADD_COLUMN) {
-        let name = DB::ident(unique_name(&physical, column.name));
+        let name = DB::ident(unique_name(&physical, table.stored_name(position)));
         let _ = write!(def, " CONSTRAINT {} UNIQUE", quote::<DB>(&name));
     }
     if let Some(reference) = column.references {
-        let _ = write!(def, " {}", references::<DB>(names, reference));
+        let _ = write!(
+            def,
+            " {}",
+            references::<DB>(names, table, position, reference)
+        );
     }
     def
 }
@@ -714,7 +772,7 @@ fn constraints<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) 
         let name = quote::<DB>(&DB::ident(primary_key_name(&names.physical(table.name))));
         out.push(format!(
             "CONSTRAINT {name} PRIMARY KEY ({})",
-            quote::<DB>(column.name)
+            quote::<DB>(stored(table, column.name))
         ));
     } else if column.unique {
         out.push(unique_constraint::<DB>(names, table, column));
@@ -724,28 +782,32 @@ fn constraints<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) 
 }
 
 fn unique_constraint<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> String {
-    let name = quote::<DB>(&DB::ident(unique_name(
-        &names.physical(table.name),
-        column.name,
-    )));
-    format!("CONSTRAINT {name} UNIQUE ({})", quote::<DB>(column.name))
+    let stored = stored(table, column.name);
+    let name = quote::<DB>(&DB::ident(unique_name(&names.physical(table.name), stored)));
+    format!("CONSTRAINT {name} UNIQUE ({})", quote::<DB>(stored))
 }
 
 fn foreign_key<DB: Driver>(names: &Names, table: &TableDef, column: &ColumnDef) -> Option<String> {
     let reference = column.references?;
+    let position = table.position(column.name)?;
+    let stored = table.stored_name(position);
     let name = quote::<DB>(&DB::ident(format!(
-        "{}_{}_fkey",
-        names.physical(table.name),
-        column.name
+        "{}_{stored}_fkey",
+        names.physical(table.name)
     )));
     Some(format!(
         "CONSTRAINT {name} FOREIGN KEY ({}) {}",
-        quote::<DB>(column.name),
-        references::<DB>(names, reference)
+        quote::<DB>(stored),
+        references::<DB>(names, table, position, reference)
     ))
 }
 
-fn references<DB: Driver>(names: &Names, reference: Reference) -> String {
+fn references<DB: Driver>(
+    names: &Names,
+    table: &TableDef,
+    position: usize,
+    reference: Reference,
+) -> String {
     let on_delete = match reference.on_delete {
         OnDelete::Cascade => "CASCADE",
         OnDelete::SetNull => "SET NULL",
@@ -754,7 +816,7 @@ fn references<DB: Driver>(names: &Names, reference: Reference) -> String {
     format!(
         "REFERENCES {} ({}) ON DELETE {on_delete}",
         names.qualified::<DB>(reference.table),
-        quote::<DB>(reference.column)
+        quote::<DB>(table.stored_reference(position).unwrap_or(reference.column))
     )
 }
 

@@ -24,9 +24,13 @@ use time::Duration;
 use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
-use crate::config::{CookieConfig, CookieSigning, EmailPassword, SessionConfig, SlidingRefresh};
+use crate::config::{
+    CookieConfig, CookieSigning, EmailPassword, SessionConfig, SessionTokens, SlidingRefresh,
+};
 use crate::crypto::{PasswordHasher, Secret, ct_eq, random_bytes};
 use crate::error::BuildError;
+use crate::migrate::Migrations;
+use crate::schema::{ColumnNaming, Storage};
 
 /// What `encodeURIComponent` leaves alone: letters, digits and `-_.!~*'()`.
 const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
@@ -190,7 +194,18 @@ impl PasswordHasher for BetterAuthScrypt {
 ///   once [`BetterAuthCompat::update_age`] (one day) has passed since their last extension,
 ///   by Better Auth's rule ([`SlidingRefresh::ExpiresAt`]);
 /// - passwords use [`BetterAuthScrypt`], at most
-///   [`BetterAuthCompat::max_concurrent_hashes`] at a time.
+///   [`BetterAuthCompat::max_concurrent_hashes`] at a time;
+/// - columns are stored in Better Auth's names: [`ColumnNaming::CamelCase`], the password
+///   hash in `account.password`, and the OAuth tokens as hex in its text columns;
+/// - sessions are stored with their raw token ([`SessionTokens::Raw`]), so each app resolves
+///   the other's sessions;
+/// - fastauth leaves `account` rows of providers it doesn't own alone
+///   (`Builder::only_owned_accounts`);
+/// - the migrator is review-only ([`Migrations::ReviewOnly`]): `fastauth generate` writes the
+///   SQL to review, `fastauth migrate` refuses.
+///
+/// fastauth's verification rows don't fit Better Auth's `verification` table, so give them
+/// their own on the adapter: `Sqlx::new(pool).rename("verification", "fastauth_verification")`.
 ///
 /// The cookie cache can't be used with it: `.build()` refuses `SessionConfig::cookie_cache`.
 /// fastauth's own `.secret(..)` is still needed; it keys everything that isn't a cookie
@@ -252,12 +267,30 @@ impl BetterAuthCompat {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply(
         self,
         cookies: &mut CookieConfig,
         session: &mut SessionConfig,
         email_password: Option<&mut EmailPassword>,
+        storage: &mut Storage,
+        session_tokens: &mut SessionTokens,
+        only_owned_accounts: &mut bool,
+        migrations: &mut Migrations,
     ) {
+        storage.naming = ColumnNaming::CamelCase;
+        storage
+            .renames
+            .push(("account".into(), "password_hash".into(), "password".into()));
+        storage
+            .hex_text
+            .push(("account".into(), "access_token".into()));
+        storage
+            .hex_text
+            .push(("account".into(), "refresh_token".into()));
+        *session_tokens = SessionTokens::Raw;
+        *only_owned_accounts = true;
+        *migrations = Migrations::ReviewOnly;
         cookies.prefix = self.cookie_prefix;
         cookies.signing = CookieSigning::BetterAuth(self.secret);
         session.expires_in = self.expires_in;

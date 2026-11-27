@@ -43,6 +43,11 @@ impl MemoryAdapter {
     }
 }
 
+/// The stored name of `column`, which the live schema records, as a database would.
+fn stored<'t>(table: &'t TableDef, column: &'t str) -> &'t str {
+    table.stored_column(column).unwrap_or(column)
+}
+
 fn compare(a: &Value, b: &Value) -> Option<Ordering> {
     match (a, b) {
         (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
@@ -348,30 +353,33 @@ impl Adapter for MemoryAdapter {
                 Step::CreateTable(t) => {
                     live.tables.insert(
                         t.name.to_owned(),
-                        t.columns.iter().map(|c| c.name.to_owned()).collect(),
+                        (0..t.columns.len())
+                            .map(|i| t.stored_name(i).to_owned())
+                            .collect(),
                     );
                     uniques.extend(
                         t.columns
                             .iter()
                             .filter(|c| c.unique && !c.primary_key)
-                            .map(|c| unique_key(t.name, &[c.name])),
+                            .map(|c| unique_key(t.name, &[stored(t, c.name)])),
                     );
                 }
                 Step::AddColumn { table, column } => {
                     live.tables
                         .entry(table.name.to_owned())
                         .or_default()
-                        .insert(column.name.to_owned());
+                        .insert(stored(table, column.name).to_owned());
                     if column.unique {
-                        uniques.insert(unique_key(table.name, &[column.name]));
+                        uniques.insert(unique_key(table.name, &[stored(table, column.name)]));
                     }
                 }
                 Step::AddUnique { table, columns } => {
-                    uniques.insert(unique_key(table.name, columns));
+                    let columns: Vec<&str> = columns.iter().map(|c| stored(table, c)).collect();
+                    uniques.insert(unique_key(table.name, &columns));
                 }
                 Step::CreateIndex { table, column } => {
                     live.indexes
-                        .insert((table.name.to_owned(), column.name.to_owned()));
+                        .insert((table.name.to_owned(), stored(table, column.name).to_owned()));
                 }
             }
         }

@@ -1110,3 +1110,58 @@ async fn admin_mutations_emit_core_events() {
         ]
     );
 }
+
+#[tokio::test]
+async fn remove_user_refuses_while_another_app_owns_one_of_its_accounts() {
+    let auth: AppAuth = FastAuth::builder()
+        .secret(secret())
+        .base_url("http://localhost:3000")
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .only_owned_accounts(true)
+        .plugin(Admin::default())
+        .build()
+        .expect("valid config");
+    let (mut admin, _, bob) = admin_and_user(&auth).await;
+    let now = OffsetDateTime::now_utc();
+    db(&auth)
+        .insert_row::<Account>(vec![
+            ("id", fastauth_core::value::Value::Text("oidc-row".into())),
+            (
+                "user_id",
+                fastauth_core::value::Value::Text(bob.to_string()),
+            ),
+            (
+                "provider_id",
+                fastauth_core::value::Value::Text("oidc".into()),
+            ),
+            (
+                "account_id",
+                fastauth_core::value::Value::Text("sso-bob".into()),
+            ),
+            ("created_at", fastauth_core::value::Value::Timestamp(now)),
+            ("updated_at", fastauth_core::value::Value::Timestamp(now)),
+        ])
+        .await
+        .unwrap();
+    let res = admin
+        .post("/admin/remove-user", json!({ "userId": bob }))
+        .await;
+    assert_error(&res, 409, "USER_HAS_FOREIGN_ACCOUNTS");
+    let accounts = db(&auth)
+        .count::<Account>(Account::USER_ID.eq(&bob))
+        .await
+        .unwrap();
+    assert_eq!(accounts, 2, "nothing was deleted");
+    assert_eq!(db(&auth).count::<User>(User::ID.eq(&bob)).await.unwrap(), 1);
+
+    db(&auth)
+        .delete::<Account>(Account::ID.eq(Id::from("oidc-row")))
+        .await
+        .unwrap();
+    let res = admin
+        .post("/admin/remove-user", json!({ "userId": bob }))
+        .await;
+    assert_eq!(res.json, json!({ "success": true }));
+}

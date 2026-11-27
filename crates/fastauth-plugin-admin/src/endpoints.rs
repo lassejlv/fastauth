@@ -1089,10 +1089,13 @@ impl<D: Adapter> Endpoint<D> for RemoveUser {
         let user = find_user(&ctx, &input.user_id).await?;
         check_target(&self.0.plugin, session, &user)?;
         ctx.internal()
+            .refuse_foreign_accounts(&input.user_id)
+            .await?;
+        ctx.internal()
             .revoke_user_sessions(&input.user_id, None)
             .await?;
         ctx.db()
-            .delete::<Account>(Account::USER_ID.eq(&input.user_id))
+            .delete::<Account>(ctx.internal().accounts_of(&input.user_id))
             .await?;
         ctx.db().delete::<User>(User::ID.eq(&input.user_id)).await?;
         ctx.emit(UserDeleted {
@@ -1185,7 +1188,7 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSession {
         let caller = caller.as_ref();
         let found = ctx
             .db()
-            .find::<Session>(Session::TOKEN_HASH.eq(Hash::sha256(&input.session_token)))
+            .find::<Session>(ctx.config().session_token_eq(&input.session_token))
             .one()
             .await?;
         if let Some(session) = found {
@@ -1338,7 +1341,7 @@ impl<D: Adapter> Endpoint<D> for StopImpersonating {
         let (token, dont_remember) = cookie.split_once(':').ok_or_else(missing)?;
         let row = ctx
             .db()
-            .find::<Session>(Session::TOKEN_HASH.eq(Hash::sha256(token)))
+            .find::<Session>(ctx.config().session_token_eq(token))
             .one_row()
             .await?
             .ok_or_else(missing)?;

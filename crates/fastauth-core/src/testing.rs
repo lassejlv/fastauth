@@ -29,7 +29,8 @@ use crate::model::Model;
 use crate::models::{Account, Session, User};
 use crate::query::full_row;
 use crate::schema::{
-    ColumnDef, ColumnType as T, DefaultValue, IdStorage, OnDelete, Schema, SchemaBuilder, TableDef,
+    ColumnDef, ColumnNaming, ColumnType as T, DefaultValue, IdStorage, OnDelete, Schema,
+    SchemaBuilder, Storage, TableDef,
 };
 use crate::value::{Row, Value};
 
@@ -74,13 +75,36 @@ const SEED: [(&str, Option<&str>); 7] = [
 /// with id columns stored as `ids` stores them. `v2` adds columns to `item`, for the
 /// migration round trip.
 pub fn conformance_schema(ids: &IdStrategy, v2: bool) -> Schema {
-    schema_version(ids, v2, false)
+    schema_version(ids, v2, false, Names::Declared)
+}
+
+/// How the suite's columns are stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Names {
+    /// Under their declared names.
+    Declared,
+    /// Under other names: camelCase, `item.note` renamed to `remark`, and `item.blob`
+    /// stored as hex text. The storage options Better Auth compatibility uses.
+    Renamed,
+}
+
+impl Names {
+    fn storage(self) -> Storage {
+        match self {
+            Names::Declared => Storage::default(),
+            Names::Renamed => Storage {
+                naming: ColumnNaming::CamelCase,
+                renames: vec![(ITEM.into(), "note".into(), "remark".into())],
+                hex_text: vec![(ITEM.into(), "blob".into())],
+            },
+        }
+    }
 }
 
 /// `v3` makes `item` unique on `(rank, note)`, a constraint added to a table with rows.
-fn schema_version(ids: &IdStrategy, v2: bool, v3: bool) -> Schema {
+fn schema_version(ids: &IdStrategy, v2: bool, v3: bool, names: Names) -> Schema {
     let mut builder = SchemaBuilder::new();
-    crate::models::register(&mut builder);
+    crate::models::register_with(&mut builder, crate::config::SessionTokens::Hashed);
     builder.owner = "conformance";
     builder.table(ITEM, ITEM_COLUMNS);
     if v2 {
@@ -90,7 +114,7 @@ fn schema_version(ids: &IdStrategy, v2: bool, v3: bool) -> Schema {
         builder.unique(ITEM, &["rank", "note"]);
     }
     builder
-        .finish(ids.storage())
+        .finish(ids.storage(), &names.storage())
         .expect("the conformance schema is valid")
 }
 
@@ -98,32 +122,54 @@ fn schema_version(ids: &IdStrategy, v2: bool, v3: bool) -> Schema {
 /// (`text` ids) and once with UUIDv7s (`uuid` ids where the database has the type).
 /// Panics on the first failure, naming what differed.
 pub async fn run_adapter_conformance<D: Adapter>(make: impl AsyncFn() -> D) {
+    run_conformance(make, Names::Declared).await;
+}
+
+/// [`run_adapter_conformance`] with every column stored under another name than it is
+/// declared with: [`ColumnNaming::CamelCase`], a
+/// [`rename_column`](crate::Builder::rename_column) and a byte column stored as hex text
+/// ([`bytes_as_hex_text`](crate::Builder::bytes_as_hex_text)). An adapter that passes it
+/// works with Better Auth's camelCase tables.
+pub async fn run_adapter_conformance_renamed<D: Adapter>(make: impl AsyncFn() -> D) {
+    run_conformance(make, Names::Renamed).await;
+}
+
+async fn run_conformance<D: Adapter>(make: impl AsyncFn() -> D, names: Names) {
     for ids in [IdStrategy::Ulid, IdStrategy::UuidV7] {
-        migrations(&ids, make().await).await;
-        Fixture::new(&ids, make().await).await.round_trip().await;
-        Fixture::new(&ids, make().await).await.filters().await;
-        Fixture::new(&ids, make().await)
+        migrations(&ids, names, make().await).await;
+        Fixture::new(&ids, names, make().await)
+            .await
+            .round_trip()
+            .await;
+        Fixture::new(&ids, names, make().await)
+            .await
+            .filters()
+            .await;
+        Fixture::new(&ids, names, make().await)
             .await
             .ordering_and_paging()
             .await;
-        Fixture::new(&ids, make().await)
+        Fixture::new(&ids, names, make().await)
             .await
             .update_and_delete()
             .await;
-        Fixture::new(&ids, make().await)
+        Fixture::new(&ids, names, make().await)
             .await
             .unique_violations()
             .await;
-        Fixture::new(&ids, make().await).await.transactions().await;
-        Fixture::new(&ids, make().await)
+        Fixture::new(&ids, names, make().await)
+            .await
+            .transactions()
+            .await;
+        Fixture::new(&ids, names, make().await)
             .await
             .session_with_user()
             .await;
     }
 }
 
-async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
-    let v1 = conformance_schema(ids, false);
+async fn migrations<D: Adapter>(ids: &IdStrategy, names: Names, db: D) {
+    let v1 = schema_version(ids, false, false, names);
     let migrator = Migrator::new(&db, &v1);
     let plan = migrator.run().await.expect("first migration");
     let created = plan
@@ -139,14 +185,29 @@ async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
     );
 
     let live = db.introspect().await.expect("introspect");
+    if names == Names::Renamed {
+        for (table, stored) in [
+            ("user", "emailVerified"),
+            ("session", "tokenHash"),
+            (ITEM, "ownerId"),
+            (ITEM, "remark"),
+        ] {
+            assert!(
+                live.tables[table].contains(stored),
+                "{table}.{stored} not in {:?}",
+                live.tables[table]
+            );
+        }
+    }
     for (table, column) in [
         ("session", "user_id"),
         ("account", "user_id"),
         (ITEM, "rank"),
     ] {
+        let stored = v1.expect(table).stored_column(column).unwrap();
         assert!(
             live.indexes
-                .contains(&(table.to_owned(), column.to_owned())),
+                .contains(&(table.to_owned(), stored.to_owned())),
             "introspect misses the index on {table}.{column}: {:?}",
             live.indexes
         );
@@ -160,7 +221,7 @@ async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
     .await
     .expect("insert before adding columns");
 
-    let v2 = conformance_schema(ids, true);
+    let v2 = schema_version(ids, true, false, names);
     let migrator = Migrator::new(&db, &v2);
     let plan = migrator.plan().await.expect("plan for v2");
     let added: Vec<&str> = plan
@@ -200,7 +261,7 @@ async fn migrations<D: Adapter>(ids: &IdStrategy, db: D) {
             .expect("insert a duplicate before the unique exists");
         twins.push(row.values()[0].clone());
     }
-    let v3 = schema_version(ids, true, true);
+    let v3 = schema_version(ids, true, true, names);
     let migrator = Migrator::new(&db, &v3);
     let plan = migrator.plan().await.expect("plan for v3");
     let uniques: Vec<&[&str]> = plan
@@ -364,8 +425,8 @@ struct Fixture<D> {
 }
 
 impl<D: Adapter> Fixture<D> {
-    async fn new(ids: &IdStrategy, db: D) -> Self {
-        let schema = conformance_schema(ids, false);
+    async fn new(ids: &IdStrategy, names: Names, db: D) -> Self {
+        let schema = schema_version(ids, false, false, names);
         Migrator::new(&db, &schema)
             .run()
             .await

@@ -301,6 +301,7 @@ pub(crate) type MethodTable<D> = Vec<(Method, Arc<dyn ErasedEndpoint<D>>)>;
 
 /// Everything shared by all requests. Built once by `.build()`.
 pub(crate) struct Shared<D> {
+    pub migrations: crate::migrate::Migrations,
     pub db: D,
     pub schema: Schema,
     pub keys: Keys,

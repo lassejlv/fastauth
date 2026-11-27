@@ -199,3 +199,23 @@ weeks a Better Auth app shares the database, not a permanent setting
   organizations are small (DOS-7).
 - `/admin/list-users` answers at most 100 users when the request gives no `limit` (DOS-5).
   Page with `limit` and `offset` in your admin UI.
+
+## 14. A database shared with Better Auth
+
+Only while a Better Auth app and fastauth share the tables
+([Migrating from Better Auth](../integrations/04-migrating-from-better-auth.md)):
+
+- `SessionTokens::Raw` keeps live session tokens in the `session` table. Treat the
+  database, its backups and its read replicas like the signing secret while it's on: anyone
+  who reads `session.token` can sign in as that user.
+- Build with `.migrations(Migrations::ReviewOnly)`, so a deploy can't change Better Auth's
+  tables. Apply `fastauth generate`'s files yourself, in order, and run the duplicate
+  check in the unique index's file before it.
+- Turn on `.only_owned_accounts(true)` when another integration writes `account` rows
+  (an `oidc` provider), so claims, unlinking and user deletion leave them alone.
+- Give fastauth its own verification table (`Sqlx::rename("verification", ..)`) and expect
+  links Better Auth mailed before the cutover to fail.
+- Prune expired verification rows (`auth.prune_verifications_every(..)`) if few new ones
+  arrive.
+- Plan the way back: once Better Auth is gone, switch the compatibility settings off, which
+  for `SessionTokens::Hashed` signs everyone out.

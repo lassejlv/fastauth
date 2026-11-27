@@ -1135,3 +1135,89 @@ async fn disable_sign_up_refuses_new_users_but_signs_in_existing_ones() {
     }
     assert_eq!(accounts(&auth, "github").await.len(), 1);
 }
+
+#[tokio::test]
+async fn only_owned_accounts_leaves_another_apps_rows_alone() {
+    let mock = MockHttp::default();
+    let social = Social::with_http_client(mock.clone())
+        .provider(Github::new("gh-id", "gh-secret"))
+        .provider(Google::new("google-id", "google-secret"));
+    let auth: AppAuth = FastAuth::builder()
+        .secret(Secret::from_bytes(vec![42u8; 32]))
+        .base_url(ORIGIN)
+        .database(MemoryAdapter::new())
+        .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
+        .rate_limit(RateLimit::disabled())
+        .only_owned_accounts(true)
+        .plugin(social)
+        .plugin(Gatekeeper)
+        .build()
+        .expect("valid config");
+    assert_eq!(
+        auth.config().owned_account_providers(),
+        Some(&["credential".to_owned(), "github".into(), "google".into()][..])
+    );
+    let mut ada = Client::new(&auth);
+    let user_id = ada.sign_up("ada@acme.dk").await.json["user"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let now = OffsetDateTime::now_utc();
+    db(&auth)
+        .insert_row::<Account>(vec![
+            ("id", Value::Text("oidc-row".into())),
+            ("user_id", Value::Text(user_id.clone())),
+            ("provider_id", Value::Text("oidc".into())),
+            ("account_id", Value::Text("sso-subject".into())),
+            ("created_at", Value::Timestamp(now)),
+            ("updated_at", Value::Timestamp(now)),
+        ])
+        .await
+        .unwrap();
+
+    let providers = |accounts: Json| -> Vec<Json> {
+        accounts
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["providerId"].clone())
+            .collect()
+    };
+    assert_eq!(
+        providers(ada.get("/list-accounts").await.json),
+        [json!("credential")]
+    );
+    let res = ada
+        .post("/unlink-account", json!({ "providerId": "oidc" }))
+        .await;
+    assert_eq!(res.json["code"], "ACCOUNT_NOT_FOUND");
+    let res = ada
+        .post("/unlink-account", json!({ "providerId": "credential" }))
+        .await;
+    assert_eq!(
+        res.json["code"], "FAILED_TO_UNLINK_LAST_ACCOUNT",
+        "the oidc row is not a way to sign in to fastauth"
+    );
+
+    // A verified Google profile for the unverified user claims it: everything fastauth owns
+    // goes, the oidc row stays.
+    mock.google_user("ada@acme.dk", true);
+    let mut owner = Client::new(&auth);
+    let url = owner.start("/sign-in/social", sign_in_body("google")).await;
+    owner.callback("google", &url).await;
+    assert!(owner.has_session());
+    let mut left: Vec<String> = db(&auth)
+        .find::<Account>(Account::USER_ID.eq(Id::from(user_id.as_str())))
+        .all()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|a| a.provider_id)
+        .collect();
+    left.sort();
+    assert_eq!(left, ["google", "oidc"]);
+    assert_eq!(
+        providers(owner.get("/list-accounts").await.json),
+        [json!("google")]
+    );
+}

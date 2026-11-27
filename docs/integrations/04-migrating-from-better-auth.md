@@ -3,8 +3,9 @@
 fastauth can run next to a Better Auth app on the same database while you move traffic over in
 phases. Both apps accept each other's sign-ins: a user who signs in on one is signed in on the
 other, a sign-out or password change on one counts on both, and either app can extend a
-session. This page covers the part that makes sign-ins portable: cookies, session refresh and
-password hashes.
+session. This page covers what makes sign-ins portable (cookies, session refresh and password
+hashes) and the database settings that let both apps use the same tables (column names,
+session storage, accounts another app owns, migrations and verification rows).
 
 Everything here is opt-in. Without it fastauth keeps its own cookie format, refresh rule and
 argon2id hashes. The mode relaxes some of fastauth's defaults on purpose, for the migration
@@ -17,6 +18,7 @@ Tested against the code Better Auth 1.7.8 runs:
 | `better-auth` | 1.7.8 | session lookup and refresh, cookie names, secrets |
 | `better-call` | 1.4.2 | signing, parsing and verifying cookies |
 | `@better-auth/utils` | 0.5.0 | `hashPassword` and `verifyPassword` (`/password`) |
+| `auth` (Better Auth's CLI) | 1.7.8 | the schema on Postgres, MySQL and SQLite (`crates/fastauth-sqlx/tests/better-auth/`) |
 
 ## Turning it on
 
@@ -27,7 +29,7 @@ pub fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, BuildError> {
     FastAuth::builder()
         .secret(Secret::from_env("FASTAUTH_SECRET")?)
         .base_url("https://api.example.com")
-        .database(Sqlx::new(pool))
+        .database(Sqlx::new(pool).rename("verification", "fastauth_verification"))
         .email_password(EmailPassword::default())
         .better_auth_compat(BetterAuthCompat::from_env("BETTER_AUTH_SECRET")?.cookie_prefix("vt"))
         .build()
@@ -42,11 +44,16 @@ pub fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, BuildError> {
   `session.updateAge` (14 days and one day unless set).
 - `.max_concurrent_hashes(n)` caps scrypt hashes running at once (8 unless set).
 
+- `.rename("verification", "fastauth_verification")` on the adapter gives fastauth's
+  verification rows a table of their own ([Verification rows](#verification-rows)); the
+  preset can't set it, since table names belong to the adapter.
+
 fastauth still needs its own `.secret(..)`: it keys everything that isn't a cookie (encrypted
 columns, plugin keys, rate-limit buckets), through HKDF as always.
 
 The preset is applied at `.build()` and overrides the cookie prefix, cookie signing, session
-expiry and refresh, and the password hasher. Each piece is also a knob of its own:
+expiry and refresh, the password hasher and the [database settings](#database-settings).
+Each piece is also a knob of its own:
 
 | Knob | Does |
 |---|---|
@@ -54,6 +61,10 @@ expiry and refresh, and the password hasher. Each piece is also a knob of its ow
 | `SessionConfig::sliding_refresh(SlidingRefresh::ExpiresAt)` | [Better Auth's refresh rule](#session-refresh) |
 | `EmailPassword::hasher(BetterAuthScrypt)` | [Better Auth's password hashes](#passwords) |
 | `EmailPassword::max_concurrent_hashes(n)` | at most `n` hashes at once |
+| `Builder::column_naming`, `rename_column`, `bytes_as_hex_text` | [Better Auth's column names](#database-settings) |
+| `Builder::session_tokens(SessionTokens::Raw)` | [raw session tokens](#database-settings) |
+| `Builder::only_owned_accounts(true)` | [accounts another app owns](#accounts-another-app-owns) |
+| `Builder::migrations(Migrations::ReviewOnly)` | [review-only migrations](#the-schema) |
 
 ## Cookies
 
@@ -125,8 +136,8 @@ since its last extension, and set the cookie's `Max-Age` again:
   so a request without the marker (a bearer token) can't extend it either.
 
 Finding a Better Auth session by the token in its cookie also needs fastauth to store and
-look up session tokens the way Better Auth does (the plain token in `session.token`). That's
-a database setting; without it the cookie verifies but fastauth finds no session.
+look up session tokens the way Better Auth does, the plain token in `session.token`:
+`SessionTokens::Raw`, which the preset sets ([Database settings](#database-settings)).
 
 ## Passwords
 
@@ -153,6 +164,108 @@ on its own, set `.max_concurrent_hashes(n)` yourself; the default is one per CPU
 parameters are fixed, so a stored hash can't ask for more work, and the password length limit
 (128 by default, as in Better Auth) bounds the rest.
 
+## Database settings
+
+The preset sets these; without it, set them one by one:
+
+```rust
+use fastauth::config::SessionTokens;
+use fastauth::migrate::Migrations;
+use fastauth::prelude::*;
+use fastauth::schema::ColumnNaming;
+use serde::{Deserialize, Serialize};
+
+/// The app's own Better Auth field, `customerId`.
+#[derive(Fields, Serialize, Deserialize, Clone, Debug)]
+pub struct Customer {
+    pub customer_id: Option<String>,
+}
+
+pub fn build(pool: PgPool) -> anyhow::Result<Auth<Sqlx<Postgres>, Customer>> {
+    Ok(FastAuth::builder()
+        .secret(Secret::from_env("FASTAUTH_SECRET")?)
+        .base_url("https://acme.dk")
+        // fastauth's verification rows get a table of their own; see below.
+        .database(Sqlx::new(pool).rename("verification", "fastauth_verification"))
+        .user_fields::<Customer>()
+        .column_naming(ColumnNaming::CamelCase)
+        .rename_column("account", "password_hash", "password")
+        .bytes_as_hex_text("account", "access_token")
+        .bytes_as_hex_text("account", "refresh_token")
+        .session_tokens(SessionTokens::Raw)
+        .only_owned_accounts(true)
+        .migrations(Migrations::ReviewOnly)
+        .email_password(EmailPassword::default())
+        .build()?)
+}
+```
+
+| Setting | What it does |
+|---|---|
+| `.column_naming(ColumnNaming::CamelCase)` | Stores every column, core's, the plugins' and the app's, under its camelCase name: `email_verified` as `"emailVerified"`, `customer_id` as `"customerId"`. Code keeps the declared names (`User::EMAIL_VERIFIED`, the `Fields` field names); only the SQL changes. |
+| `.rename_column(table, column, to)` | Stores one column under another name, over the strategy. Better Auth keeps the password hash in `account.password`. Use it for any custom field whose name doesn't follow the strategy. |
+| `.bytes_as_hex_text(table, column)` | Stores a byte column as lowercase hex in a text column. Better Auth's `accessToken` and `refreshToken` are text; fastauth keeps writing its encrypted bytes there. |
+| `.session_tokens(SessionTokens::Raw)` | Stores the session token itself in `session.token` and looks it up there, as Better Auth does, instead of its SHA-256 in `token_hash`. |
+| `.only_owned_accounts(true)` | Leaves `account` rows of providers fastauth doesn't own alone (below). |
+| `.migrations(Migrations::ReviewOnly)` | `fastauth migrate` and `auth.migrator().run()` refuse; `fastauth generate` writes the SQL for you to review. |
+| `Sqlx::rename("verification", ..)` | Keeps fastauth's verification rows out of Better Auth's table. |
+
+## The schema
+
+Better Auth's migrations own the tables during the cutover, so fastauth never changes them
+itself. Run `fastauth generate` against the shared database: with
+`Migrations::ReviewOnly` it writes one file per change, each for you to review and apply
+with your own migrations, in order. On a database Better Auth 1.7.8 created, there are four:
+
+1. `add_user_securityStamp`: `ALTER TABLE "user" ADD COLUMN "securityStamp" bigint NOT NULL DEFAULT 0`.
+   fastauth changes the stamp whenever proof of the email claims a user, so a sign-in or link
+   that started before the claim can't finish after it
+   ([Claiming an email](../concepts/03-security.md#claiming-an-email)). Better Auth doesn't
+   know the column and inserts users with the default.
+2. `index_account_accountId`: an index on `account."accountId"`.
+3. `unique_account_providerId_accountId`: `CREATE UNIQUE INDEX
+   "account_providerId_accountId_key" ON "account" ("providerId", "accountId")`, so one
+   provider account can't be linked to two users. The file starts with a comment holding a
+   query that lists the rows the index would refuse; run it first, it must return no rows.
+4. `create_verification`: `CREATE TABLE "fastauth_verification"` with its identifier index.
+
+Afterwards `fastauth status` reports nothing pending and no warnings. fastauth recognises
+Better Auth's own indexes (`session_userId_idx`, `account_userId_idx`) and its unique
+constraints, so it plans nothing for them. Tables of Better Auth plugins that fastauth doesn't
+have stay untouched.
+
+## Accounts another app owns
+
+With `only_owned_accounts(true)`, fastauth owns the `credential` rows and the rows of each
+social provider a plugin registers (`Social`'s providers). Rows of any other provider, such
+as the `oidc` rows an SSO integration writes, are never read as a way to sign in, listed by
+`/list-accounts`, unlinked, changed or deleted:
+
+- a claim (a magic link, an email code, a verification link without the password, a verified
+  social profile) deletes the user's sessions, tokens and owned accounts and leaves the
+  foreign rows, which belong to identities the other app vouches for;
+- `/unlink-account` answers `ACCOUNT_NOT_FOUND` for them, and they don't count as the user's
+  last account;
+- deleting a user (the admin plugin's `/admin/remove-user`, an anonymous user's cleanup)
+  answers `409 USER_HAS_FOREIGN_ACCOUNTS` instead, since the foreign key would delete the
+  rows with the user. Remove them in the app that owns them first.
+
+Plugins that write their own provider ids declare them with
+`PluginBuilder::account_provider`.
+
+## Verification rows
+
+fastauth stores the hash of each emailed token and data Better Auth's `verification` table
+has no column for, so it keeps its rows in a table of its own (`fastauth_verification`
+above) and never reads Better Auth's. A link Better Auth mailed before the cutover (a
+password reset, a magic link, an email code, minutes to an hour old) doesn't work once
+fastauth serves that route; the user asks for a new one.
+
+fastauth deletes expired rows before it stores a new one. To keep the table small when few
+new ones arrive, prune it yourself with `auth.prune_verifications()`, or start
+`auth.prune_verifications_every(interval)` once at startup; the task stops when the
+`Auth` is dropped.
+
 ## Trade-offs
 
 The mode gives up some of fastauth's defaults so a Better Auth app can share sessions and
@@ -164,11 +277,18 @@ passwords. Each is meant for the migration window only:
 | Every configured secret verifies a session token, so rotating signs nobody out | One secret signs and verifies cookies | Rotating the Better Auth secret signs everyone out of both apps. |
 | argon2id (19 MiB, t=2), upgraded when parameters rise | scrypt (32 MiB, N=16384, r=16), never rehashed | No upgrade path while Better Auth reads the database; scrypt with these parameters is weaker against GPU guessing than argon2id, and each hash takes more memory. |
 | An optional signed cookie cache | Refused | One database read per request that resolves a session. |
-
-Storing session tokens as they are, instead of their SHA-256, is a trade-off of the database
-settings: with it, a read-only leak of the database yields live sessions.
+| `session` holds each token's SHA-256 | It holds the tokens themselves (`SessionTokens::Raw`) | A read-only leak of the database (a backup, an injection elsewhere) yields every live session, and the lookup compares the token itself in the database. The signed cookie is still checked first, and the security stamp, claim locks, sensitive and authoritative sessions, session gates and expiry rules work the same. |
+| OAuth tokens in `bytea` columns | Hex in Better Auth's text columns | Nothing for fastauth's own tokens, which stay encrypted. Tokens Better Auth stored for a provider both apps configure are plain text, which fastauth reads as bytes and can't decrypt; they are replaced on the user's next sign-in with that provider through fastauth. |
+| The migrator adds what's missing at startup | Review-only | Every fastauth upgrade that adds a column goes through `fastauth generate` and review, so nothing changes Better Auth's tables behind its back. |
+| A claim deletes all of a user's accounts | Only the accounts fastauth owns | A foreign row (`oidc`) survives a claim, which is right when the other app vouches for that identity; deleting a user with one is refused. |
 
 ## After the cutover
+
+Switching `SessionTokens::Raw` back to `Hashed` needs a `token_hash` column and signs
+everyone out; a hashed mode that keeps working next to Better Auth isn't built yet. The other
+database settings can stay as long as the tables keep Better Auth's names, and
+`Migrations::ReviewOnly` can go once fastauth owns the schema.
+
 
 Once the Better Auth app is gone, the cookie settings can go back to fastauth's: removing
 `CookieSigning::BetterAuth` (or the preset) changes the cookie format, so everyone signs in

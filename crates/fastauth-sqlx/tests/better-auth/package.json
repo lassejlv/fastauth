@@ -1,0 +1,12 @@
+{
+  "name": "fastauth-better-auth-schema",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "auth": "1.7.8",
+    "better-auth": "1.7.8",
+    "better-sqlite3": "12.4.1",
+    "mysql2": "3.15.3",
+    "pg": "8.16.3"
+  }
+}

@@ -4,7 +4,9 @@ use fastauth_core::adapter::{Adapter, Delete, Filter, Insert, Op, Queries, Selec
 use fastauth_core::config::IdStrategy;
 use fastauth_core::migrate::MigrationPlan;
 use fastauth_core::schema::Schema;
-use fastauth_core::testing::{conformance_schema, run_adapter_conformance};
+use fastauth_core::testing::{
+    conformance_schema, run_adapter_conformance, run_adapter_conformance_renamed,
+};
 use fastauth_core::value::{Id, Value};
 use fastauth_sqlx::{Sqlite, SqlitePool, Sqlx};
 use time::OffsetDateTime;
@@ -27,6 +29,11 @@ async fn migrate(db: &Sqlx<Sqlite>, schema: &Schema) {
 #[tokio::test]
 async fn conformance() {
     run_adapter_conformance(adapter).await;
+}
+
+#[tokio::test]
+async fn conformance_with_camel_case_columns() {
+    run_adapter_conformance_renamed(adapter).await;
 }
 
 #[tokio::test]

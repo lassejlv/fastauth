@@ -190,6 +190,8 @@ impl Driver for Sqlite {
             return None;
         }
         let column = failed.strip_prefix(physical)?.strip_prefix('.')?;
-        table.column(column).map(|column| column.name.to_owned())
+        table
+            .column_stored_as(column)
+            .map(|column| column.name.to_owned())
     }
 }

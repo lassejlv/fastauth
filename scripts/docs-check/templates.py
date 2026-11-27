@@ -315,6 +315,7 @@ let _app =
 
 page("integrations/04-migrating-from-better-auth.md", "", [
     block("pub fn build(pool: PgPool) -> Result<Auth<Sqlx<Postgres>>, BuildError> {"),
+    block("use fastauth::config::SessionTokens;"),
 ])
 
 # ---------------------------------------------------------------- plugins

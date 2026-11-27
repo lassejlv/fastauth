@@ -88,6 +88,16 @@ This differs from Better Auth, which stores tokens as they are. See
 The same rule covers every other secret value fastauth stores: verification values,
 OAuth state and [API keys](../plugins/tokens/03-api-keys.md) are stored as hashes.
 
+**Raw tokens, for a database shared with Better Auth.** `.session_tokens(SessionTokens::Raw)`
+stores each token itself in `session.token` and looks it up there, so a Better Auth app on
+the same database resolves fastauth's sessions and the other way round. It is a deliberate
+trade-off for the migration window and gives up exactly what hashing protects: whoever can
+read the `session` table can use every live session in it, and the lookup compares the
+token itself in the database. The signed cookie is still checked before any query, and the
+security stamp, claim locks, sensitive and authoritative sessions, session gates and
+expiry rules work the same. Switch back once the other app is gone
+([Migrating from Better Auth](../integrations/04-migrating-from-better-auth.md#trade-offs)).
+
 ## Cookies
 
 | Attribute | Default |
@@ -298,7 +308,9 @@ its user, on every path that proves one:
 
 When one of these lands on a user whose email isn't verified, core claims the user in **one
 database transaction**. It changes the user's security stamp, marks the email verified, and
-deletes every account (the password and every OAuth link), every session, the user's
+deletes every account (the password and every OAuth link; with
+`.only_owned_accounts(true)`, only the accounts of providers fastauth owns, so rows another
+app such as an SSO integration owns stay), every session, the user's
 verification and reset links, and whatever each plugin registered with
 [`on_claim`](../reference/01-plugin-authoring.md#claiming-a-user): passkeys, API keys, the
 two-factor enrollment (TOTP secret, backup codes, so trusted-device cookies stop matching)

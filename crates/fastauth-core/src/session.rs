@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::adapter::{Adapter, Filter, Op, SessionWithUser, Update};
-use crate::config::{CoreConfig, SlidingRefresh};
+use crate::adapter::{Adapter, Filter, Op, SessionWithUser, SessionWithUserByToken, Update};
+use crate::config::{CoreConfig, SessionTokens, SlidingRefresh};
 use crate::cookies::{self, SetCookie};
 use crate::crypto::{Hash, Keys, SignPurpose, base64url, base64url_decode};
 use crate::endpoint::{Ctx, Effects, RequestInfo, Resolved, SessionUse, Shared};
@@ -399,16 +399,26 @@ pub(crate) async fn by_token<D: Adapter>(
     db: &D,
     token: &str,
 ) -> Result<Option<SessionView>, AuthError> {
-    let token_hash = Hash::sha256(token);
     let session_table = shared.schema.expect(Session::TABLE);
     let user_table = shared.schema.expect(User::TABLE);
-    let found = db
-        .session_with_user(SessionWithUser {
-            session: session_table,
-            user: user_table,
-            token_hash: &token_hash,
-        })
-        .await?;
+    let found = match shared.config.session_tokens() {
+        SessionTokens::Hashed => {
+            db.session_with_user(SessionWithUser {
+                session: session_table,
+                user: user_table,
+                token_hash: &Hash::sha256(token),
+            })
+            .await?
+        }
+        SessionTokens::Raw => {
+            db.session_with_user_by_token(SessionWithUserByToken {
+                session: session_table,
+                user: user_table,
+                token,
+            })
+            .await?
+        }
+    };
     let Some((row, user_row)) = found else {
         return Ok(None);
     };
