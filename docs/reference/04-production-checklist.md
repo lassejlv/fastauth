@@ -142,6 +142,9 @@ you pass your own transaction with `in_tx`, begin it at READ COMMITTED too.
 - MySQL commits each DDL statement on its own, so a migration that fails can stop half-way.
   Run the migrator again: it reads the unique constraints back and adds any that are
   missing (DB-1).
+- On Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX CONCURRENTLY`
+  doesn't count as the constraint (F61-8): the migrator plans the constraint again. Drop the
+  invalid index (`DROP INDEX CONCURRENTLY ..`) once you've fixed the duplicates.
 - The migrator refuses to add a unique constraint to a table that holds duplicates and
   names the rows. [Unique constraints on an existing
   database](../concepts/02-database.md#unique-constraints-on-an-existing-database) has a

@@ -169,6 +169,7 @@ impl Driver for Postgres {
              LEFT JOIN pg_attribute AS a ON a.attrelid = t.oid AND a.attnum = k.attnum \
                  AND k.attnum > 0 \
              WHERE i.indisunique AND NOT i.indisprimary AND i.indpred IS NULL \
+                 AND i.indisvalid AND i.indisready \
                  AND k.position <= i.indnkeyatts \
                  AND n.nspname::text = COALESCE($1::text, current_schema()::text)",
         )

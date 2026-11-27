@@ -52,6 +52,9 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
   MySQL (a gap lock from deleting a missing row, then inserts into the gap), and one answered
   500. fastauth's own MySQL transactions now begin at READ COMMITTED, as Postgres runs by
   default; keep `binlog_format` at ROW or MIXED.
+- **F61-8 (low):** on Postgres, a unique index left invalid by a failed `CREATE UNIQUE INDEX
+  CONCURRENTLY` counted as the unique constraint, so the migrator planned nothing and
+  duplicates went in. Introspection now counts only valid, ready indexes.
 
 ### Core
 
