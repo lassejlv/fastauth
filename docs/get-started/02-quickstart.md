@@ -129,7 +129,7 @@ Ids are opaque strings, [ULIDs](../concepts/02-database.md#ids) unless you pick 
 
 `into_make_service_with_connect_info` passes each client's socket address along: rate
 limits are kept per client IP, and without an address fastauth can only limit per account
-or for everyone at once (it logs a warning). Behind a reverse proxy or load balancer the
+or for everyone at once (it logs an error, or a warning while `base_url` is local). Behind a reverse proxy or load balancer the
 socket address is the proxy's, so tell fastauth which header holds the client's address
 ([Configuration](03-configuration.md#rate-limits)):
 
@@ -199,6 +199,9 @@ mounted, `session.user.plugin::<TwoFactor, _>()` compiles, and sign-in returns
 Next: [Configuration](03-configuration.md) for everything the builder takes,
 [All plugins](../plugins/README.md) for what else you can turn on, or
 [Plugin authoring](../reference/01-plugin-authoring.md) to write your own.
+
+Before production, go through the [Production checklist](../reference/04-production-checklist.md):
+an https `base_url`, the client IP behind your proxy, the secret, the mailer and database TLS.
 
 ## Example app
 

@@ -7,8 +7,8 @@ use serde_json::{Map, Value as Json};
 use crate::adapter::Adapter;
 use crate::endpoint::{Authenticated, Ctx, Empty, Endpoint, MaybeAuthenticated, Public};
 use crate::error::{AuthError, codes};
-use crate::events::{EmailVerified, PasswordChanged, UserUpdated};
-use crate::internal::{NewAccount, NewUser, SignInResult, url_encode};
+use crate::events::{PasswordChanged, UserUpdated};
+use crate::internal::{NewAccount, NewUser, SignInResult, UserInput, url_encode};
 use crate::mail::{AuthEmail, ResetPassword as ResetPasswordEmail};
 use crate::model::Model;
 use crate::models::{Session, User};
@@ -65,17 +65,44 @@ fn with_query(url: &str, key: &str, value: &str) -> String {
 /// email route normalizes this way, so plugins that take an email should too.
 pub fn normalize_email(email: &str) -> Result<String, AuthError> {
     let email = email.trim().to_lowercase();
-    let valid = email.len() <= 254
-        && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.')
-        });
-    if !valid {
+    if email.len() > 254 || !is_email(&email) {
         return Err(AuthError::bad_request(
             codes::INVALID_EMAIL,
             "invalid email",
         ));
     }
     Ok(email)
+}
+
+/// One plain address, with the rules of Better Auth's `z.email()`: a local part of letters,
+/// digits and `_'+-.` (no leading dot, no `..`, not ending in `.` or `'`), then a domain of
+/// labels of letters, digits and `-` that don't start with `-`, ending in a TLD of two or
+/// more letters. So no lists, spaces, control characters, quotes or second `@`. Expects
+/// lowercase.
+fn is_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_'+-.".contains(&b))
+        && !local.starts_with('.')
+        && !local.contains("..")
+        && !local.ends_with(['.', '\'']);
+    let labels: Vec<&str> = domain.split('.').collect();
+    let domain_ok = labels.len() >= 2
+        && labels[..labels.len() - 1].iter().all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && labels
+            .last()
+            .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_lowercase()));
+    local_ok && domain_ok
 }
 
 /// Turns extra JSON body keys into user columns, as sign-up does. Only app and plugin `input`
@@ -174,7 +201,9 @@ impl<D: Adapter> Endpoint<D> for SignUpEmail {
         check_callback(&ctx, input.callback_url.as_deref())?;
         let internal = ctx.internal();
         internal.validate_new_password(&input.password)?;
-        let extra = user_input_fields(&ctx, &input.extra, true)?;
+        let extra = internal
+            .user_fields(&input.extra, UserInput::SignUp)
+            .await?;
 
         if config.require_email_verification && internal.find_user_by_email(&email).await?.is_some()
         {
@@ -212,6 +241,7 @@ impl<D: Adapter> Endpoint<D> for SignUpEmail {
         let user = internal
             .create_user(new_user, Some(NewAccount::credential(hash)))
             .await?;
+        internal.remember_password_holder(&user);
 
         if config.require_email_verification
             || ctx.config().email_verification.send_on_sign_up && ctx.mailer().is_some()
@@ -275,7 +305,9 @@ impl<D: Adapter> Endpoint<D> for CreateUser {
     ) -> Result<UserView, AuthError> {
         let email = normalize_email(&input.email)?;
         let internal = ctx.internal();
-        let extra = user_input_fields(&ctx, &input.fields, true)?;
+        let extra = internal
+            .user_fields(&input.fields, UserInput::Create)
+            .await?;
         let account = match &input.password {
             Some(password) => {
                 internal.validate_new_password(password)?;
@@ -398,6 +430,7 @@ impl<D: Adapter> Endpoint<D> for SignInEmail {
             internal.set_password(&user.id, &input.password).await?;
         }
         if config.require_email_verification && !user.email_verified {
+            internal.remember_password_holder(&user);
             if ctx.mailer().is_some() {
                 internal
                     .send_verification_email(&user, input.callback_url.as_deref())
@@ -516,7 +549,8 @@ impl<D: Adapter> Endpoint<D> for RevokeSession {
         ctx: Ctx<D, Authenticated>,
         input: RevokeSessionInput,
     ) -> Result<Status, AuthError> {
-        let user_id = &ctx.session().user.id;
+        let current = ctx.authoritative_session().await?;
+        let user_id = &current.user.id;
         let target = match (input.id, input.token) {
             (Some(id), _) => Some(id),
             (None, Some(token)) => ctx
@@ -546,7 +580,7 @@ impl<D: Adapter> Endpoint<D> for RevokeSession {
                 "session not found",
             ));
         }
-        if target == ctx.session().session.id {
+        if target == current.session.id {
             ctx.internal().clear_session_cookies();
         }
         Ok(OK)
@@ -563,8 +597,9 @@ impl<D: Adapter> Endpoint<D> for RevokeSessions {
     type Output = Status;
 
     async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Status, AuthError> {
+        let current = ctx.authoritative_session().await?;
         ctx.internal()
-            .revoke_user_sessions(&ctx.session().user.id, None)
+            .revoke_user_sessions(&current.user.id, None)
             .await?;
         ctx.internal().clear_session_cookies();
         Ok(OK)
@@ -581,7 +616,7 @@ impl<D: Adapter> Endpoint<D> for RevokeOtherSessions {
     type Output = Status;
 
     async fn call(&self, ctx: Ctx<D, Authenticated>, _: Empty) -> Result<Status, AuthError> {
-        let session = ctx.session();
+        let session = ctx.authoritative_session().await?;
         ctx.internal()
             .revoke_user_sessions(&session.user.id, Some(&session.session.id))
             .await?;
@@ -639,7 +674,11 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
         if let Some(image) = input.image {
             update = update.set(User::IMAGE, image);
         }
-        for (column, value) in user_input_fields(&ctx, &input.extra, false)? {
+        for (column, value) in ctx
+            .internal()
+            .user_fields(&input.extra, UserInput::Update)
+            .await?
+        {
             update = update.set_raw(column, value);
         }
         update.exec().await?;
@@ -677,7 +716,7 @@ impl<D: Adapter> Endpoint<D> for ChangePassword {
         ctx: Ctx<D, Authenticated>,
         input: ChangePasswordInput,
     ) -> Result<ChangePasswordOutput, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.sensitive_session().await?;
         let internal = ctx.internal();
         let Some(hash) = internal
             .credential_account(&session.user.id)
@@ -788,15 +827,9 @@ impl<D: Adapter> Endpoint<D> for VerifyEmail {
         check_callback(&ctx, input.callback_url.as_deref())?;
         let internal = ctx.internal();
         let invalid = || AuthError::bad_request(codes::INVALID_TOKEN, "invalid or expired token");
-        let verification = internal.consume_verification(&input.token).await?;
-        let user_id = verification
-            .as_ref()
-            .and_then(|v| v.identifier.strip_prefix("email-verification:"))
-            .map(Id::from);
-        let user = match user_id {
-            Some(id) => internal.find_user_by_id(&id).await?,
-            None => None,
-        };
+        let user = internal
+            .consume_user_verification("email-verification", &input.token)
+            .await?;
         let Some(user) = user else {
             if let Some(callback) = &input.callback_url {
                 ctx.redirect(with_query(callback, "error", codes::INVALID_TOKEN));
@@ -807,14 +840,7 @@ impl<D: Adapter> Endpoint<D> for VerifyEmail {
             }
             return Err(invalid());
         };
-        ctx.db()
-            .update::<User>(User::ID.eq(&user.id))
-            .set(User::EMAIL_VERIFIED, true)
-            .exec()
-            .await?;
-        ctx.emit(EmailVerified {
-            user_id: user.id.clone(),
-        });
+        let user = internal.prove_email(user).await?;
         if ctx
             .config()
             .email_verification
@@ -865,7 +891,7 @@ async fn request_reset<D: Adapter>(
         .await?
     {
         let token = internal
-            .create_verification(&format!("reset-password:{}", user.id), ttl, None)
+            .create_user_verification("reset-password", &user, ttl)
             .await?;
         let mut url = format!("{}/reset-password/{token}", ctx.config().auth_url());
         if let Some(redirect) = &input.redirect_to {
@@ -989,13 +1015,14 @@ impl<D: Adapter> Endpoint<D> for ResetPassword {
     ) -> Result<Status, AuthError> {
         let internal = ctx.internal();
         internal.validate_new_password(&input.new_password)?;
-        let user_id = internal
-            .consume_verification(&input.token)
+        let user = internal
+            .consume_user_verification("reset-password", &input.token)
             .await?
-            .and_then(|v| v.identifier.strip_prefix("reset-password:").map(Id::from))
             .ok_or_else(|| {
                 AuthError::bad_request(codes::INVALID_TOKEN, "invalid or expired token")
             })?;
+        // The link was mailed to the address, so it proves the mailbox like a magic link.
+        let user_id = internal.claim_user(user, None).await?.id.clone();
         internal.set_password(&user_id, &input.new_password).await?;
         if email_password(&ctx).revoke_sessions_on_password_reset {
             internal.revoke_user_sessions(&user_id, None).await?;

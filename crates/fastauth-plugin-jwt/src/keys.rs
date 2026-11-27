@@ -255,7 +255,8 @@ pub(crate) async fn sign<D: Adapter, A>(
 }
 
 /// The token `/token` answers with and `set-auth-jwt` carries: the user (or what
-/// `define_payload` returns), `iat`, and the user id as `sub`.
+/// `define_payload` returns), `iat`, and the user id as `sub`. Unless the payload sets
+/// `exp`, it expires with the session when that comes before the expiration time.
 pub(crate) async fn session_token<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     jwt: &Jwt,
@@ -268,6 +269,15 @@ pub(crate) async fn session_token<D: Adapter, A>(
     let mut claims = Map::new();
     claims.insert("iat".into(), ctx.now().unix_timestamp().into());
     claims.extend(payload);
+    if !claims.contains_key("exp") {
+        let issued = claims
+            .get("iat")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let expires = (issued + jwt.expiration_time.whole_seconds())
+            .min(session.session.expires_at.unix_timestamp());
+        claims.insert("exp".into(), expires.into());
+    }
     claims.insert("sub".into(), session.user.id.as_str().into());
     sign(ctx, jwt, claims).await
 }

@@ -53,8 +53,8 @@ The plugin adds three tables and one column on `session`, so run migrations afte
 
 | Table | Columns |
 |---|---|
-| `organization` | `id`, `name`, `slug` (unique), `logo` (nullable), `metadata` (JSON, nullable), `created_at` |
-| `member` | `id`, `organization_id` → organization (cascade, index), `user_id` → user (cascade, index), `role` (default `'member'`), `created_at` |
+| `organization` | `id`, `name`, `slug` (unique, at most 255 characters), `logo` (nullable), `metadata` (JSON, nullable), `created_at` |
+| `member` | `id`, `organization_id` → organization (cascade, index), `user_id` → user (cascade, index), `role` (default `'member'`), `created_at`; unique on `(organization_id, user_id)` |
 | `invitation` | `id`, `organization_id` → organization (cascade, index), `email` (index), `role`, `status` (default `'pending'`), `inviter_id` → user (cascade), `expires_at`, `created_at` |
 | `session` | adds `active_organization_id` (nullable) |
 
@@ -79,6 +79,7 @@ pub fn organization() -> Organization {
         .allow_user_to_create_organization(false)
         .organization_limit(5)
         .invitation_ttl(Duration::days(7))
+        .invitation_limit(20)
         .invitation_url("https://app.acme.dk/invite/{id}")
         .require_email_verification_on_invitation(true)
 }
@@ -90,6 +91,7 @@ pub fn organization() -> Organization {
 | `.allow_user_to_create_organization(bool)` | `true` | With `false`, `POST /organization/create` answers 403 `YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION` and only the server API's `create` makes organizations. |
 | `.organization_limit(u64)` | no limit | How many organizations a user may belong to before creating another is refused (403 `YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS`). It counts memberships, not ownership, and applies to the server API's `create` too. It doesn't stop invitations or `add_member`. |
 | `.invitation_ttl(Duration)` | 48 hours | How long an invitation can be accepted. Resending an invitation restarts the clock. |
+| `.invitation_limit(u64)` | 100 | How many pending, unexpired invitations one organization may have. A new invitation past it answers 403 `INVITATION_LIMIT_REACHED`, as in Better Auth; resending an existing one isn't counted. Each invitation emails an address the inviter picks, so this bounds how many addresses one account can mail through your app. |
 | `.invitation_url(template)` | `{base_url}/accept-invitation/{id}` | The link in invitation emails. `{id}` is replaced with the invitation id. |
 | `.require_email_verification_on_invitation(bool)` | `true` | Invitees need a verified email to view, accept or reject an invitation. Without it, anyone who signs up with the invitee's address can accept an invitation whose id they know. Better Auth skips the check for its own random ids; turn it off only when sign-up verifies email or your ids are unguessable. |
 
@@ -152,6 +154,15 @@ With the session cookie cache on ([Sessions](../../concepts/01-sessions.md)), th
 caller's active organization also drop the cache cookie, so the next request sees the new
 value.
 
+Every route that changes something (creating, updating or deleting an organization, setting
+the active one, inviting, accepting, rejecting or cancelling an invitation, removing a member,
+changing a role, leaving) and `/organization/has-permission` check the caller's role against
+the session as the database holds it, not the cache cookie
+([Security](../../concepts/03-security.md#sessions-that-arent-a-sign-in)). So a revoked session gets `401` at
+once, and a member whose role was lowered can't use the old role until the cache expires.
+Read-only lists still answer from the cache. Better Auth answers these checks from the cookie
+cache.
+
 ## Invitations and email
 
 `invite-member` stores a pending invitation that expires after `invitation_ttl`, then
@@ -190,7 +201,9 @@ it like a token.
 
 Inviting an address that already has a live pending invitation answers 400
 `USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION`; pass `resend: true` to extend that
-invitation and send the email again.
+invitation and send the email again. An organization with `invitation_limit` pending
+invitations (100 by default) can't invite anyone new until one is accepted, rejected,
+canceled or expires: `invite-member` answers 403 `INVITATION_LIMIT_REACHED`.
 
 ## Server API
 
@@ -480,7 +493,7 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_ORGANIZATION` | 403 | `update` without `organization: [update]` |
 | `YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_ORGANIZATION` | 403 | `delete` without `organization: [delete]` |
 | `NO_ACTIVE_ORGANIZATION` | 400 (403 from extractors) | no `organizationId` given and none active |
-| `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION` | 400 | inviting, adding or accepting for an existing member |
+| `USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION` | 400 | inviting, adding or accepting for an existing member, including the loser of two adds or accepts at once |
 | `MEMBER_NOT_FOUND` | 400 | the caller or the target isn't a member |
 | `ROLE_NOT_FOUND` | 400 | a role that isn't defined; the message names it |
 | `YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER` | 400 | the last owner leaves, or an owner is removed by a non-owner or as the last one |
@@ -489,6 +502,7 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_ALLOWED_TO_INVITE_USERS_TO_THIS_ORGANIZATION` | 403 | `invite-member` without `invitation: [create]` |
 | `YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE` | 403 | a non-owner invites as `owner` |
 | `USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION` | 400 | a live pending invitation exists and `resend` isn't set |
+| `INVITATION_LIMIT_REACHED` | 403 | `invite-member` when the organization already has `invitation_limit` pending invitations |
 | `INVITATION_NOT_FOUND` | 400 | unknown, no longer pending, or (to accept or view) expired |
 | `YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION` | 403 | the session's email isn't the invited one |
 | `EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION` | 403 | accept or reject with `require_email_verification_on_invitation` and an unverified email |
@@ -500,8 +514,9 @@ keeps working. `PERMISSION_DENIED` is fastauth's own.
 | `YOU_ARE_NOT_A_MEMBER_OF_THIS_ORGANIZATION` | 403 | `list-members`, `list-invitations` and the extractors, for a non-member |
 | `PERMISSION_DENIED` | 403 | `RequirePermission` when the role doesn't grant `P` |
 
-Core codes show up too: 401 `UNAUTHORIZED` without a session, 400 `INVALID_BODY` for an
-empty `name` or `slug` or an unknown `sortBy`, 400 `INVALID_EMAIL` from `invite-member`,
+Core codes show up too: 401 `UNAUTHORIZED` without a session, 400 `INVALID_REQUEST_BODY` for an
+empty `name`, an empty slug or one over 255 characters, or an unknown `sortBy`, 400
+`INVALID_EMAIL` from `invite-member` (also for an address over 254 bytes),
 and 400 `USER_NOT_FOUND` when the server API's `create` or `add_member` names an unknown
 user.
 
@@ -539,6 +554,10 @@ Known gaps:
   verified email by default; `cancel-invitation` refuses invitations that are no longer
   pending; `remove-member` answers `MEMBER_NOT_FOUND` for another organization's member
   before checking roles, where Better Auth may answer an owner or permission error first.
+  The database keeps one `member` row per user and organization (Better Auth's schema
+  doesn't), slugs are capped at 255 characters and invitation emails at 254 bytes (400
+  rather than a database error), and `organization_limit` holds under parallel creates: the
+  count runs in the create's transaction after locking the user's row.
 - **No teams, dynamic access control or `getActiveMemberRole`.** The client's team, role
   and `getActiveMemberRole` methods get 404 `NOT_FOUND`.
 - **`checkRolePermission` runs in the browser** against the client's own role definitions,

@@ -133,12 +133,20 @@ impl Driver for Sqlite {
             "SELECT m.name, l.name FROM sqlite_master AS m \
              JOIN pragma_index_list(m.name) AS l WHERE m.type = 'table'",
         )
+        .fetch_all(&mut *conn)
+        .await?;
+        let uniques = sqlx::query_as(
+            "SELECT m.name, l.name, i.name FROM sqlite_master AS m \
+             JOIN pragma_index_list(m.name) AS l JOIN pragma_index_info(l.name) AS i \
+             WHERE m.type = 'table' AND l.\"unique\" = 1 AND l.partial = 0 AND l.origin <> 'pk'",
+        )
         .fetch_all(conn)
         .await?;
         Ok(Catalog {
             columns,
             indexes,
             id_storage: Vec::new(),
+            uniques,
         })
     }
 
@@ -172,8 +180,10 @@ impl Driver for Sqlite {
         table: &TableDef,
     ) -> Option<String> {
         let failed = err.message().strip_prefix("UNIQUE constraint failed: ")?;
-        let first = failed.split(", ").next()?;
-        let column = first.strip_prefix(physical)?.strip_prefix('.')?;
+        if failed.contains(", ") {
+            return None;
+        }
+        let column = failed.strip_prefix(physical)?.strip_prefix('.')?;
         table.column(column).map(|column| column.name.to_owned())
     }
 }

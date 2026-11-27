@@ -227,7 +227,11 @@ async fn email_verification_gate() {
     ));
     let res = client.sign_up("v@acme.dk", "correct horse").await;
     assert_eq!(res.json["token"], serde_json::Value::Null);
-    assert!(client.jar.is_empty());
+    assert_eq!(
+        client.jar.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["fastauth.pending_verification"],
+        "no session, only the marker that this browser set the password"
+    );
 
     let blocked = client
         .post(
@@ -553,7 +557,7 @@ async fn cookie_cache_answers_without_the_database() {
 #[tokio::test]
 async fn sessions_refresh_after_update_age() {
     let auth = FastAuth::builder()
-        .secret(secret())
+        .secret(Secret::from_base64(&Secret::generate()))
         .base_url("https://acme.dk")
         .database(MemoryAdapter::new())
         .email_password(fast_hasher())

@@ -150,7 +150,7 @@ A session's token is signed with the newest live key and carries:
 | header `alg`, `kid` | The key's algorithm and id; no `typ`, as in Better Auth |
 | `sub` | The user id |
 | `iat` | Now |
-| `exp` | `iat` plus `expiration_time` |
+| `exp` | `iat` plus `expiration_time`, but never later than the session's own expiry (unless `define_payload` sets `exp`) |
 | `iss`, `aud` | The issuer and audience |
 | the rest | The user as `/get-session` returns it (`id`, `email`, `name`, `emailVerified`, `image`, `createdAt`, `updatedAt` and your returned columns), or what `define_payload` returns |
 

@@ -7,8 +7,8 @@ use serde_json::{Map, Value as JsonValue};
 
 use super::{
     active_organization, find_member, find_organization, find_organization_by_slug, nullable,
-    organization, plugin, requested_organization, require_text, set_active, slug_taken,
-    user_not_found, with_users,
+    organization, plugin, requested_organization, require_slug, require_text, set_active,
+    slug_taken, user_not_found, with_users,
 };
 use crate::access::OWNER;
 use crate::model::{Invitation, Member, MemberWithUser, OrganizationRow, OrganizationSession};
@@ -81,7 +81,7 @@ impl<D: Adapter> Endpoint<D> for CreateOrganization {
                 .ok_or_else(user_not_found)?;
             return create(&ctx, &user.id, input).await;
         }
-        let session = ctx.session().ok_or_else(AuthError::unauthorized)?;
+        let session = &ctx.authoritative_session().await?;
         if !plugin(&ctx).allow_user_to_create_organization {
             return Err(OrganizationError::YouAreNotAllowedToCreateANewOrganization.into());
         }
@@ -94,23 +94,16 @@ impl<D: Adapter> Endpoint<D> for CreateOrganization {
     }
 }
 
-/// Creates the organization and its owner membership in one transaction.
+/// Creates the organization and its owner membership in one transaction. With an
+/// `organization_limit`, the transaction first locks the user's row, so parallel creates
+/// for one user count their memberships one after the other.
 async fn create<D: Adapter, A>(
     ctx: &Ctx<D, A>,
     user_id: &Id,
     input: CreateOrganizationInput,
 ) -> Result<OrganizationWithMembers, AuthError> {
     require_text(&input.name, "name")?;
-    require_text(&input.slug, "slug")?;
-    if let Some(limit) = plugin(ctx).organization_limit {
-        let owned = ctx
-            .db()
-            .count::<Member>(Member::USER_ID.eq(user_id))
-            .await?;
-        if owned >= limit {
-            return Err(OrganizationError::YouHaveReachedTheMaximumNumberOfOrganizations.into());
-        }
-    }
+    require_slug(&input.slug)?;
     if find_organization_by_slug(ctx, &input.slug).await?.is_some() {
         return Err(OrganizationError::OrganizationAlreadyExists.into());
     }
@@ -132,6 +125,16 @@ async fn create<D: Adapter, A>(
     };
     let tx = ctx.adapter().begin().await?;
     let db = ctx.db_on(&tx);
+    if let Some(limit) = plugin(ctx).organization_limit {
+        db.update::<User>(User::ID.eq(user_id))
+            .set(User::ID, user_id.clone())
+            .exec()
+            .await?;
+        let owned = db.count::<Member>(Member::USER_ID.eq(user_id)).await?;
+        if owned >= limit {
+            return Err(OrganizationError::YouHaveReachedTheMaximumNumberOfOrganizations.into());
+        }
+    }
     let organization = db.insert(&organization).await.map_err(slug_taken)?;
     let member = db.insert(&member).await?;
     tx.commit().await?;
@@ -188,7 +191,7 @@ impl<D: Adapter> Endpoint<D> for UpdateOrganization {
         ctx: Ctx<D, Authenticated>,
         input: UpdateOrganizationInput,
     ) -> Result<OrganizationRow, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = requested_organization(session, input.organization_id.as_deref())?
             .ok_or(OrganizationError::OrganizationNotFound)?;
         let member = find_member(&ctx, &organization_id, &session.user.id)
@@ -202,7 +205,7 @@ impl<D: Adapter> Endpoint<D> for UpdateOrganization {
         }
         let data = input.data;
         if let Some(slug) = &data.slug {
-            require_text(slug, "slug")?;
+            require_slug(slug)?;
             if find_organization_by_slug(&ctx, slug)
                 .await?
                 .is_some_and(|o| o.id != organization_id)
@@ -263,7 +266,7 @@ impl<D: Adapter> Endpoint<D> for DeleteOrganization {
         ctx: Ctx<D, Authenticated>,
         input: DeleteOrganizationInput,
     ) -> Result<OrganizationRow, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let organization_id = Id::from(input.organization_id);
         let member = find_member(&ctx, &organization_id, &session.user.id)
             .await?
@@ -471,7 +474,7 @@ impl<D: Adapter> Endpoint<D> for SetActiveOrganization {
         ctx: Ctx<D, Authenticated>,
         input: SetActiveOrganizationInput,
     ) -> Result<Option<OrganizationRow>, AuthError> {
-        let session = ctx.session();
+        let session = &ctx.authoritative_session().await?;
         let active = active_organization(session)?;
         let organization_id = match (input.organization_id, input.organization_slug) {
             (Some(None), _) => {

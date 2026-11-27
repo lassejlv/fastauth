@@ -22,15 +22,17 @@ mod render;
 mod sqlite;
 mod tx;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use fastauth_core::adapter::{
     Adapter, DbError, DbResult, Delete, Filter, Insert, Op, Queries, Select, SessionWithUser,
     Transaction, Update,
 };
-use fastauth_core::migrate::{LiveSchema, MigrationPlan, index_name};
-use fastauth_core::schema::{ColumnType, TableDef};
+use fastauth_core::migrate::{
+    LiveSchema, MigrationPlan, Step, duplicates_error, index_name, unique_key,
+};
+use fastauth_core::schema::{ColumnDef, ColumnType, TableDef};
 use fastauth_core::value::{DecodeError, Row, Value};
 use sqlx::pool::PoolConnection;
 use sqlx_core::transaction::TransactionManager;
@@ -142,6 +144,61 @@ impl<DB: Dialect> Sqlx<DB> {
             Some(tx) => Conn::Tx(tx.lock().await),
             None => Conn::Pool(self.pool.acquire().await.map_err(DbError::other)?),
         })
+    }
+
+    /// Fails, naming some of the rows, when a unique constraint the plan adds to an existing
+    /// table would fail on the rows already there. Checked before any statement runs, since
+    /// MySQL commits each one.
+    async fn refuse_duplicates(&self, plan: &MigrationPlan) -> DbResult<()> {
+        let new_here: HashSet<(&str, &str)> = plan
+            .steps
+            .iter()
+            .flat_map(|step| match step {
+                Step::CreateTable(table) => table
+                    .columns
+                    .iter()
+                    .map(|c| (table.name, c.name))
+                    .collect::<Vec<_>>(),
+                Step::AddColumn { table, column } => vec![(table.name, column.name)],
+                _ => Vec::new(),
+            })
+            .collect();
+        for step in &plan.steps {
+            let Step::AddUnique { table, columns } = step else {
+                continue;
+            };
+            if columns.iter().any(|c| new_here.contains(&(table.name, *c))) {
+                continue;
+            }
+            let selected: Vec<&ColumnDef> = table
+                .primary_key()
+                .into_iter()
+                .chain(columns.iter().filter_map(|c| table.column(c)))
+                .collect();
+            let sql = render::duplicates::<DB>(&self.sql.names, table, columns);
+            let rows = DB::fetch_all(&mut *self.conn().await?, sql, Vec::new())
+                .await
+                .map_err(DbError::other)?;
+            if rows.is_empty() {
+                continue;
+            }
+            let rows = rows
+                .iter()
+                .map(|row| {
+                    selected
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| {
+                            DB::decode(row, i, stored_type(table, c.ty))
+                                .map(|value| (c.name, value))
+                                .map_err(|m| DecodeError::new(c.name, m).into())
+                        })
+                        .collect::<DbResult<Vec<_>>>()
+                })
+                .collect::<DbResult<Vec<_>>>()?;
+            return Err(duplicates_error(table.name, columns, &rows));
+        }
+        Ok(())
     }
 }
 
@@ -526,6 +583,22 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
                 }
             }
         }
+        let mut uniques: HashMap<(String, String), Option<Vec<String>>> = HashMap::new();
+        for (table, index, column) in catalog.uniques {
+            let columns = uniques.entry((table, index)).or_insert(Some(Vec::new()));
+            match (columns.as_mut(), column) {
+                (Some(columns), Some(column)) => columns.push(column),
+                _ => *columns = None,
+            }
+        }
+        live.uniques = Some(
+            uniques
+                .into_iter()
+                .filter_map(|((table, _), columns)| {
+                    Some(unique_key(&names.logical(&table)?, &columns?))
+                })
+                .collect(),
+        );
         Ok(live)
     }
 
@@ -534,6 +607,7 @@ impl<DB: Dialect> Adapter for Sqlx<DB> {
         if script.is_empty() {
             return Ok(());
         }
+        self.refuse_duplicates(plan).await?;
         let tx = self.begin().await?;
         DB::execute_script(&mut **tx.lock().await, script)
             .await

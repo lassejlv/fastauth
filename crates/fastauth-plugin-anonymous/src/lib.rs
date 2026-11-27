@@ -6,7 +6,9 @@
 //! calls [`on_link_account`](Anonymous::on_link_account) with both users, so the app can move
 //! data across, and then deletes the anonymous user (unless
 //! [`disable_delete_anonymous_user`](Anonymous::disable_delete_anonymous_user) is set).
-//! `POST /delete-anonymous-user` lets an anonymous user delete themselves.
+//! `POST /delete-anonymous-user` lets an anonymous user delete themselves. A guest whose email
+//! gets verified (for example by moving to a real address with an email code) stops being
+//! anonymous: `is_anonymous` turns false and linking never deletes the account.
 //!
 //! ```
 //! use fastauth_core::prelude::*;
@@ -49,6 +51,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use fastauth_core::ApiResponse;
+use fastauth_core::events::EmailVerified;
 use fastauth_core::plugin_prelude::*;
 
 pub use endpoints::{DeleteAnonymousUser, SignInAnonymous, SignInAnonymousOutput, Success};
@@ -155,6 +158,18 @@ impl Plugin for Anonymous {
         app.on_session_created(move |ctx, session| {
             let plugin = plugin.clone();
             async move { endpoints::link(&plugin, ctx, session).await }
+        });
+        app.on(|verified: EmailVerified, ctx: Ctx<D>| async move {
+            ctx.db()
+                .update::<User>(
+                    User::ID
+                        .eq(&verified.user_id)
+                        .and(AnonymousUser::IS_ANONYMOUS.eq(true)),
+                )
+                .set(AnonymousUser::IS_ANONYMOUS, false)
+                .exec()
+                .await?;
+            Ok(())
         });
     }
 }

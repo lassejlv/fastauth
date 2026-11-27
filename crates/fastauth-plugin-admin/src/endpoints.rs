@@ -14,6 +14,8 @@ const SESSION_TOKEN_COOKIE: &str = "session_token";
 const DONT_REMEMBER_COOKIE: &str = "dont_remember";
 const SESSION_CACHE_COOKIE: &str = "session_data";
 const BAN_COLUMNS: [&str; 3] = ["banned", "banReason", "banExpires"];
+/// Users `/admin/list-users` answers without a `limit`, as in Better Auth.
+const DEFAULT_PAGE_SIZE: u64 = 100;
 
 /// Who an admin endpoint runs for: an HTTP request, whose session needs the right
 /// permissions, or the server API, which is trusted.
@@ -38,20 +40,21 @@ impl Caller {
         }
     }
 
-    /// The caller's session, after checking it may do `action` on `resource`. `None` for
-    /// server calls; 401 without a session; `denied` without the permission.
-    fn check<'c, D: Adapter>(
+    /// The caller's session as the database holds it (`Ctx::authoritative_session`, never
+    /// the cookie cache), after checking it may do `action` on `resource`. `None` for server
+    /// calls; 401 without a session or for a revoked one; `denied` without the permission.
+    async fn check<D: Adapter>(
         &self,
-        ctx: &'c Ctx<D, MaybeAuthenticated>,
+        ctx: &Ctx<D, MaybeAuthenticated>,
         resource: &str,
         action: &str,
         denied: AdminError,
-    ) -> Result<Option<&'c SessionView>, AuthError> {
+    ) -> Result<Option<SessionView>, AuthError> {
         if self.server {
             return Ok(None);
         }
-        let session = ctx.session().ok_or_else(AuthError::unauthorized)?;
-        if !may(&self.plugin, Some(session), resource, action)? {
+        let session = ctx.authoritative_session().await?;
+        if !may(&self.plugin, Some(&session), resource, action)? {
             return Err(denied.into());
         }
         Ok(Some(session))
@@ -188,6 +191,20 @@ fn user_column<D: Adapter, A>(ctx: &Ctx<D, A>, key: &str) -> Result<ColumnDef, A
         .ok_or_else(|| invalid_field(format!("unknown field `{key}`")))
 }
 
+/// A `user` column the admin routes may write from `data`: core, app and admin columns,
+/// and other plugins' columns that clients may set on themselves. The rest (two-factor's
+/// `twoFactorEnabled`) only change through their plugin's own routes.
+fn writable_user_column<D: Adapter, A>(ctx: &Ctx<D, A>, key: &str) -> Result<ColumnDef, AuthError> {
+    let column = user_column(ctx, key)?;
+    if column.input || matches!(column.owner, "core" | "app" | "admin") {
+        return Ok(column);
+    }
+    Err(invalid_field(format!(
+        "field `{key}` belongs to the `{}` plugin and can't be set here",
+        column.owner
+    )))
+}
+
 fn column_value(column: &ColumnDef, key: &str, json: &Json) -> Result<Value, AuthError> {
     Value::from_json(column.ty, json)
         .filter(|v| !v.is_null() || column.nullable)
@@ -195,18 +212,8 @@ fn column_value(column: &ColumnDef, key: &str, json: &Json) -> Result<Value, Aut
 }
 
 fn normalize_email(email: &str) -> Result<String, AuthError> {
-    let email = email.trim().to_lowercase();
-    let valid = email.len() <= 254
-        && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.starts_with('.')
-        });
-    if !valid {
-        return Err(AuthError::bad_request(
-            codes::INVALID_EMAIL,
-            "Invalid email",
-        ));
-    }
-    Ok(email)
+    fastauth_core::routes::normalize_email(email)
+        .map_err(|_| AuthError::bad_request(codes::INVALID_EMAIL, "Invalid email"))
 }
 
 fn email_taken() -> AuthError {
@@ -311,8 +318,9 @@ pub struct CreateUserInput {
     pub data: Map<String, Json>,
 }
 
-/// `POST /admin/create-user`: needs `user:create`, plus `user:set-role` to pick a role
-/// and `user:ban` to set ban columns.
+/// `POST /admin/create-user`: needs `user:create`, plus `user:set-role` to pick a role,
+/// `user:ban` to set ban columns and `user:set-email` to set `emailVerified`. Columns
+/// another plugin owns and clients can't set (`twoFactorEnabled`) are refused.
 pub struct CreateUser(pub(crate) Caller);
 
 impl<D: Adapter> Endpoint<D> for CreateUser {
@@ -329,12 +337,15 @@ impl<D: Adapter> Endpoint<D> for CreateUser {
     ) -> Result<UserOutput, AuthError> {
         let caller = &self.0;
         let plugin = &caller.plugin;
-        let session = caller.check(
-            &ctx,
-            "user",
-            "create",
-            AdminError::YouAreNotAllowedToCreateUsers,
-        )?;
+        let session = caller
+            .check(
+                &ctx,
+                "user",
+                "create",
+                AdminError::YouAreNotAllowedToCreateUsers,
+            )
+            .await?;
+        let session = session.as_ref();
         let data_role = input.data.remove("role");
         let role = match (input.role, data_role) {
             (Some(role), _) => Some(role),
@@ -369,9 +380,17 @@ impl<D: Adapter> Endpoint<D> for CreateUser {
         if internal.find_user_by_email(&email).await?.is_some() {
             return Err(email_taken());
         }
+        if input.data.contains_key("emailVerified") {
+            caller.also(
+                session,
+                "user",
+                "set-email",
+                AdminError::YouAreNotAllowedToSetUsersEmail,
+            )?;
+        }
         let mut extra = vec![("role", Value::Text(role))];
         for (key, json) in &input.data {
-            let column = user_column(&ctx, key)?;
+            let column = writable_user_column(&ctx, key)?;
             if matches!(
                 column.name,
                 "id" | "email" | "name" | "created_at" | "updated_at"
@@ -468,6 +487,7 @@ pub struct ListUsersQuery {
     pub search_value: Option<String>,
     pub search_field: Option<SearchField>,
     pub search_operator: Option<SearchOperator>,
+    /// At most this many users; 100 when unset.
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     /// A user column in camelCase.
@@ -588,12 +608,14 @@ impl<D: Adapter> Endpoint<D> for ListUsers {
         ctx: Ctx<D, MaybeAuthenticated>,
         query: ListUsersQuery,
     ) -> Result<UserList, AuthError> {
-        self.0.check(
-            &ctx,
-            "user",
-            "list",
-            AdminError::YouAreNotAllowedToListUsers,
-        )?;
+        self.0
+            .check(
+                &ctx,
+                "user",
+                "list",
+                AdminError::YouAreNotAllowedToListUsers,
+            )
+            .await?;
         let mut conditions = Vec::new();
         if let Some(value) = query.search_value.as_deref().filter(|v| !v.is_empty()) {
             let field = match query.search_field.unwrap_or_default() {
@@ -634,9 +656,7 @@ impl<D: Adapter> Endpoint<D> for ListUsers {
         if let Some(offset) = query.offset {
             find = find.offset(offset);
         }
-        if let Some(limit) = query.limit {
-            find = find.limit(limit);
-        }
+        find = find.limit(query.limit.unwrap_or(DEFAULT_PAGE_SIZE));
         let users = find
             .all_rows()
             .await?
@@ -677,7 +697,8 @@ impl<D: Adapter> Endpoint<D> for GetUser {
         query: GetUserQuery,
     ) -> Result<UserView, AuthError> {
         self.0
-            .check(&ctx, "user", "get", AdminError::YouAreNotAllowedToGetUser)?;
+            .check(&ctx, "user", "get", AdminError::YouAreNotAllowedToGetUser)
+            .await?;
         find_user(&ctx, &query.id).await
     }
 }
@@ -707,12 +728,16 @@ impl<D: Adapter> Endpoint<D> for SetRole {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: SetRoleInput,
     ) -> Result<UserOutput, AuthError> {
-        let session = self.0.check(
-            &ctx,
-            "user",
-            "set-role",
-            AdminError::YouAreNotAllowedToChangeUsersRole,
-        )?;
+        let session = self
+            .0
+            .check(
+                &ctx,
+                "user",
+                "set-role",
+                AdminError::YouAreNotAllowedToChangeUsersRole,
+            )
+            .await?;
+        let session = session.as_ref();
         let role = input.role.stored(&self.0.plugin)?;
         let target = find_user(&ctx, &input.user_id).await?;
         check_target(&self.0.plugin, session, &target)?;
@@ -791,7 +816,9 @@ impl<D: Adapter> Endpoint<D> for BanUser {
         let plugin = &self.0.plugin;
         let session = self
             .0
-            .check(&ctx, "user", "ban", AdminError::YouAreNotAllowedToBanUsers)?;
+            .check(&ctx, "user", "ban", AdminError::YouAreNotAllowedToBanUsers)
+            .await?;
+        let session = session.as_ref();
         let target = find_user(&ctx, &input.user_id).await?;
         if session.is_some_and(|s| s.user.id == input.user_id) {
             return Err(AdminError::YouCannotBanYourself.into());
@@ -840,7 +867,8 @@ impl<D: Adapter> Endpoint<D> for UnbanUser {
         input: UserIdInput,
     ) -> Result<UserOutput, AuthError> {
         self.0
-            .check(&ctx, "user", "ban", AdminError::YouAreNotAllowedToBanUsers)?;
+            .check(&ctx, "user", "ban", AdminError::YouAreNotAllowedToBanUsers)
+            .await?;
         find_user(&ctx, &input.user_id).await?;
         lift_ban(&ctx, &input.user_id).await?;
         updated(&ctx, &input.user_id).await
@@ -860,6 +888,7 @@ pub struct UpdateUserInput {
 
 /// `POST /admin/update-user`: needs `user:update`, plus `user:set-role` for `role`,
 /// `user:ban` for the ban columns and `user:set-email` for `email` and `emailVerified`.
+/// Columns another plugin owns and clients can't set (`twoFactorEnabled`) are refused.
 /// Answers the user itself, unwrapped. Setting `banned: true` revokes the user's sessions.
 pub struct UpdateUser(pub(crate) Caller);
 
@@ -876,12 +905,15 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
         input: UpdateUserInput,
     ) -> Result<UserView, AuthError> {
         let caller = &self.0;
-        let session = caller.check(
-            &ctx,
-            "user",
-            "update",
-            AdminError::YouAreNotAllowedToUpdateUsers,
-        )?;
+        let session = caller
+            .check(
+                &ctx,
+                "user",
+                "update",
+                AdminError::YouAreNotAllowedToUpdateUsers,
+            )
+            .await?;
+        let session = session.as_ref();
         let data = input.data;
         if data.is_empty() {
             return Err(AdminError::NoDataToUpdate.into());
@@ -937,7 +969,7 @@ impl<D: Adapter> Endpoint<D> for UpdateUser {
             if matches!(key.as_str(), "role" | "email") {
                 continue;
             }
-            let column = user_column(&ctx, key)?;
+            let column = writable_user_column(&ctx, key)?;
             if matches!(column.name, "created_at" | "updated_at") {
                 return Err(invalid_field(format!("field `{key}` can't be set")));
             }
@@ -983,12 +1015,16 @@ impl<D: Adapter> Endpoint<D> for SetUserPassword {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: SetUserPasswordInput,
     ) -> Result<Status, AuthError> {
-        let session = self.0.check(
-            &ctx,
-            "user",
-            "set-password",
-            AdminError::YouAreNotAllowedToSetUsersPassword,
-        )?;
+        let session = self
+            .0
+            .check(
+                &ctx,
+                "user",
+                "set-password",
+                AdminError::YouAreNotAllowedToSetUsersPassword,
+            )
+            .await?;
+        let session = session.as_ref();
         let internal = ctx.internal();
         internal.validate_new_password(&input.new_password)?;
         let target = find_user(&ctx, &input.user_id).await?;
@@ -1022,12 +1058,16 @@ impl<D: Adapter> Endpoint<D> for RemoveUser {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: UserIdInput,
     ) -> Result<Success, AuthError> {
-        let session = self.0.check(
-            &ctx,
-            "user",
-            "delete",
-            AdminError::YouAreNotAllowedToDeleteUsers,
-        )?;
+        let session = self
+            .0
+            .check(
+                &ctx,
+                "user",
+                "delete",
+                AdminError::YouAreNotAllowedToDeleteUsers,
+            )
+            .await?;
+        let session = session.as_ref();
         if session.is_some_and(|s| s.user.id == input.user_id) {
             return Err(AdminError::YouCannotRemoveYourself.into());
         }
@@ -1071,12 +1111,14 @@ impl<D: Adapter> Endpoint<D> for ListUserSessions {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: UserIdInput,
     ) -> Result<SessionList, AuthError> {
-        self.0.check(
-            &ctx,
-            "session",
-            "list",
-            AdminError::YouAreNotAllowedToListUsersSessions,
-        )?;
+        self.0
+            .check(
+                &ctx,
+                "session",
+                "list",
+                AdminError::YouAreNotAllowedToListUsersSessions,
+            )
+            .await?;
         let rows = ctx
             .db()
             .find::<Session>(
@@ -1116,12 +1158,16 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSession {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: RevokeUserSessionInput,
     ) -> Result<Success, AuthError> {
-        let caller = self.0.check(
-            &ctx,
-            "session",
-            "revoke",
-            AdminError::YouAreNotAllowedToRevokeUsersSessions,
-        )?;
+        let caller = self
+            .0
+            .check(
+                &ctx,
+                "session",
+                "revoke",
+                AdminError::YouAreNotAllowedToRevokeUsersSessions,
+            )
+            .await?;
+        let caller = caller.as_ref();
         let found = ctx
             .db()
             .find::<Session>(Session::TOKEN_HASH.eq(Hash::sha256(&input.session_token)))
@@ -1154,12 +1200,16 @@ impl<D: Adapter> Endpoint<D> for RevokeUserSessions {
         ctx: Ctx<D, MaybeAuthenticated>,
         input: UserIdInput,
     ) -> Result<Success, AuthError> {
-        let session = self.0.check(
-            &ctx,
-            "session",
-            "revoke",
-            AdminError::YouAreNotAllowedToRevokeUsersSessions,
-        )?;
+        let session = self
+            .0
+            .check(
+                &ctx,
+                "session",
+                "revoke",
+                AdminError::YouAreNotAllowedToRevokeUsersSessions,
+            )
+            .await?;
+        let session = session.as_ref();
         if let Some(target) = ctx.internal().find_user_by_id(&input.user_id).await? {
             check_target(&self.0.plugin, session, &target)?;
         }
@@ -1199,7 +1249,7 @@ impl<D: Adapter> Endpoint<D> for ImpersonateUser {
         input: UserIdInput,
     ) -> Result<SessionOutput, AuthError> {
         let plugin = &self.0;
-        let admin = ctx.session();
+        let admin = &ctx.authoritative_session().await?;
         let denied = || AuthError::from(AdminError::YouAreNotAllowedToImpersonateUsers);
         if !may(plugin, Some(admin), "user", "impersonate")? {
             return Err(denied());
@@ -1224,29 +1274,25 @@ impl<D: Adapter> Endpoint<D> for ImpersonateUser {
         }
 
         let now = ctx.now();
-        let dont_remember = ctx.signed_cookie(DONT_REMEMBER_COOKIE).is_some();
+        let dont_remember = ctx.signed_token_cookie(DONT_REMEMBER_COOKIE).is_some();
         let remaining = admin.session.expires_at - now;
+        let session = ctx
+            .internal()
+            .create_session_with(
+                &target.id,
+                false,
+                NewSession::new()
+                    .expires_at(now + plugin.impersonation_session_duration)
+                    .set(AdminSession::IMPERSONATED_BY, Some(admin.user.id.clone())),
+            )
+            .await?;
         ctx.set_signed_cookie(
             ADMIN_SESSION_COOKIE,
             &format!("{admin_token}:{}", if dont_remember { "1" } else { "" }),
             (!dont_remember).then_some(remaining),
         );
-        let session = ctx.internal().create_session(&target.id, false).await?;
-        let expires_at = now + plugin.impersonation_session_duration;
-        ctx.db()
-            .update::<Session>(Session::ID.eq(&session.session.id))
-            .set(AdminSession::IMPERSONATED_BY, Some(admin.user.id.clone()))
-            .set(Session::EXPIRES_AT, expires_at)
-            .exec()
-            .await?;
-        let mut json = session.to_json();
-        json.insert(
-            "impersonatedBy".into(),
-            Json::String(admin.user.id.to_string()),
-        );
-        json.insert("expiresAt".into(), Value::Timestamp(expires_at).to_json());
         Ok(SessionOutput {
-            session: json,
+            session: session.to_json(),
             user: target,
         })
     }
@@ -1272,7 +1318,7 @@ impl<D: Adapter> Endpoint<D> for StopImpersonating {
             .ok_or(AdminError::NotImpersonating)?;
         let missing = || AuthError::internal("failed to find the admin session");
         let cookie = ctx
-            .signed_cookie(ADMIN_SESSION_COOKIE)
+            .signed_token_cookie(ADMIN_SESSION_COOKIE)
             .ok_or_else(missing)?;
         let (token, dont_remember) = cookie.split_once(':').ok_or_else(missing)?;
         let row = ctx
@@ -1361,10 +1407,11 @@ impl<D: Adapter> Endpoint<D> for HasPermission {
             ));
         };
         let session = match ctx.session() {
-            Some(session) => Some(session),
+            Some(_) => Some(ctx.authoritative_session().await?),
             None if self.0.server => None,
             None => return Err(AuthError::unauthorized()),
         };
+        let session = session.as_ref();
         let (user_id, role) = match (session, input.role, input.user_id) {
             (Some(session), _, _) => (session.user.id.clone(), admin_fields(&session.user)?.role),
             (None, Some(role), user_id) => (user_id.unwrap_or_else(|| Id::from("")), Some(role)),

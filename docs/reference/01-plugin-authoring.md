@@ -209,9 +209,16 @@ from the JSON body; `Empty` is `{}`. A body that doesn't deserialize answers `40
 
 Also on `ctx`: `db()`, `new_id()`, `now()`, `emit(event)`, `plugin::<P>()` and
 `try_plugin::<P>()`, `config()`, `keys()`, `headers()`, `ip()`, `user_agent()`, cookies
-(`set_signed_cookie`, `signed_cookie`, `delete_cookie`), `redirect(url)`, and `internal()`
-for the core operations plugins build on: finding and creating users, accounts and
-sessions, `sign_in` and `complete_sign_in`, verification values, and `send_email`.
+(`set_signed_cookie`, `signed_cookie`, `signed_token_cookie`, `delete_cookie`),
+`redirect(url)`, and `internal()` for the core operations plugins build on: finding and
+creating users, accounts and sessions, `sign_in` and `complete_sign_in`, verification
+values, and `send_email`.
+
+`signed_cookie` accepts only a cookie the current secret signed, so after a
+[rotation](../concepts/03-security.md#secrets) a retired secret can't forge one. A cookie that
+holds a session token is read with `signed_token_cookie`, which accepts every configured
+secret: the token means nothing until its session row is found, and the cookie keeps
+working across a rotation.
 
 An endpoint that creates or changes a credential (a key, a passkey, a linked account,
 two-factor) should act on `ctx.sensitive_session().await?` rather than `ctx.session()`. It
@@ -437,6 +444,58 @@ the organization plugin, or `hook::<SignUpEmail>()` without `.email_password(..)
 registers hooks the same way, with `.configure(|app| { app.hook::<SignUpEmail>().before(..); })`
 on the builder.
 
+### Claiming a user
+
+When proof of an email claims a user whose email wasn't verified
+([Claiming an email](../concepts/03-security.md#claiming-an-email)), core deletes the user's
+accounts, sessions and core links in one transaction. A plugin that keeps its own credentials
+or pending state for a user (keys, devices, a sign-in waiting for a second step) deletes them
+in that transaction with `on_claim`:
+
+```rust
+fn init<D: Adapter>(self: &Arc<Self>, app: &mut PluginBuilder<'_, D>) {
+    app.on_claim(|claim| {
+        Box::pin(async move {
+            claim
+                .db()
+                .delete::<AccessToken>(AccessToken::USER_ID.eq(claim.user_id()))
+                .await?;
+            Ok(())
+        })
+    });
+}
+```
+
+`claim.db()` queries inside the claim's transaction. An error rolls the whole claim back and
+fails the request, so a claim never commits with a cleanup missing. Don't do this on the
+`UserClaimed` event: events run after the response is ready and are dropped when the request
+fails. Endpoints that prove an email call `ctx.internal().claim_user(user, link)`, which also
+links `link` (an account the proof came with) in the same transaction.
+
+A flow that signs in or links an account across requests (a second step, a callback) reads
+the user before checking its credential and finishes with `ctx.internal().sign_in(user, ..)`
+or `link_account_unless_claimed(&user, ..)`. Both compare the user's security stamp at the end,
+so a flow that started before a claim answers 401 instead of finishing.
+
+### Checking user fields
+
+`prepare_user_input` checks and rewrites the user columns a client sends (the extra keys of
+`/sign-up/email`, `/update-user`, an email-code sign-up, or `create_user`'s `fields`) on every
+route that writes them. It gets the keys as JSON and a `UserInput` saying which write it is:
+
+```rust
+app.prepare_user_input(|ctx, mut input, kind| async move {
+    if let Some(serde_json::Value::String(handle)) = input.get("handle") {
+        let handle = handle.trim().to_lowercase();
+        input.insert("handle".into(), handle.into());
+    }
+    Ok(input)
+});
+```
+
+Prefer it to `before` hooks on each endpoint: a new route that writes user fields gets the
+same checks without your plugin knowing about it.
+
 ### Sign-in gates
 
 Anything that can stop a sign-in after the credentials check (two-factor, bans) is a gate
@@ -560,7 +619,7 @@ cookie:
 
 ```rust
 app.on_session_created(|ctx, session: SessionView| async move {
-    let previous = match ctx.signed_cookie("session_token") {
+    let previous = match ctx.signed_token_cookie("session_token") {
         Some(token) => ctx.internal().find_session_by_token(&token).await?,
         None => None,
     };

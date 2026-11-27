@@ -1,7 +1,6 @@
 //! The device-session cookies and the `/multi-session/*` endpoints.
 
 use fastauth_core::cookies::SetCookie;
-use fastauth_core::crypto::SignPurpose;
 use fastauth_core::plugin_prelude::*;
 use fastauth_core::routes::Status;
 use serde_json::{Map, Value as Json};
@@ -29,7 +28,7 @@ fn device_cookies<D: Adapter, A>(ctx: &Ctx<D, A>) -> Vec<(String, Option<String>
         .map(|(name, value)| {
             let token = ctx
                 .keys()
-                .verify(SignPurpose::Cookie, value.trim_matches('"'))
+                .verify_token(value.trim_matches('"'))
                 .map(str::to_owned);
             (name.to_owned(), token)
         })
@@ -54,11 +53,12 @@ fn invalid_token() -> AuthError {
 /// Whether the browser asked not to be remembered, so a switched-to session cookie should
 /// last for the browser session too.
 fn remember_me<D: Adapter, A>(ctx: &Ctx<D, A>) -> bool {
-    ctx.signed_cookie("dont_remember").is_none()
+    !ctx.dont_remember()
 }
 
 /// Runs after every new session: remembers it in a device-session cookie, after deleting the
-/// browser's older sessions of the same user. Past `maximum_sessions` the new session stays
+/// browser's older sessions of the same user. A `rememberMe: false` session gets a cookie
+/// that ends with the browser session, like its session cookie. Past `maximum_sessions` the new session stays
 /// active but isn't remembered. Better Auth's after hook, rule for rule.
 pub(crate) async fn remember<D: Adapter>(
     plugin: &MultiSession,
@@ -91,7 +91,8 @@ pub(crate) async fn remember<D: Adapter>(
     if cookies.len() - replaced + 1 > plugin.maximum_sessions {
         return Ok(());
     }
-    ctx.set_signed_cookie(&suffix, token, Some(ctx.config().session.lifetime()));
+    let max_age = remember_me(&ctx).then(|| ctx.config().session.lifetime());
+    ctx.set_signed_cookie(&suffix, token, max_age);
     Ok(())
 }
 
@@ -160,7 +161,7 @@ impl<D: Adapter> Endpoint<D> for SetActiveSession {
 
     async fn call(&self, ctx: Ctx<D, Public>, input: SessionTokenInput) -> Result<Json, AuthError> {
         let suffix = cookie_suffix(&input.session_token);
-        let token = ctx.signed_cookie(&suffix).ok_or_else(invalid_token)?;
+        let token = ctx.signed_token_cookie(&suffix).ok_or_else(invalid_token)?;
         let internal = ctx.internal();
         let Some(found) = internal.find_session_by_token(&token).await? else {
             ctx.delete_cookie(&suffix);
@@ -189,7 +190,7 @@ impl<D: Adapter> Endpoint<D> for RevokeDeviceSession {
         input: SessionTokenInput,
     ) -> Result<Status, AuthError> {
         let suffix = cookie_suffix(&input.session_token);
-        let token = ctx.signed_cookie(&suffix).ok_or_else(invalid_token)?;
+        let token = ctx.signed_token_cookie(&suffix).ok_or_else(invalid_token)?;
         revoke_token(&ctx, &token).await?;
         ctx.delete_cookie(&suffix);
         if ctx.session().token.as_deref() != Some(token.as_str()) {

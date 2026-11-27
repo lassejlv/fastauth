@@ -15,7 +15,7 @@ const PLACEHOLDER_DOMAIN: &str = "anonymous.placeholder.invalid";
 /// The request's own session from its cookie, without refreshing it. Sign-in endpoints are
 /// public, so their context carries no session.
 async fn cookie_session<D: Adapter, A>(ctx: &Ctx<D, A>) -> Result<Option<SessionView>, AuthError> {
-    let Some(token) = ctx.signed_cookie("session_token") else {
+    let Some(token) = ctx.signed_token_cookie("session_token") else {
         return Ok(None);
     };
     ctx.internal().find_session_by_token(&token).await
@@ -168,7 +168,7 @@ impl<D: Adapter> Endpoint<D> for DeleteAnonymousUser {
         if self.0.disable_delete_anonymous_user {
             return Err(AnonymousError::DeleteAnonymousUserDisabled.into());
         }
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         if !is_anonymous(user) {
             return Err(AnonymousError::UserIsNotAnonymous.into());
         }

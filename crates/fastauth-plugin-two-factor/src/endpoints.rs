@@ -1,5 +1,6 @@
 //! The `/two-factor/*` endpoints, the sign-in gate, and the signed cookies they share.
 
+use fastauth_core::adapter::Transaction;
 use fastauth_core::crypto::{Keys, base64url, ct_eq, random_bytes};
 use fastauth_core::mail::{AuthEmail, PluginEmail};
 use fastauth_core::plugin_prelude::*;
@@ -84,7 +85,9 @@ pub struct BackupCodesOutput {
     pub backup_codes: Vec<String>,
 }
 
-/// `POST /two-factor/enable`: a new TOTP secret and backup codes, replacing any old ones.
+/// `POST /two-factor/enable`: a new TOTP secret and backup codes, replacing any old ones. The
+/// replacement runs in a transaction that locks the user's row first, so two enables at once
+/// leave one secret, the one the later answer shows.
 /// Two-factor turns on after the first `verify-totp`, or at once with
 /// `skip_verification_on_enable`. Needs a session read from the database
 /// (`Ctx::sensitive_session`): API-key and impersonation sessions can't enable two-factor.
@@ -107,18 +110,23 @@ impl<D: Adapter> Endpoint<D> for Enable {
         check_password(&ctx, &user.id, &input.password).await?;
         let secret = random_bytes::<20>();
         let backup_codes = new_backup_codes(self.0.backup_codes);
-        ctx.db()
-            .delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(&user.id))
+        let row = TwoFactorRow {
+            id: ctx.new_id()?,
+            user_id: user.id.clone(),
+            secret: ctx.keys().encrypt(&secret),
+            backup_codes: seal_codes(ctx.keys(), &backup_codes),
+            last_used_step: None,
+        };
+        let tx = ctx.adapter().begin().await?;
+        let db = ctx.db_on(&tx);
+        db.update::<User>(User::ID.eq(&user.id))
+            .set(User::ID, user.id.clone())
+            .exec()
             .await?;
-        ctx.db()
-            .insert(&TwoFactorRow {
-                id: ctx.new_id()?,
-                user_id: user.id.clone(),
-                secret: ctx.keys().encrypt(&secret),
-                backup_codes: seal_codes(ctx.keys(), &backup_codes),
-                last_used_step: None,
-            })
+        db.delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(&user.id))
             .await?;
+        db.insert(&row).await?;
+        tx.commit().await?;
         if self.0.skip_verification_on_enable {
             set_enabled(&ctx, &user.id, true).await?;
         }
@@ -178,7 +186,7 @@ impl<D: Adapter> Endpoint<D> for GetTotpUri {
         ctx: Ctx<D, Authenticated>,
         input: PasswordInput,
     ) -> Result<TotpUriOutput, AuthError> {
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         check_password(&ctx, &user.id, &input.password).await?;
         let row = find_row(&ctx, &user.id)
             .await?
@@ -340,7 +348,7 @@ impl<D: Adapter> Endpoint<D> for GenerateBackupCodes {
         ctx: Ctx<D, Authenticated>,
         input: PasswordInput,
     ) -> Result<BackupCodesOutput, AuthError> {
-        let user = &ctx.session().user;
+        let user = &ctx.sensitive_session().await?.user;
         check_password(&ctx, &user.id, &input.password).await?;
         let enabled = is_enabled(user)?;
         let row = find_row(&ctx, &user.id)
@@ -754,6 +762,29 @@ fn open_secret(keys: &Keys, row: &TwoFactorRow) -> Result<Vec<u8>, AuthError> {
 
 fn otp_identifier(user_id: &Id) -> String {
     format!("two-factor-otp:{user_id}")
+}
+
+/// Ends a claimed user's two-factor, inside the claim: the enrollment (TOTP secret and backup
+/// codes, so trusted-device cookies stop matching too), the `two_factor_enabled` flag, a
+/// sign-in waiting at the two-factor step and an emailed code. Whoever registered the address
+/// before the proof set all of these up.
+pub(crate) async fn end_on_claim<D: Adapter>(
+    claim: fastauth_core::internal::Claim<'_, D>,
+) -> Result<(), AuthError> {
+    let db = claim.db();
+    let user_id = claim.user_id();
+    db.delete::<TwoFactorRow>(TwoFactorRow::USER_ID.eq(user_id))
+        .await?;
+    db.update::<User>(User::ID.eq(user_id))
+        .set(TwoFactorUser::TWO_FACTOR_ENABLED, false)
+        .exec()
+        .await?;
+    db.delete::<Verification>(Verification::IDENTIFIER.in_([
+        format!("{PENDING_PREFIX}{user_id}"),
+        otp_identifier(user_id),
+    ]))
+    .await?;
+    Ok(())
 }
 
 /// Codes in Better Auth's shape: ten letters and digits, split `xxxxx-xxxxx`.
