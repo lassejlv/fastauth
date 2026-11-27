@@ -25,6 +25,7 @@ pub mod rate_limit;
 pub mod routes;
 pub mod schema;
 pub mod session;
+pub mod storage;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod value;

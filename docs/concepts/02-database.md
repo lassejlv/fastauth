@@ -459,4 +459,5 @@ and deletes, unique violations, transaction commit, rollback and drop,
 `session_with_user`, and the migrator round trip (create, then an empty plan, then added
 columns on a table with rows). `MemoryAdapter` and all three `fastauth-sqlx` databases run it.
 
-Secondary storage (Redis) and other adapters are [planned](../get-started/01-overview.md#planned).
+Secondary storage for apps that run several instances (Redis, Valkey) is a separate trait; see
+[Running several instances](04-multiple-instances.md).

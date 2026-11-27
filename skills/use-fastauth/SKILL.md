@@ -43,6 +43,7 @@ serde = { version = "1", features = ["derive"] }
 | `mysql` | no | `Sqlx<MySql>`, `MySqlPool` in the prelude |
 | `mysql-tls` | no | `mysql` plus TLS, which a default MySQL 8 login needs |
 | `actix` | no | `fastauth::actix`: `auth.scope()`, the actix-web extractors and session middleware |
+| `redis`, `redis-tls` | no | `RedisStorage` for `.secondary_storage(..)`: rate limits shared by every instance (unreleased, main only) |
 | `macros` | yes | `#[derive(Fields, Model, AuthError)]` |
 | `oauth` | no | `fastauth::social`: `Social`, `Github`, `Google` |
 | `two-factor` | no | `fastauth::plugins::two_factor`: `TwoFactor` |

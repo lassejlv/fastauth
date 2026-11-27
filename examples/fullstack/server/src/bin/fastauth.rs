@@ -12,7 +12,7 @@ use fastauth_example_fullstack::{auth, config::Config};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     fastauth::cli::run(|pool: PgPool| -> anyhow::Result<auth::AppAuth> {
-        Ok(auth::build(&Config::from_env()?, pool)?)
+        Ok(auth::build(&Config::from_env()?, pool, None)?)
     })
     .await
 }

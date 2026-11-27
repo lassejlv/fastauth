@@ -38,6 +38,7 @@ fastauth-macros                #[derive(Fields)], #[derive(Model)], #[derive(Aut
 fastauth-sqlx                  Adapter for sqlx: Postgres, SQLite and MySQL; migrations; shared transactions
 fastauth-axum                  Router, Session extractors, session layer
 fastauth-actix                 actix-web: auth scope, Session extractors, session middleware
+fastauth-redis                 secondary storage on Redis or Valkey, for rate limits shared by every instance
 fastauth-oauth                 Social plugin: OAuth providers (GitHub, Google), the outgoing HttpClient
 fastauth-plugin-two-factor     TOTP, email codes, backup codes, trusted devices
 fastauth-plugin-organization   organizations, members, invitations, roles and permissions
@@ -89,6 +90,7 @@ fastauth = { version = "0.6", default-features = false, features = [
 | `anonymous` | `fastauth-plugin-anonymous`, as `fastauth::plugins::anonymous` |
 | `multi-session` | `fastauth-plugin-multi-session`, as `fastauth::plugins::multi_session` |
 | `cli` | `fastauth::cli::run` for your app's `fastauth` binary: `schema`, `status`, `generate`, `migrate` |
+| `redis`, `redis-tls` | `fastauth-redis`, as `fastauth::redis`; `RedisStorage` joins the prelude ([Running several instances](../concepts/04-multiple-instances.md)). `redis-tls` adds `rediss://` |
 
 argon2id is always on; it isn't a feature.
 
@@ -178,8 +180,6 @@ None of this exists yet. Don't write code against it; it may change shape before
   `organization_limit`.
 - **Social:** Apple, Discord, Microsoft, GitLab and other providers, and a generic OIDC
   provider with `id_token` verification against the provider's JWKS.
-- **Integrations and storage:** Redis secondary
-  storage for sessions and rate-limit counters (rate limits are per process today).
 - **Tooling:** importing Better Auth scrypt password hashes, re-encrypting columns after a
   secret rotation, an OpenAPI document of the registered endpoints, a `TestAuth` test
   helper, and an `#[endpoint]` attribute that writes an endpoint from a function.
