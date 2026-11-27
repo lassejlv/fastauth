@@ -96,6 +96,7 @@ impl Names {
                 naming: ColumnNaming::CamelCase,
                 renames: vec![(ITEM.into(), "note".into(), "remark".into())],
                 hex_text: vec![(ITEM.into(), "blob".into())],
+                utf8_text: Vec::new(),
             },
         }
     }

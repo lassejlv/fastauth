@@ -32,7 +32,8 @@ pub struct TokenRequest<'a> {
     pub redirect_uri: &'a str,
 }
 
-/// Tokens from the provider. Access and refresh tokens are stored encrypted.
+/// Tokens from the provider. Access and refresh tokens are stored encrypted, unless
+/// `Builder::store_oauth_tokens_in_plaintext` is on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OAuthTokens {
     pub access_token: String,

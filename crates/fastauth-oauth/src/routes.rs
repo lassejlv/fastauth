@@ -575,8 +575,7 @@ async fn update_tokens<D: Adapter, A>(
     account_id: &Id,
     account: &NewAccount,
 ) -> Result<u64, AuthError> {
-    let keys = ctx.keys();
-    let seal = |token: &String| Some(keys.encrypt(token.as_bytes()));
+    let seal = |token: &String| Some(ctx.oauth_token_bytes(token));
     let mut update = ctx
         .db()
         .update::<Account>(Account::ID.eq(account_id))

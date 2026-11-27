@@ -26,7 +26,8 @@ const baCache = app("better-auth-cookie-cache", "better-auth", "http", await fre
 const baHttps = app("better-auth-https", "better-auth", "https", await freePort());
 const fa = app("fastauth", "fastauth", "http", await freePort());
 const faHttps = app("fastauth-https", "fastauth", "https", await freePort());
-const apps = [ba, baCache, baHttps, fa, faHttps];
+const faEncrypted = app("fastauth-encrypted-tokens", "fastauth", "http", await freePort());
+const apps = [ba, baCache, baHttps, fa, faHttps, faEncrypted];
 const other = (a: App) => (a.kind === "better-auth" ? fa : ba);
 
 let counter = 0;
@@ -192,6 +193,7 @@ try {
     await start(baCache, { COOKIE_CACHE: "on" });
     await start(baHttps);
     await start(faHttps);
+    await start(faEncrypted, { FASTAUTH_PLAINTEXT_TOKENS: "0" });
   });
 
   await section("5. Sign up in one app, sign in with the other", async () => {
@@ -490,6 +492,14 @@ try {
   });
 
   await section("13. Social sign-in, a provider both apps configure (mock OAuth)", async () => {
+    // The sub the provider answers for an access token, or undefined when it refuses it.
+    const providerSub = async (token: unknown) => {
+      const res = await fetch(`${env.MOCK_OAUTH_URL}/userinfo`, { headers: { authorization: `Bearer ${token}` } });
+      return res.status === 200 ? ((await res.json()) as any).sub : undefined;
+    };
+    const getAccessToken = (b: Browser, accountId: string) => call(ba, copy(b), "POST", "/api/auth/get-access-token", { accountId });
+    const readTokens = (a: App, b: Browser) => call(a, copy(b), "GET", "/app/provider-token");
+
     const mail = newEmail("social-ba-first");
     const b = browser();
     const first = await social(ba, b, { sub: "mock-ba-first", email: mail });
@@ -502,25 +512,52 @@ try {
     check("fastauth signs the same user in on that account row (no 500 on plain tokens)", then.callback?.status === 302 && fb.jar.has(TOKEN), [then.begin.text, then.callback?.status, then.callback?.text]);
     const fid = (await getSession(fa, copy(fb))).json?.user?.id;
     check("as the same user", fid === userId, fid);
-    const replaced = await accountRow(userId, "mock");
-    check("fastauth replaced the tokens with its own (encrypted, as hex)", /^[0-9a-f]+$/.test(replaced?.accessToken ?? "") && !replaced.accessToken.startsWith("mock-"), replaced?.accessToken);
-    check("one mock account row for the user", (await q('SELECT 1 FROM "account" WHERE "userId" = $1 AND "providerId" = $2', [userId, "mock"])).length === 1);
-    const stale = await call(ba, copy(b), "POST", "/api/auth/get-access-token", { accountId: replaced?.id });
+    const stored = await accountRow(userId, "mock");
     check(
-      "known gap: until Better Auth signs the user in again, its /get-access-token returns fastauth's ciphertext, not the provider's token",
-      stale.status === 200 && stale.json?.accessToken === replaced?.accessToken,
+      "with store_oauth_tokens_in_plaintext, fastauth stores the provider's new tokens as plain text",
+      stored?.accessToken?.startsWith("mock-access-") && stored.accessToken !== plain && stored?.refreshToken?.startsWith("mock-refresh-"),
+      stored,
+    );
+    check("one mock account row for the user", (await q('SELECT 1 FROM "account" WHERE "userId" = $1 AND "providerId" = $2', [userId, "mock"])).length === 1);
+    const fresh = await getAccessToken(b, stored?.id);
+    check("Better Auth's /get-access-token returns the token fastauth stored", fresh.status === 200 && fresh.json?.accessToken === stored?.accessToken, fresh.text);
+    check("and the provider accepts it", (await providerSub(fresh.json?.accessToken)) === "mock-ba-first");
+    const own = await readTokens(fa, fb);
+    check("fastauth's code reads the tokens back (Account::read_access_token)", own.json?.accessToken === stored?.accessToken && own.json?.refreshToken === stored?.refreshToken, own.text);
+
+    const eb = browser();
+    const sealedIn = await social(faEncrypted, eb, { sub: "mock-ba-first", email: mail });
+    check("fastauth with encrypted tokens (the default) signs the user in on the same row", sealedIn.callback?.status === 302 && eb.jar.has(TOKEN), sealedIn.callback?.text);
+    const sealed = await accountRow(userId, "mock");
+    check("it stores its ciphertext, as hex", /^[0-9a-f]+$/.test(sealed?.accessToken ?? "") && /^[0-9a-f]+$/.test(sealed?.refreshToken ?? ""), sealed);
+    const stale = await getAccessToken(b, sealed?.id);
+    check(
+      "the documented gap without the knob: Better Auth's /get-access-token returns fastauth's ciphertext",
+      stale.status === 200 && stale.json?.accessToken === sealed?.accessToken,
       stale.text,
+    );
+    check("which the provider refuses", (await providerSub(stale.json?.accessToken)) === undefined);
+    const mixed = await readTokens(fa, fb);
+    check(
+      "fastauth with plain-text tokens still reads the encrypted row",
+      (await providerSub(mixed.json?.accessToken)) === "mock-ba-first" && mixed.json?.refreshToken?.startsWith("mock-refresh-"),
+      mixed.text,
     );
     const again = await social(ba, browser(), { sub: "mock-ba-first", email: mail });
     check("Better Auth signs in again on the row fastauth wrote", again.callback?.status === 302 && !/error/.test(again.callback?.location ?? ""), again.callback?.location);
     const restored = (await accountRow(userId, "mock"))?.accessToken;
     check("and writes the provider's plain token back", typeof restored === "string" && restored.startsWith("mock-access-"), restored);
+    const back = await readTokens(faEncrypted, eb);
+    check("fastauth with encrypted tokens reads Better Auth's plain token as it is", back.json?.accessToken === restored, back.text);
 
     const mail2 = newEmail("social-fa-first");
     const b2 = browser();
     const fFirst = await social(fa, b2, { sub: "mock-fa-first", email: mail2 });
     check("fastauth signs up a user through the provider", fFirst.callback?.status === 302 && b2.jar.has(TOKEN), fFirst.callback?.text);
     const fUser = (await getSession(fa, copy(b2))).json?.user?.id;
+    const fRow = await accountRow(fUser, "mock");
+    const fToken = await getAccessToken(b2, fRow?.id);
+    check("Better Auth's /get-access-token returns a token the provider accepts for it", (await providerSub(fToken.json?.accessToken)) === "mock-fa-first", fToken.text);
     const bb = browser();
     const bThen = await social(ba, bb, { sub: "mock-fa-first", email: mail2 });
     const bUser = (await getSession(ba, copy(bb))).json?.user?.id;

@@ -415,6 +415,88 @@ async fn returning_user_signs_in_and_tokens_are_refreshed() {
 }
 
 #[tokio::test]
+async fn plaintext_tokens_are_stored_as_they_are_and_read_next_to_encrypted_ones() {
+    let mock = MockHttp::default();
+    let memory = MemoryAdapter::new();
+    let build = |plaintext: bool| -> AppAuth {
+        FastAuth::builder()
+            .secret(Secret::from_bytes(vec![42u8; 32]))
+            .base_url(ORIGIN)
+            .database(memory.clone())
+            .rate_limit(RateLimit::disabled())
+            .store_oauth_tokens_in_plaintext(plaintext)
+            .plugin(
+                Social::with_http_client(mock.clone())
+                    .provider(Github::new("gh-id", "gh-secret"))
+                    .provider(Google::new("google-id", "google-secret")),
+            )
+            .plugin(Gatekeeper)
+            .build()
+            .expect("valid config")
+    };
+    let sign_in = async |auth: &AppAuth, provider: &str| {
+        let mut browser = Client::new(auth);
+        let url = browser
+            .start("/sign-in/social", sign_in_body(provider))
+            .await;
+        browser.callback(provider, &url).await;
+        assert!(browser.has_session());
+    };
+
+    let encrypted = build(false);
+    assert!(!encrypted.config().oauth_tokens_in_plaintext());
+    mock.google_user("ada@acme.dk", true);
+    sign_in(&encrypted, "google").await;
+
+    let plain = build(true);
+    assert!(plain.config().oauth_tokens_in_plaintext());
+    mock.github_user(7, "grace@acme.dk");
+    sign_in(&plain, "github").await;
+    let github = accounts(&plain, "github").await.remove(0);
+    assert_eq!(
+        github.access_token.as_deref(),
+        Some(&b"gho_github-access"[..])
+    );
+    assert_eq!(
+        github.read_access_token(plain.keys()).as_deref(),
+        Some("gho_github-access")
+    );
+
+    let google = accounts(&plain, "google").await.remove(0);
+    assert_ne!(
+        google.access_token.as_deref(),
+        Some(&b"ya29.google-access"[..])
+    );
+    assert_eq!(
+        google.read_access_token(plain.keys()).as_deref(),
+        Some("ya29.google-access"),
+        "a row stored encrypted before still reads"
+    );
+
+    mock.respond(
+        "https://oauth2.googleapis.com/token",
+        200,
+        json!({ "access_token": "ya29.second", "expires_in": 3599 }),
+    );
+    sign_in(&plain, "google").await;
+    let google = accounts(&plain, "google").await.remove(0);
+    assert_eq!(google.access_token.as_deref(), Some(&b"ya29.second"[..]));
+    assert_ne!(
+        google.refresh_token.as_deref(),
+        Some(&b"1//google-refresh"[..]),
+        "a missing refresh token keeps the old, encrypted one"
+    );
+    assert_eq!(
+        google.read_refresh_token(plain.keys()).as_deref(),
+        Some("1//google-refresh")
+    );
+    assert_eq!(
+        google.id_token,
+        accounts(&encrypted, "google").await[0].id_token
+    );
+}
+
+#[tokio::test]
 async fn links_an_existing_user_by_verified_email() {
     let (auth, mock) = app(AccountLinking::default());
     let mut browser = Client::new(&auth);

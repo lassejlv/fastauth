@@ -11,10 +11,12 @@ use fastauth_core::crypto::{Argon2id, Hash};
 use fastauth_core::mail::AuthEmail;
 use fastauth_core::migrate::{Migrations, ReviewOnly};
 use fastauth_core::model::Model;
+use fastauth_core::models::Account;
 use fastauth_core::models::Verification;
 use fastauth_core::prelude::*;
 use fastauth_core::query::{Db, Where};
-use fastauth_core::schema::ColumnNaming;
+use fastauth_core::schema::{BytesText, ColumnNaming};
+use fastauth_core::value::Id;
 use fastauth_core::value::Value;
 use fastauth_core::{Builder, Nil, Present};
 use serde_json::json;
@@ -411,7 +413,88 @@ fn the_better_auth_preset_sets_the_database_settings() {
     assert_eq!(account.stored_column("provider_id"), Some("providerId"));
     assert!(account.is_hex_text(account.position("access_token").unwrap()));
     assert!(account.is_hex_text(account.position("refresh_token").unwrap()));
+    assert!(
+        !auth.config().oauth_tokens_in_plaintext(),
+        "the preset keeps OAuth tokens encrypted"
+    );
     let session = auth.schema().expect("session");
     assert_eq!(session.stored_column("token"), Some("token"));
     assert_eq!(session.stored_column("expires_at"), Some("expiresAt"));
+}
+
+#[test]
+fn plaintext_oauth_tokens_store_text_token_columns_as_utf8() {
+    let auth = builder()
+        .better_auth_compat(fastauth_core::compat::BetterAuthCompat::new(
+            "better-auth-secret-better-auth-secret-0123",
+        ))
+        .store_oauth_tokens_in_plaintext(true)
+        .build()
+        .unwrap();
+    assert!(auth.config().oauth_tokens_in_plaintext());
+    let account = auth.schema().expect("account");
+    for column in ["access_token", "refresh_token"] {
+        let position = account.position(column).unwrap();
+        assert_eq!(
+            account.bytes_text(position),
+            Some(BytesText::Utf8),
+            "{column}"
+        );
+        assert!(!account.is_hex_text(position));
+    }
+
+    let bytea = builder()
+        .store_oauth_tokens_in_plaintext(true)
+        .build()
+        .unwrap();
+    let account = bytea.schema().expect("account");
+    let position = account.position("access_token").unwrap();
+    assert_eq!(
+        account.bytes_text(position),
+        None,
+        "a bytes column stays bytes"
+    );
+}
+
+#[test]
+fn stored_oauth_tokens_read_whichever_way_they_are_stored() {
+    let auth = builder().build().unwrap();
+    let keys = auth.keys();
+    let sealed = keys.encrypt(b"ya29.token");
+    let hex: String = sealed.iter().map(|b| format!("{b:02x}")).collect();
+    let row = |stored: Option<Vec<u8>>| Account {
+        id: Id::from("a"),
+        user_id: Id::from("u"),
+        provider_id: "google".into(),
+        account_id: "1".into(),
+        password_hash: None,
+        access_token: stored.clone(),
+        refresh_token: stored,
+        id_token: None,
+        access_token_expires_at: None,
+        refresh_token_expires_at: None,
+        scope: None,
+        created_at: OffsetDateTime::now_utc(),
+        updated_at: OffsetDateTime::now_utc(),
+    };
+    for stored in [sealed, hex.into_bytes(), b"ya29.token".to_vec()] {
+        let account = row(Some(stored));
+        assert_eq!(
+            account.read_access_token(keys).as_deref(),
+            Some("ya29.token")
+        );
+        assert_eq!(
+            account.read_refresh_token(keys).as_deref(),
+            Some("ya29.token")
+        );
+    }
+    assert_eq!(
+        row(Some(b"cafe".to_vec()))
+            .read_access_token(keys)
+            .as_deref(),
+        Some("cafe"),
+        "hex that isn't fastauth's ciphertext is a plain token"
+    );
+    assert_eq!(row(None).read_access_token(keys), None);
+    assert_eq!(row(Some(vec![0xff, 0xfe])).read_access_token(keys), None);
 }

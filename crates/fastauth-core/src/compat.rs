@@ -196,7 +196,9 @@ impl PasswordHasher for BetterAuthScrypt {
 /// - passwords use [`BetterAuthScrypt`], at most
 ///   [`BetterAuthCompat::max_concurrent_hashes`] at a time;
 /// - columns are stored in Better Auth's names: [`ColumnNaming::CamelCase`], the password
-///   hash in `account.password`, and the OAuth tokens as hex in its text columns;
+///   hash in `account.password`, and the OAuth tokens as hex in its text columns. The
+///   tokens stay encrypted: storing them as plain text, as Better Auth does, is a separate
+///   choice (`Builder::store_oauth_tokens_in_plaintext`) the preset never makes;
 /// - sessions are stored with their raw token ([`SessionTokens::Raw`]), so each app resolves
 ///   the other's sessions;
 /// - fastauth leaves `account` rows of providers it doesn't own alone

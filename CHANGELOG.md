@@ -69,6 +69,20 @@ the adapter names (`Sqlx::rename("verification", "fastauth_verification")`).
   `better_auth_schema` tests run on the schema Better Auth 1.7.8's CLI generates for each
   database (`crates/fastauth-sqlx/tests/better-auth/generate.sh`).
 
+### Provider tokens Better Auth can read
+
+- **`Builder::store_oauth_tokens_in_plaintext(true)`** stores the access and refresh tokens a
+  provider returns as plain text instead of encrypting them, as Better Auth 1.7.8 does unless
+  its `account.encryptOAuthTokens` is on. A Better Auth app on the same database then gets
+  working tokens from its `/get-access-token` (and from `account.accessToken`) after a
+  sign-in through fastauth, instead of fastauth's ciphertext. In Better Auth's text columns
+  the token is stored as the text itself (`BytesText::Utf8`), not as hex. It's off by
+  default and `BetterAuthCompat` doesn't turn it on: anyone who can read the table or a
+  backup can call the provider as each user. Rows already stored aren't rewritten.
+- **`Account::read_access_token(keys)` and `read_refresh_token(keys)`** read a stored token
+  whichever way it's stored: fastauth's ciphertext (bytes, or hex in a text column) or plain
+  text written by fastauth or Better Auth. `Auth::keys()` gives app code the keys.
+
 ### Better Auth cross-app suite
 
 `compat/better-auth-dual/run-dual.sh` (in `scripts/ci.sh --only compat`) runs a real Better
@@ -76,8 +90,10 @@ Auth 1.7.8 app and a fastauth app on axum against one Postgres 17, as during a p
 Better Auth's migration creates the schema, fastauth's four review-only migrations go on top,
 and each app accepts the other's sign-ups, cookies (`__Secure-` on https), sign-outs, password
 changes and resets, refreshes, `customerId`, scrypt hashes and social accounts, with SSO
-(`oidc`) rows left alone and Better Auth's cookie cache on and off. The Better Auth app's config
-is one file, `compat/better-auth-dual/better-auth/app.config.ts`, to swap for a real one.
+(`oidc`) rows left alone and Better Auth's cookie cache on and off. The fastauth app stores
+provider tokens in plain text, so Better Auth's `/get-access-token` returns tokens the
+provider accepts; a second instance with encrypted tokens shows the gap that leaves. The
+Better Auth app's config is one file, `compat/better-auth-dual/better-auth/app.config.ts`, to swap for a real one.
 [Verified against Better Auth 1.7.8](docs/integrations/04-migrating-from-better-auth.md#verified-against-better-auth-178)
 lists what it proves.
 
@@ -90,8 +106,11 @@ owns_account_provider, owned_account_providers}`; `Migrations`, `ReviewOnly`,
 `MigrationSql`, `Migrator::{mode, sql_steps}`; two `Adapter` methods with defaults,
 `session_with_user_by_token` (with `SessionWithUserByToken`) and `duplicates_query`;
 `Internal::{accounts_of, refuse_foreign_accounts}`; `PluginBuilder::account_provider`; the
-`USER_HAS_FOREIGN_ACCOUNTS` code. `LiveSchema` now holds stored column names, which are the
-declared names unless a naming setting changes them.
+`USER_HAS_FOREIGN_ACCOUNTS` code; `Builder::store_oauth_tokens_in_plaintext`,
+`CoreConfig::oauth_tokens_in_plaintext`, `Ctx::oauth_token_bytes`, `BytesText` and
+`TableDef::bytes_text`, `Account::{read_access_token, read_refresh_token}` and `Auth::keys`.
+`LiveSchema` now holds stored column names, which are the declared names unless a naming
+setting changes them.
 
 ## 0.7.0 (2026-11-27)
 

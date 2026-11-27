@@ -46,6 +46,10 @@ impl Fields for Customer {
 }
 
 fn compat<DB: Dialect>(db: Sqlx<DB>) -> Auth<Sqlx<DB>, Customer> {
+    compat_tokens(db, false)
+}
+
+fn compat_tokens<DB: Dialect>(db: Sqlx<DB>, plaintext: bool) -> Auth<Sqlx<DB>, Customer> {
     FastAuth::builder()
         .secret(Secret::from_bytes(vec![42u8; 32]))
         .base_url("http://localhost:3000")
@@ -58,6 +62,7 @@ fn compat<DB: Dialect>(db: Sqlx<DB>) -> Auth<Sqlx<DB>, Customer> {
         .session_tokens(SessionTokens::Raw)
         .only_owned_accounts(true)
         .migrations(Migrations::ReviewOnly)
+        .store_oauth_tokens_in_plaintext(plaintext)
         .email_password(EmailPassword::default().hasher(Argon2id::with_params(1024, 1, 1)))
         .rate_limit(RateLimit::disabled())
         .build()
@@ -306,6 +311,46 @@ async fn postgres() {
             .await
             .unwrap();
     assert_eq!(refresh.as_deref(), Some("deadbeef"));
+
+    // With plain-text OAuth tokens the text columns hold the tokens themselves, as Better
+    // Auth's do, and fastauth still reads a token it stored encrypted before.
+    let plain = compat_tokens(Sqlx::new(pool.clone()), true);
+    Db::new(auth.adapter(), auth.schema())
+        .update::<Account>(Account::ID.eq(Id::from("oidc-row")))
+        .set(
+            Account::ACCESS_TOKEN,
+            Some(auth.keys().encrypt(b"sealed-token")),
+        )
+        .set(Account::REFRESH_TOKEN, Some(b"deadbeef".to_vec()))
+        .exec()
+        .await
+        .unwrap();
+    Db::new(plain.adapter(), plain.schema())
+        .update::<Account>(Account::ID.eq(Id::from("oidc-row")))
+        .set(Account::REFRESH_TOKEN, Some(b"1//plain-refresh".to_vec()))
+        .exec()
+        .await
+        .unwrap();
+    let (refresh,): (Option<String>,) =
+        sqlx::query_as("SELECT \"refreshToken\" FROM account WHERE id = 'oidc-row'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(refresh.as_deref(), Some("1//plain-refresh"));
+    let row = Db::new(plain.adapter(), plain.schema())
+        .find::<Account>(Account::ID.eq(Id::from("oidc-row")))
+        .one()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        row.read_access_token(plain.keys()).as_deref(),
+        Some("sealed-token")
+    );
+    assert_eq!(
+        row.read_refresh_token(plain.keys()).as_deref(),
+        Some("1//plain-refresh")
+    );
 
     // The unique migration explains how to check for duplicates first.
     let check = compat(Sqlx::new(pool.clone()));

@@ -46,6 +46,7 @@ async fn serve<P: PluginSet>(auth: Auth<Sqlx<Postgres>, Customer, P>) -> anyhow:
     let app = Router::new()
         .route("/app/me", get(me::<P>))
         .route("/app/customer-id", post(set_customer_id::<P>))
+        .route("/app/provider-token", get(provider_token::<P>))
         .merge(auth.router())
         .layer(auth.session_layer())
         .with_state(auth);
@@ -58,6 +59,28 @@ async fn serve<P: PluginSet>(auth: Auth<Sqlx<Postgres>, Customer, P>) -> anyhow:
     )
     .await?;
     Ok(())
+}
+
+/// The app's own read of the signed-in user's tokens from the mock provider, as code that
+/// calls the provider's API would: plain text or encrypted, whichever app stored them.
+async fn provider_token<P: PluginSet>(
+    State(auth): State<Auth<Sqlx<Postgres>, Customer, P>>,
+    session: Session<Auth<Sqlx<Postgres>, Customer, P>>,
+) -> Result<Json<serde_json::Value>, String> {
+    let account = Db::new(auth.adapter(), auth.schema())
+        .find::<Account>(
+            Account::USER_ID
+                .eq(session.user.id.clone())
+                .and(Account::PROVIDER_ID.eq(mock_provider::ID)),
+        )
+        .one()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("no mock account")?;
+    Ok(Json(json!({
+        "accessToken": account.read_access_token(auth.keys()),
+        "refreshToken": account.read_refresh_token(auth.keys()),
+    })))
 }
 
 /// The app's own read of its field, through the typed `Customer`.

@@ -213,6 +213,12 @@ Only while a Better Auth app and fastauth share the tables
   check in the unique index's file before it.
 - Turn on `.only_owned_accounts(true)` when another integration writes `account` rows
   (an `oidc` provider), so claims, unlinking and user deletion leave them alone.
+- Leave `.store_oauth_tokens_in_plaintext(..)` off unless the Better Auth app reads stored
+  provider tokens (`/get-access-token`, `account.accessToken`). With it on, the `account`
+  table, its backups and replicas hold every user's provider access and refresh tokens in the
+  clear: restrict who can read them as you would the secret, and turn it off as soon as the
+  Better Auth app stops reading them
+  ([Provider tokens](../integrations/04-migrating-from-better-auth.md#provider-tokens)).
 - Give fastauth its own verification table (`Sqlx::rename("verification", ..)`) and expect
   links Better Auth mailed before the cutover to fail.
 - Prune expired verification rows (`auth.prune_verifications_every(..)`) if few new ones

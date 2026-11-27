@@ -71,6 +71,21 @@ pub(crate) struct Storage {
     pub(crate) renames: Vec<(String, String, String)>,
     /// `(table, column)` of byte columns stored as hex text.
     pub(crate) hex_text: Vec<(String, String)>,
+    /// `(table, column)` of byte columns stored as UTF-8 text.
+    pub(crate) utf8_text: Vec<(String, String)>,
+}
+
+/// How a [`ColumnType::Bytes`] column is stored when it's a text column, to share one
+/// another app owns ([`TableDef::bytes_text`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BytesText {
+    /// Lowercase hex ([`Builder::bytes_as_hex_text`](crate::Builder::bytes_as_hex_text)).
+    Hex,
+    /// The bytes as the text they are: the OAuth token columns stored as text with
+    /// [`Builder::store_oauth_tokens_in_plaintext`](crate::Builder::store_oauth_tokens_in_plaintext).
+    /// Bytes that aren't UTF-8 are stored as lowercase hex, and every value reads back as
+    /// its text's bytes.
+    Utf8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,8 +217,8 @@ pub struct TableDef {
     id_storage: IdStorage,
     /// The stored name of each column, in column order. Empty until the schema is built.
     stored: Vec<String>,
-    /// For each column, whether it is a byte column stored as hex text.
-    hex_text: Vec<bool>,
+    /// For each column, how it is stored as text when it's a byte column stored as text.
+    bytes_text: Vec<Option<BytesText>>,
     /// For each column with a foreign key, the stored name of the column it references.
     referenced: Vec<Option<String>>,
 }
@@ -218,7 +233,7 @@ impl TableDef {
             positions: HashMap::new(),
             id_storage: IdStorage::default(),
             stored: Vec::new(),
-            hex_text: Vec::new(),
+            bytes_text: Vec::new(),
             referenced: Vec::new(),
         }
     }
@@ -255,7 +270,13 @@ impl TableDef {
     /// text instead of bytes, to share a text column another app owns
     /// ([`Builder::bytes_as_hex_text`](crate::Builder::bytes_as_hex_text)).
     pub fn is_hex_text(&self, position: usize) -> bool {
-        self.hex_text.get(position).copied().unwrap_or(false)
+        self.bytes_text(position) == Some(BytesText::Hex)
+    }
+
+    /// How the [`ColumnType::Bytes`] column at `position` is stored as text, or `None` when
+    /// it's stored as bytes.
+    pub fn bytes_text(&self, position: usize) -> Option<BytesText> {
+        self.bytes_text.get(position).copied().flatten()
     }
 
     /// How this table's [`ColumnType::Id`] columns are stored; the same for every table
@@ -420,7 +441,7 @@ impl SchemaBuilder {
                 .iter()
                 .map(|c| storage.naming.apply(c.name))
                 .collect();
-            table.hex_text = vec![false; table.columns.len()];
+            table.bytes_text = vec![None; table.columns.len()];
         }
         fn find<'t>(
             tables: &'t mut [TableDef],
@@ -445,12 +466,14 @@ impl SchemaBuilder {
                 def.stored[i] = to.clone();
             }
         }
-        for (table, column) in &storage.hex_text {
+        let text_columns = (storage.hex_text.iter().map(|c| (c, BytesText::Hex)))
+            .chain(storage.utf8_text.iter().map(|c| (c, BytesText::Utf8)));
+        for ((table, column), encoding) in text_columns {
             let target = (table.as_str(), column.as_str());
             if let Some((def, i)) = find(&mut self.tables, target, "bytes_as_hex_text", &mut errors)
             {
                 if def.columns[i].ty == ColumnType::Bytes {
-                    def.hex_text[i] = true;
+                    def.bytes_text[i] = Some(encoding);
                 } else {
                     errors.push(format!(
                         "bytes_as_hex_text names `{table}.{column}`, which is {:?}, not Bytes",

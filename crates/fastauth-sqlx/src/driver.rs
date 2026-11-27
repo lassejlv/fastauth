@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use fastauth_core::schema::{ColumnType, IdStorage, TableDef};
+use fastauth_core::schema::{BytesText, ColumnType, IdStorage, TableDef};
 use fastauth_core::value::Value;
 use sqlx::error::DatabaseError;
 use sqlx::{Database, SqlStr};
@@ -89,33 +89,41 @@ pub fn stored_type(table: &TableDef, ty: ColumnType) -> ColumnType {
 }
 
 /// The type the column at `position` of `table` is stored as: [`stored_type`], or text for
-/// a byte column stored as hex text.
+/// a byte column stored as text.
 pub fn column_type(table: &TableDef, position: usize) -> ColumnType {
-    if table.is_hex_text(position) {
+    if table.bytes_text(position).is_some() {
         return ColumnType::Text;
     }
     stored_type(table, table.columns[position].ty)
 }
 
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// `value` as the column at `position` stores it: a hex text column gets bytes as
-/// lowercase hex.
+/// lowercase hex, a UTF-8 text column gets them as their text (as hex when they aren't
+/// UTF-8).
 pub fn to_stored(table: &TableDef, position: usize, value: Value) -> Value {
-    match value {
-        Value::Bytes(bytes) if table.is_hex_text(position) => {
-            Value::Text(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    match (value, table.bytes_text(position)) {
+        (Value::Bytes(bytes), Some(BytesText::Hex)) => Value::Text(hex(&bytes)),
+        (Value::Bytes(bytes), Some(BytesText::Utf8)) => {
+            Value::Text(String::from_utf8(bytes).unwrap_or_else(|err| hex(err.as_bytes())))
         }
-        value => value,
+        (value, _) => value,
     }
 }
 
-/// The inverse of [`to_stored`]. Text that isn't hex, which only another app writes to a
-/// shared column, comes back as its UTF-8 bytes instead of failing the read.
+/// The inverse of [`to_stored`]. In a hex text column, text that isn't hex, which only
+/// another app writes to a shared column, comes back as its UTF-8 bytes instead of failing
+/// the read. A UTF-8 text column reads every value as its text's bytes.
 pub fn from_stored(table: &TableDef, position: usize, value: Value) -> Value {
-    match value {
-        Value::Text(text) if table.is_hex_text(position) => {
+    match (value, table.bytes_text(position)) {
+        (Value::Text(text), Some(BytesText::Hex)) => {
             Value::Bytes(unhex(&text).unwrap_or_else(|| text.into_bytes()))
         }
-        value => value,
+        (Value::Text(text), Some(BytesText::Utf8)) => Value::Bytes(text.into_bytes()),
+        (value, _) => value,
     }
 }
 
