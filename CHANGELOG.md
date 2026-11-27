@@ -19,8 +19,8 @@
   owner's account. Each of these writes now locks the user and stores nothing when the
   account was claimed since the request was authorised. Upgrade every app on 0.6 or earlier.
 
-0.7.0 also fixes the ten lower-severity findings of the same review (F61-2 to F61-11), listed
-under [Security](#security).
+0.7.0 also fixes eleven lower-severity findings of the same review (F61-2 to F61-11 and
+F61-16), listed under [Security](#security).
 
 ### Upgrading from 0.6
 
@@ -57,8 +57,9 @@ through this list.
   - a limited request makes one round trip to the store per bucket (the client's, then one
     for each account the body names);
   - when the store fails, each instance falls back to its own memory and logs an error at most
-    once a minute, and while the store doesn't answer, each check waits for the store's own
-    response timeout.
+    once a minute. A store that doesn't answer costs a request at most one
+    `secondary_storage_timeout` (100 ms by default), and after 5 failures in a row the store
+    is skipped for 5 seconds (F61-16).
 - **Account rate-limit buckets reset when the first secret rotates.** The per-account buckets
   (`RateLimit::account_limit`, 30 requests per 10 minutes by default) are now keyed by an
   HMAC of the email or username under a key derived from the first secret, so instances agree
@@ -69,10 +70,12 @@ through this list.
 - **No new enum variants.** No public enum gained a variant and no public struct gained a
   field, so exhaustive matches and struct literals that compiled against 0.6 still compile.
   Everything else new is additive: `fastauth_core::storage` (`SecondaryStorage`,
-  `StorageError`), `Builder::secondary_storage` and `Builder::multi_instance`,
+  `StorageError`, `DEFAULT_STORAGE_TIMEOUT`), `Builder::secondary_storage`,
+  `Builder::secondary_storage_timeout` and `Builder::multi_instance`,
   `Internal::lock_user_unless_claimed` and `create_session_unless_claimed`,
   `testing::run_storage_conformance`, `Transaction` in `plugin_prelude`, an associated
-  const `BEGIN` with a default on `fastauth_sqlx::Driver`, and the `fastauth-redis` crate.
+  const `BEGIN` with a default on `fastauth_sqlx::Driver`, and the `fastauth-redis` crate
+  (with its `CONNECTION_TIMEOUT` and `RESPONSE_TIMEOUT`).
 - **Behaviour changes.**
   - Change-password, the password rehash at sign-in, password reset (core and email OTP),
     passkey registration, API key create, two-factor enable and the first verify-totp,
@@ -102,6 +105,11 @@ through this list.
     (F61-2), so clients that disconnect can't run more hashes than the CPU-count cap.
   - With `.multi_instance(true)`, `.build()` logs a warning when rate limiting is on and no
     secondary storage is set.
+  - Secondary storage calls time out after 100 ms (F61-16). A call that takes longer counts
+    the request in the instance's memory instead, so an app on a store with high latency
+    should raise it with `.secondary_storage_timeout(..)`. `RedisStorage::connect` sets a
+    1 s connection timeout and a 250 ms response timeout; a `ConnectionManager` passed to
+    `RedisStorage::new` keeps its own.
 
 ### Several instances
 
@@ -116,11 +124,6 @@ through this list.
   script (`INCR`, then `PEXPIRE` on a new counter), so instances never both take the last
   request. Tested against Redis 7 and Valkey 8, including two `Auth` instances on one
   Postgres and one Redis.
-- **Bounded storage calls (F61-16):** every secondary storage call times out after 100 ms
-  (`.secondary_storage_timeout(..)`) and falls back to the in-memory limiter, and a circuit
-  breaker skips the storage for 5 seconds after 5 failures in a row, so a slow or
-  partitioned Redis no longer stalls sign-in. `RedisStorage::connect` sets a 1 s connection
-  timeout and a 250 ms response timeout.
 - **`.multi_instance(true)`** says the app runs several instances; `.build()` then warns
   when rate limiting is on without secondary storage.
 - Sessions, verification values and code attempts stay in the database, which instances
@@ -173,6 +176,12 @@ Fixes for the FAST-61 review of 0.6.0, one line per finding.
 - **F61-11 (info):** the first unknown-email sign-in after a start ran the hasher twice (it
   made the dummy hash, then verified against it), so it took about twice as long as a wrong
   password for a known email. It now runs it once.
+- **F61-16 (info):** secondary storage calls had no timeout, so a slow or partitioned Redis
+  stalled every rate-limited request, sign-in included. Each call now times out after 100 ms
+  (`.secondary_storage_timeout(..)`) and falls back to the in-memory limiter, a request waits
+  for at most one timeout, and a circuit breaker skips the storage for 5 seconds after 5
+  failures in a row, then probes it again. `RedisStorage::connect` sets a 1 s connection
+  timeout and a 250 ms response timeout.
 
 ### Core
 
