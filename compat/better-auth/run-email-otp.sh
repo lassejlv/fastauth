@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs Better Auth's emailOTPClient against the email OTP plugin's example server: builds
-# crates/fastauth-plugin-email-otp/examples/email_otp_server.rs, starts it on localhost:$PORT (3000 by default; in
+# crates/plugins/email-otp/examples/email_otp_server.rs, starts it on localhost:$PORT (3000 by default; in
 # memory, writing emails to an outbox file), runs email-otp.ts, and stops the server. Needs cargo and
 # bun. Exits non-zero when any check fails.
 set -euo pipefail

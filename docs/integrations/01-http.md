@@ -92,9 +92,9 @@ pub async fn session_of<A: AuthInstance>(auth: &A, headers: &http::HeaderMap) ->
 }
 ```
 
-`crates/fastauth-axum` is about 400 lines and the reference for the rest: one session
+`crates/axum` is about 400 lines and the reference for the rest: one session
 lookup per request shared by every extractor, and the layer that adds refreshed cookies.
-`crates/fastauth-actix` does the same for a framework on `http` 0.2.
+`crates/actix` does the same for a framework on `http` 0.2.
 
 ## Request metadata
 

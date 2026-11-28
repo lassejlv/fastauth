@@ -1,0 +1,29 @@
+[package]
+name = "fastauth-plugin-bearer"
+description = "Bearer tokens for fastauth: Authorization: Bearer sessions and the set-auth-token header, wire-compatible with Better Auth."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../../README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+fastauth-core = { version = "0.8.0", path = "../../core" }
+http = "1.5.0"
+percent-encoding = "2.3.2"
+
+[dev-dependencies]
+axum = { version = "0.8.9", features = ["macros"] }
+bytes = "1.12.2"
+fastauth-axum = { version = "0.8.0", path = "../../axum" }
+fastauth-sqlx = { version = "0.8.0", path = "../../sqlx", default-features = false, features = ["sqlite", "postgres", "mysql"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
+tower = { version = "0.5.3", features = ["util"] }

@@ -1,5 +1,5 @@
 // Writes better-auth.json: signed cookies and password hashes made by Better Auth's code,
-// which fastauth's tests verify (crates/fastauth-core/tests/better_auth_compat.rs).
+// which fastauth's tests verify (crates/core/tests/better_auth_compat.rs).
 //
 //   npm ci && node generate.mjs
 import { createHmac } from "node:crypto";

@@ -32,7 +32,7 @@ def block(first, tpl="@", ctx=None):
 
 def excerpt(first):
     """A deliberately truncated excerpt of fastauth-core: not compiled, checked line by line against
-    crates/fastauth-core/src instead."""
+    crates/core/src instead."""
     return Entry(first, excerpt=True)
 
 
@@ -81,8 +81,8 @@ publish = false
 
 [dependencies]
 fastauth = {{ path = "{repo}/crates/fastauth", features = [{feats}] }}
-fastauth-core = {{ path = "{repo}/crates/fastauth-core", features = ["testing"] }}
-fastauth-plugin-jwt = {{ path = "{repo}/crates/fastauth-plugin-jwt" }}
+fastauth-core = {{ path = "{repo}/crates/core", features = ["testing"] }}
+fastauth-plugin-jwt = {{ path = "{repo}/crates/plugins/jwt" }}
 actix-web = {{ version = "4", default-features = false, features = ["macros"] }}
 anyhow = "1"
 axum = {{ version = "0.8", features = ["macros"] }}

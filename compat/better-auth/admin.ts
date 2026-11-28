@@ -1,5 +1,5 @@
 // Better Auth's adminClient against the admin plugin's example server
-// (crates/fastauth-plugin-admin/examples/admin_server.rs). Run it with run-admin.sh.
+// (crates/plugins/admin/examples/admin_server.rs). Run it with run-admin.sh.
 import { createAuthClient } from "better-auth/client";
 import { adminClient } from "better-auth/client/plugins";
 

@@ -27,13 +27,13 @@ cargo +nightly fuzz run json_body -- -max_total_time=300
 | `passkey_json` | raw bodies to `verify-registration` and `verify-authentication`, and WebAuthn responses around a real P-256 credential with the client data, attestation object, authenticator data, credential id and signature fuzzed one part at a time (signed with the real key when asked) | no 500; registration needs the issued challenge, the app's origin and `webauthn.create`; sign-in needs the real key's signature over the issued challenge, the app's origin, `webauthn.get`, the RP id hash, user presence and the registered credential |
 | `api_key_header` | `x-api-key` through the session resolver, and `/api-key/verify`: arbitrary values, the real key with junk before or after, one letter's case flipped, truncated, padded | no 500; a session or `valid: true` only for the exact issued key |
 | `username` | `Username::normalize` and `validate` under fuzzed lengths, validation order and normalization, then `/sign-in/username` and `/is-username-available` | what `validate` accepts meets the length bounds and the default character set; a username sign-in or "taken" answer only for the stored username |
-| `like_filter` | `contains`, `starts_with` and `ends_with` on `user.name` through fastauth-sqlx on in-process SQLite, over fuzzed names and needles | the SQL returns exactly the rows a plain Rust filter returns. Inputs with a NUL are skipped while SQLX-1 is open (see `crates/fastauth-sqlx/tests/security_fast46.rs`) |
+| `like_filter` | `contains`, `starts_with` and `ends_with` on `user.name` through fastauth-sqlx on in-process SQLite, over fuzzed names and needles | the SQL returns exactly the rows a plain Rust filter returns. Inputs with a NUL are skipped while SQLX-1 is open (see `crates/sqlx/tests/security_fast46.rs`) |
 | `jwt_verify` | the jwt plugin's `verify` and `JwksVerifier` (with the plugin's JWKS) on raw tokens, on tokens the server signs with fuzzed `exp`/`nbf`/`iat`/`iss`/`aud`/`sub`, and on genuine tokens with one byte changed | raw tokens never verify; accepted claims always have a future `exp`, a past `nbf`, the issuer and the audience; a changed token never verifies with other claims |
 
 `callback_url` failed on 0.3.0: `/\t/evil.example` passed the check and a browser opened it
 as `http://evil.example/`. That was finding CORE-1 of the FAST-31 security review; the target
 is the regression check for its fix, and the inputs it found are replayed by
-`crates/fastauth-core/tests/security_fast31_redirect.rs`.
+`crates/core/tests/security_fast31_redirect.rs`.
 
 Most targets that drive several requests build a fresh auth instance per input, so a crash
 replays on its own. `fuzz/corpus/<target>/` holds the corpus from the last long run (FAST-53, 61 minutes per

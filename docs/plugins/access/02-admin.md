@@ -544,7 +544,7 @@ export const authClient = createAuthClient({
 await authClient.admin.banUser({ userId, banReason: "spam", banExpiresIn: 3600 });
 ```
 
-`compat/better-auth/run-admin.sh` builds `crates/fastauth-plugin-admin/examples/admin_server.rs`,
+`compat/better-auth/run-admin.sh` builds `crates/plugins/admin/examples/admin_server.rs`,
 runs `admin.ts` against it with `better-auth` 1.7.28, and exits non-zero when any check
 fails. Its 40 checks cover signing in as an admin, `createUser` (and the taken-email code),
 `listUsers` with search, sort, limit and a role filter, a non-admin's

@@ -56,24 +56,24 @@ cli = ["dep:anyhow", "dep:clap", "dep:dotenvy", "dep:fastauth-sqlx", "dep:time"]
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.10", features = ["derive", "env"], optional = true }
 dotenvy = { version = "0.15.7", optional = true }
-fastauth-actix = { version = "0.8.0", path = "../fastauth-actix", optional = true }
-fastauth-axum = { version = "0.8.0", path = "../fastauth-axum", optional = true }
-fastauth-core = { version = "0.8.0", path = "../fastauth-core" }
-fastauth-oauth = { version = "0.8.0", path = "../fastauth-oauth", default-features = false, optional = true }
-fastauth-plugin-admin = { version = "0.8.0", path = "../fastauth-plugin-admin", optional = true }
-fastauth-plugin-anonymous = { version = "0.8.0", path = "../fastauth-plugin-anonymous", optional = true }
-fastauth-plugin-api-key = { version = "0.8.0", path = "../fastauth-plugin-api-key", optional = true }
-fastauth-plugin-email-otp = { version = "0.8.0", path = "../fastauth-plugin-email-otp", optional = true }
-fastauth-plugin-magic-link = { version = "0.8.0", path = "../fastauth-plugin-magic-link", optional = true }
-fastauth-plugin-multi-session = { version = "0.8.0", path = "../fastauth-plugin-multi-session", optional = true }
-fastauth-plugin-bearer = { version = "0.8.0", path = "../fastauth-plugin-bearer", optional = true }
-fastauth-plugin-jwt = { version = "0.8.0", path = "../fastauth-plugin-jwt", optional = true }
-fastauth-plugin-passkey = { version = "0.8.0", path = "../fastauth-plugin-passkey", optional = true }
-fastauth-plugin-organization = { version = "0.8.0", path = "../fastauth-plugin-organization", optional = true }
-fastauth-plugin-two-factor = { version = "0.8.0", path = "../fastauth-plugin-two-factor", optional = true }
-fastauth-plugin-username = { version = "0.8.0", path = "../fastauth-plugin-username", optional = true }
-fastauth-redis = { version = "0.8.0", path = "../fastauth-redis", optional = true }
-fastauth-sqlx = { version = "0.8.0", path = "../fastauth-sqlx", default-features = false, optional = true }
+fastauth-actix = { version = "0.8.0", path = "../actix", optional = true }
+fastauth-axum = { version = "0.8.0", path = "../axum", optional = true }
+fastauth-core = { version = "0.8.0", path = "../core" }
+fastauth-oauth = { version = "0.8.0", path = "../oauth", default-features = false, optional = true }
+fastauth-plugin-admin = { version = "0.8.0", path = "../plugins/admin", optional = true }
+fastauth-plugin-anonymous = { version = "0.8.0", path = "../plugins/anonymous", optional = true }
+fastauth-plugin-api-key = { version = "0.8.0", path = "../plugins/api-key", optional = true }
+fastauth-plugin-email-otp = { version = "0.8.0", path = "../plugins/email-otp", optional = true }
+fastauth-plugin-magic-link = { version = "0.8.0", path = "../plugins/magic-link", optional = true }
+fastauth-plugin-multi-session = { version = "0.8.0", path = "../plugins/multi-session", optional = true }
+fastauth-plugin-bearer = { version = "0.8.0", path = "../plugins/bearer", optional = true }
+fastauth-plugin-jwt = { version = "0.8.0", path = "../plugins/jwt", optional = true }
+fastauth-plugin-passkey = { version = "0.8.0", path = "../plugins/passkey", optional = true }
+fastauth-plugin-organization = { version = "0.8.0", path = "../plugins/organization", optional = true }
+fastauth-plugin-two-factor = { version = "0.8.0", path = "../plugins/two-factor", optional = true }
+fastauth-plugin-username = { version = "0.8.0", path = "../plugins/username", optional = true }
+fastauth-redis = { version = "0.8.0", path = "../redis", optional = true }
+fastauth-sqlx = { version = "0.8.0", path = "../sqlx", default-features = false, optional = true }
 time = { version = "0.3.45", features = ["formatting", "macros"], optional = true }
 
 [dev-dependencies]

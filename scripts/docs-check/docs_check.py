@@ -21,7 +21,7 @@ import templates  # noqa: E402
 
 FENCE = re.compile(r"^```rust[^\n]*\n(.*?)^```[ \t]*$", re.S | re.M)
 INCLUDE = re.compile(r"^@(\d*)(?::(\d+)-(\d+))?$")
-CORE_SRC = REPO / "crates" / "fastauth-core" / "src"
+CORE_SRC = REPO / "crates" / "core" / "src"
 
 
 class Block:
@@ -188,7 +188,7 @@ def verify(docs, out):
             if e.excerpt:
                 for k, l in enumerate(b.lines, 1):
                     if norm(l) and norm(l) not in core:
-                        print(f"{label}/{page}:{b.line + k}: excerpt line not in crates/fastauth-core/src | {l.strip()}")
+                        print(f"{label}/{page}:{b.line + k}: excerpt line not in crates/core/src | {l.strip()}")
                         excerpt_missing += 1
                 continue
             have = set()
@@ -199,7 +199,7 @@ def verify(docs, out):
                     print(f"{label}/{page}:{b.line + k}: doc line not in the generated sources | {l.strip()}")
                     missing += 1
     print(f"docs-check: {missing} doc lines missing from the generated sources, "
-          f"{excerpt_missing} excerpt lines missing from crates/fastauth-core/src")
+          f"{excerpt_missing} excerpt lines missing from crates/core/src")
     return 1 if missing or excerpt_missing else 0
 
 

@@ -18,7 +18,7 @@ Tested against the code Better Auth 1.7.8 runs:
 | `better-auth` | 1.7.8 | session lookup and refresh, cookie names, secrets |
 | `better-call` | 1.4.2 | signing, parsing and verifying cookies |
 | `@better-auth/utils` | 0.5.0 | `hashPassword` and `verifyPassword` (`/password`) |
-| `auth` (Better Auth's CLI) | 1.7.8 | the schema on Postgres, MySQL and SQLite (`crates/fastauth-sqlx/tests/better-auth/`) |
+| `auth` (Better Auth's CLI) | 1.7.8 | the schema on Postgres, MySQL and SQLite (`crates/sqlx/tests/better-auth/`) |
 
 ## Turning it on
 

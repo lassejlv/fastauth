@@ -9,7 +9,7 @@ Compiles every ```rust` block in `docs/` against the workspace crates, so the do
 - **No template.** A Rust block has no entry in `templates.py`, or its first line changed so the entry no longer matches. It prints `docs/<page>.md:<line> has no template; add one in scripts/docs-check/templates.py ...`, plus a "matches no block" line for the stale entry when a block was edited or removed.
 - **Compile error.** The generated scratch crate (`target/docs-check/`, one module per block) fails `cargo check --tests`. Each compiler span in the crate is followed by `= docs: docs/<page>.md:<line>`, or by "in template scaffolding" when the error is in code the template added. Warnings are allowed.
 - **Dropped line.** A non-empty line of a block doesn't appear verbatim (ignoring indentation) in the generated module that includes the block, so a template can't quietly skip code.
-- **Stale excerpt.** Blocks marked `excerpt(...)` are deliberately truncated copies of `fastauth-core` (all of `reference/02-internals.md` and the `pub trait Queries` block in `concepts/02-database.md`). They aren't compiled; every line must appear in `crates/fastauth-core/src` (whitespace-normalized).
+- **Stale excerpt.** Blocks marked `excerpt(...)` are deliberately truncated copies of `fastauth-core` (all of `reference/02-internals.md` and the `pub trait Queries` block in `concepts/02-database.md`). They aren't compiled; every line must appear in `crates/core/src` (whitespace-normalized).
 
 ## Running it
 

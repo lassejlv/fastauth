@@ -64,8 +64,8 @@ export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
   the review that found them (`security_fast31_*.rs`, `security_fast46.rs`). A regression test
   for a bug that isn't fixed yet is `#[ignore]`d with the finding's id in its reason, and the
   fix removes the `#[ignore]`.
-- Property tests use [proptest](https://docs.rs/proptest): `crates/fastauth-core/tests/properties.rs`
-  and `crates/fastauth-sqlx/tests/properties_ids.rs`. When one fails, proptest writes the
+- Property tests use [proptest](https://docs.rs/proptest): `crates/core/tests/properties.rs`
+  and `crates/sqlx/tests/properties_ids.rs`. When one fails, proptest writes the
   minimal input to a `*.proptest-regressions` file next to the test. Commit that file with
   the fix, so the case runs first from then on.
 - Fuzz targets live in `fuzz/`; see `fuzz/README.md` for running them longer and for what

@@ -114,7 +114,7 @@ Inside a plugin, `Auth`'s plugin list is unknown (a plugin can't name the app's 
   axum extractor that's generic over the auth instance.
 
 The type-level list gives compile-time guarantees to the **app**. Plugins get the runtime
-map, backed by the compile-time `Requires` check. `crates/fastauth-core/src/doctests.rs`
+map, backed by the compile-time `Requires` check. `crates/core/src/doctests.rs`
 holds `compile_fail` doctests for each guarantee: a missing plugin, a missing or
 later-registered dependency, and an alias in the wrong order.
 

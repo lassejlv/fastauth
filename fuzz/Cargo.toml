@@ -15,20 +15,20 @@ members = ["."]
 arbitrary = { version = "1", features = ["derive"] }
 aws-lc-rs = "1"
 bytes = "1"
-fastauth-core = { path = "../crates/fastauth-core" }
-fastauth-oauth = { path = "../crates/fastauth-oauth" }
-fastauth-plugin-admin = { path = "../crates/fastauth-plugin-admin" }
-fastauth-plugin-api-key = { path = "../crates/fastauth-plugin-api-key" }
-fastauth-plugin-bearer = { path = "../crates/fastauth-plugin-bearer" }
-fastauth-plugin-email-otp = { path = "../crates/fastauth-plugin-email-otp" }
-fastauth-plugin-jwt = { path = "../crates/fastauth-plugin-jwt" }
-fastauth-plugin-magic-link = { path = "../crates/fastauth-plugin-magic-link" }
-fastauth-plugin-multi-session = { path = "../crates/fastauth-plugin-multi-session" }
-fastauth-plugin-organization = { path = "../crates/fastauth-plugin-organization" }
-fastauth-plugin-passkey = { path = "../crates/fastauth-plugin-passkey" }
-fastauth-plugin-two-factor = { path = "../crates/fastauth-plugin-two-factor" }
-fastauth-plugin-username = { path = "../crates/fastauth-plugin-username" }
-fastauth-sqlx = { path = "../crates/fastauth-sqlx", default-features = false, features = ["sqlite"] }
+fastauth-core = { path = "../crates/core" }
+fastauth-oauth = { path = "../crates/oauth" }
+fastauth-plugin-admin = { path = "../crates/plugins/admin" }
+fastauth-plugin-api-key = { path = "../crates/plugins/api-key" }
+fastauth-plugin-bearer = { path = "../crates/plugins/bearer" }
+fastauth-plugin-email-otp = { path = "../crates/plugins/email-otp" }
+fastauth-plugin-jwt = { path = "../crates/plugins/jwt" }
+fastauth-plugin-magic-link = { path = "../crates/plugins/magic-link" }
+fastauth-plugin-multi-session = { path = "../crates/plugins/multi-session" }
+fastauth-plugin-organization = { path = "../crates/plugins/organization" }
+fastauth-plugin-passkey = { path = "../crates/plugins/passkey" }
+fastauth-plugin-two-factor = { path = "../crates/plugins/two-factor" }
+fastauth-plugin-username = { path = "../crates/plugins/username" }
+fastauth-sqlx = { path = "../crates/sqlx", default-features = false, features = ["sqlite"] }
 hkdf = "0.13"
 hmac = "0.13"
 http = "1"

@@ -100,7 +100,7 @@ exit non-zero when any check fails:
 |---|---|---|---|
 | `run.sh` | `crates/fastauth/examples/axum_sqlite.rs` (features `sqlite,two-factor,organization,admin,api-key`) | `compat.ts`: core, two-factor, API keys | 92 |
 | `run-organization.sh` | the organization plugin's `compat_server` example, in memory | `organization.ts` | 30 |
-| `run-admin.sh` | `crates/fastauth-plugin-admin/examples/admin_server.rs`, in memory | `admin.ts` | 40 |
+| `run-admin.sh` | `crates/plugins/admin/examples/admin_server.rs`, in memory | `admin.ts` | 40 |
 | `run-magic-link.sh` | the magic link plugin's `magic_link_server` example, in memory | `magic-link.ts` | 28 |
 | `run-email-otp.sh` | the email OTP plugin's `email_otp_server` example, in memory | `email-otp.ts` | 45 |
 | `run-bearer.sh` | the bearer plugin's `compat_server` example, in memory | `bearer.ts` | 25 |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs Better Auth's magicLinkClient against the magic link plugin's example server: builds
-# crates/fastauth-plugin-magic-link/examples/magic_link_server.rs, starts it on localhost:$PORT (3000 by default; in
+# crates/plugins/magic-link/examples/magic_link_server.rs, starts it on localhost:$PORT (3000 by default; in
 # memory, writing emails to an outbox file), runs magic-link.ts, and stops the server. Needs cargo and
 # bun. Exits non-zero when any check fails.
 set -euo pipefail

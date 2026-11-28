@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs Better Auth's adminClient against the admin plugin's example server: builds
-# crates/fastauth-plugin-admin/examples/admin_server.rs, starts it on localhost:$PORT (3000 by
+# crates/plugins/admin/examples/admin_server.rs, starts it on localhost:$PORT (3000 by
 # default; in memory, with an admin account), runs admin.ts, and stops the server. Needs cargo
 # and bun.
 set -euo pipefail
