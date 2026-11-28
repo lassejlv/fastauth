@@ -44,14 +44,13 @@ a scratch directory first: `cargo +nightly fuzz run --fuzz-dir tests/fuzz -s non
 doubles the speed. `tests/ci.sh` runs every target for 30 seconds this way.
 
 For a long run, fork mode keeps going past known crashes and records each in
-`tests/fuzz/artifacts/<target>/`. Run it from `tests/fuzz/`:
+`tests/fuzz/artifacts/<target>/`:
 
 ```sh
-cd tests/fuzz
-cargo +nightly fuzz build -s none
-nice ./target/x86_64-unknown-linux-gnu/release/<target> corpus/<target> \
+cargo +nightly fuzz build --fuzz-dir tests/fuzz -s none
+nice tests/fuzz/target/x86_64-unknown-linux-gnu/release/<target> tests/fuzz/corpus/<target> \
   -max_total_time=3600 -fork=1 -ignore_crashes=1 -ignore_ooms=1 -ignore_timeouts=1 \
-  -rss_limit_mb=2560 -artifact_prefix=artifacts/<target>/
+  -rss_limit_mb=2560 -artifact_prefix=tests/fuzz/artifacts/<target>/
 ```
 
 Crashes land in `tests/fuzz/artifacts/<target>/`; replay one with

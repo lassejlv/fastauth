@@ -264,14 +264,14 @@ if wanted fuzz; then
     record "fuzz (needs nightly and cargo-fuzz)" FAIL
   else
     fuzz_tmp="$(mktemp -d)"
-    run fuzz "fuzz build" bash -c "cd tests/fuzz && cargo +nightly fuzz build -s none"
+    run fuzz "fuzz build" cargo +nightly fuzz build --fuzz-dir tests/fuzz -s none
     if [[ "${results[-1]}" == pass ]]; then
-      for target in $(cd tests/fuzz && cargo +nightly fuzz list); do
+      for target in $(cargo +nightly fuzz list --fuzz-dir tests/fuzz); do
         mkdir -p "$fuzz_tmp/$target"
         seeds=()
-        [[ -d "tests/fuzz/corpus/$target" ]] && seeds=("corpus/$target")
+        [[ -d "tests/fuzz/corpus/$target" ]] && seeds=("tests/fuzz/corpus/$target")
         run fuzz "fuzz $target (${fuzz_seconds}s)" bash -c \
-          "cd tests/fuzz && cargo +nightly fuzz run -s none $target '$fuzz_tmp/$target' ${seeds[*]} -- -max_total_time=$fuzz_seconds -artifact_prefix='$fuzz_tmp/$target/crash-'"
+          "cargo +nightly fuzz run --fuzz-dir tests/fuzz -s none $target '$fuzz_tmp/$target' ${seeds[*]} -- -max_total_time=$fuzz_seconds -artifact_prefix='$fuzz_tmp/$target/crash-'"
       done
     fi
     rm -rf "$fuzz_tmp"
