@@ -38,8 +38,8 @@ export const docHref = (slug: string) => `/docs/${slug}/`;
 
 function readIndexTable(): Map<string, { title: string; description: string; order: number }> {
   const index = new Map<string, { title: string; description: string; order: number }>();
-  const text = fs.readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");
-  const row = /^\|\s*\[([^\]]+)\]\((?:\.\/)?docs\/([\w/-]+\.md)\)\s*\|\s*(.*?)\s*\|\s*$/gm;
+  const text = fs.readFileSync(path.join(DOCS_DIR, "README.md"), "utf8");
+  const row = /^\|\s*\[([^\]]+)\]\((?:\.\/)?([\w/-]+\.md)\)\s*\|\s*(.*?)\s*\|\s*$/gm;
   for (const m of text.matchAll(row)) {
     if (!index.has(m[2])) index.set(m[2], { title: m[1], description: stripMarkdown(m[3]), order: index.size });
   }
