@@ -294,7 +294,7 @@ const { data } = await authClient.token();
 const { data: jwks } = await authClient.jwks();
 ```
 
-`compat/better-auth/run-jwt.sh` runs it, with bearer auth, against the plugin's
+`tests/compat/better-auth/run-jwt.sh` runs it, with bearer auth, against the plugin's
 `compat_server` example and checks: `jwks()` (one EdDSA/Ed25519/OKP key with a `kid` and no
 private part), `token()` (header `alg` and `kid`, verified with `jose` against the local and
 the remote JWKS: `sub`, the user, a 15-minute lifetime), `set-auth-jwt` and
@@ -302,7 +302,7 @@ the remote JWKS: `sub`, the user, a 15-minute lifetime), `set-auth-jwt` and
 (`401`). It takes `PORT` (default 3000):
 
 ```bash
-PORT=3001 compat/better-auth/run-jwt.sh
+PORT=3001 tests/compat/better-auth/run-jwt.sh
 ```
 
 ## Not built

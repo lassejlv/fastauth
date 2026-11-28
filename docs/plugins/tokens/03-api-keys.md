@@ -493,7 +493,7 @@ export const authClient = createAuthClient({
 const { data } = await authClient.apiKey.create({ name: "ci", prefix: "ci_" });
 ```
 
-`compat/better-auth/compat.ts` checks, through the client: `create` (the key is returned
+`tests/compat/better-auth/compat.ts` checks, through the client: `create` (the key is returned
 once, `start`, `referenceId`, `rateLimitMax` 10), `create` with `remaining`
 (`400 SERVER_ONLY_PROPERTY`), `list` (no `key` or hash), `get`, `update`, `getSession` with
 an `x-api-key` header (the example registers `.sessions(true)`), `delete`, and `get` after

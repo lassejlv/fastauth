@@ -324,7 +324,7 @@ await authClient.passkey.updatePasskey({ id: passkeys[0].id, name: "Work laptop"
 await authClient.passkey.deletePasskey({ id: passkeys[0].id });
 ```
 
-`compat/better-auth/run-passkey.sh` checks this against Better Auth 1.7.28's `passkeyClient`
+`tests/compat/better-auth/run-passkey.sh` checks this against Better Auth 1.7.28's `passkeyClient`
 in headless Chrome, with Chrome's virtual authenticator answering WebAuthn: adding passkeys
 (with and without `createSession`), the excluded second registration, discoverable sign-in
 signed out, sign-in signed in, the counter, renaming, deleting, signing in with a deleted

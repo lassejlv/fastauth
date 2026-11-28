@@ -3,7 +3,7 @@
 //! The databases in fixtures/upgrade_0_5/ were made by fastauth 0.5.0 itself: its migrator
 //! created the schema and its HTTP API seeded users with passwords (verified and not),
 //! sessions, social links, an organization with members and a pending invitation,
-//! two-factor, an API key, a username and a guest. scripts/upgrade-0.5-fixtures/generate.sh
+//! two-factor, an API key, a username and a guest. tests/upgrade-0.5-fixtures/generate.sh
 //! regenerates them. Each <backend>.json holds what the test needs to act as those users.
 //!
 //! The test loads a dump, adds the duplicates 0.5 allowed and 0.6's unique constraints

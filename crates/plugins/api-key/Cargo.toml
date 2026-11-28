@@ -1,0 +1,31 @@
+[package]
+name = "fastauth-plugin-api-key"
+description = "API keys for fastauth: hashed per-user keys with expiry, usage limits, refills, per-key rate limits and permissions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../../README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+fastauth-core = { version = "0.8.0", path = "../../core", features = ["macros"] }
+http = "1.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+time = { version = "0.3.45", features = ["serde", "formatting", "parsing"] }
+
+[dev-dependencies]
+axum = { version = "0.8.9", features = ["macros"] }
+bytes = "1.12.2"
+fastauth-axum = { version = "0.8.0", path = "../../axum" }
+fastauth-sqlx = { version = "0.8.0", path = "../../sqlx", default-features = false, features = ["sqlite", "mysql"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
+http-body-util = "0.1.5"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }
+tower = { version = "0.5.3", features = ["util"] }

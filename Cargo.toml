@@ -1,7 +1,19 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "examples/fullstack/server", "compat/better-auth-dual/fastauth"]
-exclude = ["spike"]
+members = [
+    "crates/fastauth",
+    "crates/core",
+    "crates/macros",
+    "crates/axum",
+    "crates/actix",
+    "crates/sqlx",
+    "crates/redis",
+    "crates/oauth",
+    "crates/cli",
+    "crates/plugins/*",
+    "examples/fullstack/server",
+    "tests/compat/better-auth-dual/fastauth",
+]
 
 [workspace.package]
 version = "0.8.0"

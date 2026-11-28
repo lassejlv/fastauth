@@ -243,7 +243,7 @@ migrate` refuses).
   preset never sets it.
 - Follow `docs/integrations/04-migrating-from-better-auth.md` for the full setup, the
   trade-offs and the cutover checklist, and verify the real config with
-  `compat/better-auth-dual/run-dual.sh`.
+  `tests/compat/better-auth-dual/run-dual.sh`.
 
 ## Where to go next
 

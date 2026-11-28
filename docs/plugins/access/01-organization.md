@@ -536,13 +536,13 @@ export const authClient = createAuthClient({
 });
 ```
 
-`compat/better-auth/run-organization.sh` builds the plugin's `compat_server` example, runs
-`compat/better-auth/organization.ts` against it, and passes 30 of 30 checks: `create` (with
+`tests/compat/better-auth/run-organization.sh` builds the plugin's `compat_server` example, runs
+`tests/compat/better-auth/organization.ts` against it, and passes 30 of 30 checks: `create` (with
 metadata and `session.activeOrganizationId`), `checkSlug`, `list`, `inviteMember` (and a
 repeated invite's error code), `getInvitation`, `acceptInvitation`, `getFullOrganization`,
 `listMembers`, `hasPermission`, `getActiveMember`, `updateMemberRole`, `update` (403 for a
 member), `leave` (and the last owner's error), `setActive({ organizationId: null })` and
-`delete`. It isn't part of `compat/better-auth/run.sh` yet.
+`delete`. It isn't part of `tests/compat/better-auth/run.sh` yet.
 
 The `compat_server` example turns `require_email_verification_on_invitation` off, because the
 script accepts an invitation with an unverified account, which Better Auth allows for its own

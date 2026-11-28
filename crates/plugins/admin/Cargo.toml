@@ -1,0 +1,50 @@
+[package]
+name = "fastauth-plugin-admin"
+description = "Admin plugin for fastauth: roles and permissions, bans, impersonation and user management."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../../README.md"
+
+[lints]
+workspace = true
+
+[features]
+## `RequireRole<A, R>`, an axum extractor that answers 401 or 403.
+axum = ["dep:axum", "dep:fastauth-axum"]
+## `actix::RequireRole<A, R>`, the same extractor for actix-web.
+actix = ["dep:actix-web", "dep:fastauth-actix"]
+
+[dependencies]
+actix-web = { version = "4.20.0", default-features = false, optional = true }
+axum = { version = "0.8.9", default-features = false, optional = true }
+fastauth-actix = { version = "0.8.0", path = "../../actix", optional = true }
+fastauth-axum = { version = "0.8.0", path = "../../axum", optional = true }
+fastauth-core = { version = "0.8.0", path = "../../core", features = ["macros"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+time = { version = "0.3.45", features = ["formatting", "parsing"] }
+
+[dev-dependencies]
+actix-web = { version = "4.20.0", default-features = false, features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros"] }
+bytes = "1.12.2"
+fastauth-oauth = { path = "../../oauth", default-features = false }
+fastauth-plugin-two-factor = { path = "../two-factor" }
+fastauth-sqlx = { path = "../../sqlx", default-features = false, features = ["sqlite", "mysql"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["mysql-rsa"] }
+http = "1.5.0"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "time"] }
+tower = { version = "0.5.3", features = ["util"] }
+url = "2.5.9"
+
+[[example]]
+name = "admin_server"
+required-features = ["axum"]
+
+[package.metadata.docs.rs]
+all-features = true
