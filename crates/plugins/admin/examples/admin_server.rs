@@ -6,7 +6,7 @@
 //! ```
 //!
 //! It listens on `PORT` (default 3000). Sign in as `admin@acme.dk` / `correct horse battery` for an admin session; `/admin-only` answers
-//! only admins. `compat/better-auth/run-admin.sh` drives it with the TypeScript client.
+//! only admins. `tests/compat/better-auth/run-admin.sh` drives it with the TypeScript client.
 
 use std::net::SocketAddr;
 

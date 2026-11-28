@@ -16,7 +16,7 @@ is tested, and what doesn't match yet.
 | `@better-auth/core` | 1.7.28 |
 | `@better-fetch/fetch` | 1.3.3 |
 
-The versions are pinned in `compat/better-auth/package.json` and `bun.lock`.
+The versions are pinned in `tests/compat/better-auth/package.json` and `bun.lock`.
 
 ## Pointing the client at fastauth
 
@@ -87,11 +87,11 @@ const authClient = createAuthClient({
 });
 ```
 
-`compat/better-auth/compat.ts` uses this jar, one per simulated device.
+`tests/compat/better-auth/compat.ts` uses this jar, one per simulated device.
 
 ## The compatibility tests
 
-Eleven scripts in `compat/better-auth/` each build a server, start it with a fresh database,
+Eleven scripts in `tests/compat/better-auth/` each build a server, start it with a fresh database,
 run a TypeScript file with Better Auth's client, and stop the server. They need cargo and
 bun (`run-passkey.sh` also needs Chrome or Chromium), listen on `PORT` (3000 unless set), and
 exit non-zero when any check fails:
@@ -111,8 +111,8 @@ exit non-zero when any check fails:
 | `run-multi-session.sh` | the multi-session plugin's `multi_session_server` example, in memory | `multi-session.ts` | 40 |
 
 ```bash
-compat/better-auth/run.sh
-PORT=3107 compat/better-auth/run-organization.sh
+tests/compat/better-auth/run.sh
+PORT=3107 tests/compat/better-auth/run-organization.sh
 ```
 
 All eleven passed on 2026-11-26.

@@ -231,7 +231,7 @@ await authClient.emailOtp.sendVerificationOtp({ email: "ada@acme.dk", type: "sig
 const { data } = await authClient.signIn.emailOtp({ email: "ada@acme.dk", otp: "123456" });
 ```
 
-`compat/better-auth/run-email-otp.sh` builds the plugin's `email_otp_server` example, which
+`tests/compat/better-auth/run-email-otp.sh` builds the plugin's `email_otp_server` example, which
 writes emails to an outbox file, and runs `email-otp.ts` against it with Better Auth
 1.7.28. It checks sign-up by code (a verified user, `getSession`), a used code, three wrong
 codes then `403 TOO_MANY_ATTEMPTS`, `verifyEmail` after a password sign-up,

@@ -114,7 +114,7 @@ await authClient.multiSession.setActive({ sessionToken: sessions[0].session.toke
 await authClient.multiSession.revoke({ sessionToken: sessions[1].session.token });
 ```
 
-`compat/better-auth/run-multi-session.sh` runs Better Auth's 1.7.28 `multiSessionClient`
+`tests/compat/better-auth/run-multi-session.sh` runs Better Auth's 1.7.28 `multiSessionClient`
 against the plugin's `multi_session_server` example and checks 40 things: three accounts in
 one browser and their device cookies (name, `HttpOnly`, `Max-Age`), `listDeviceSessions`,
 `setActive` (and 401 for an unknown token or another browser's token), revoking a background
@@ -123,7 +123,7 @@ maximum, `signOut`, and that every error's code and message match the client's
 `MULTI_SESSION_ERROR_CODES`. It takes `PORT` (default 3000):
 
 ```bash
-PORT=3001 compat/better-auth/run-multi-session.sh
+PORT=3001 tests/compat/better-auth/run-multi-session.sh
 ```
 
 ## How it differs from Better Auth

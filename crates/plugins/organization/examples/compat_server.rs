@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-organization.sh` points Better Auth's
+//! The server `tests/compat/better-auth/run-organization.sh` points Better Auth's
 //! `organizationClient` at: email and password plus the organization plugin, on
 //! localhost:$PORT (3000 by default). In memory, or on MySQL when `DATABASE_URL` is set (an
 //! empty database; tables are created on start).

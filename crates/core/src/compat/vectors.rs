@@ -1,4 +1,4 @@
-//! The golden vectors in `compat/better-auth/vectors`: better-auth.json, made by Better Auth's
+//! The golden vectors in `tests/compat/better-auth/vectors`: better-auth.json, made by Better Auth's
 //! own code, must verify here byte for byte, and fastauth.json, made here, is what
 //! `check.mjs` verifies with Better Auth's code. `FASTAUTH_VECTORS_OUT=path` writes a fresh
 //! fastauth.json there (`run-vectors.sh` does).
@@ -14,7 +14,7 @@ use crate::crypto::{Keys, SignPurpose};
 
 fn load(name: &str) -> Value {
     let path = format!(
-        "{}/../../compat/better-auth/vectors/{name}",
+        "{}/../../tests/compat/better-auth/vectors/{name}",
         env!("CARGO_MANIFEST_DIR")
     );
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));

@@ -185,7 +185,7 @@ export const authClient = createAuthClient({
 await authClient.signIn.magicLink({ email: "ada@acme.dk", callbackURL: "/dashboard" });
 ```
 
-`compat/better-auth/run-magic-link.sh` builds the plugin's `magic_link_server` example,
+`tests/compat/better-auth/run-magic-link.sh` builds the plugin's `magic_link_server` example,
 which writes emails to an outbox file, and runs `magic-link.ts` against it with Better Auth
 1.7.28. It checks sending a link, signing up through it (`302` to `newUserCallbackURL`, a
 verified user), reusing it (`INVALID_TOKEN`), an existing user (`302` to `callbackURL`),

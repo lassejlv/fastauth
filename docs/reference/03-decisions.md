@@ -16,7 +16,7 @@ and moved the API key plugin to its own package), so we pin a version and run it
 against fastauth. Plugins we don't mirror would need our own TS client.
 
 **Decided:** yes, for core and every first-party plugin that exists in both, pinned to
-`better-auth` 1.7.28 and tested by the scripts in `compat/better-auth/`, run by hand for now
+`better-auth` 1.7.28 and tested by the scripts in `tests/compat/better-auth/`, run by hand for now
 ([Better Auth's client](../integrations/02-better-auth-client.md)).
 
 ## 2. Adapter as a type parameter
@@ -157,7 +157,7 @@ using the compile-checked extension traits.
    `Social` plugin (with profile mapping and per-provider `disable_sign_up`).
 5. `two-factor`: TOTP, email codes, backup codes, trusted devices.
 6. `fastauth-macros` and `fastauth-cli`.
-7. Better Auth client compatibility, tested with `compat/better-auth/run.sh`.
+7. Better Auth client compatibility, tested with `tests/compat/better-auth/run.sh`.
 
 ## Released: 0.2.0 (2026-11-26)
 

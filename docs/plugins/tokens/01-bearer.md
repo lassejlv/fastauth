@@ -128,14 +128,14 @@ export const authClient = createAuthClient({
 });
 ```
 
-`compat/better-auth/run-bearer.sh` runs Better Auth's 1.7.28 client against the plugin's
+`tests/compat/better-auth/run-bearer.sh` runs Better Auth's 1.7.28 client against the plugin's
 `compat_server` example and checks: `set-auth-token` and `Access-Control-Expose-Headers` on
 sign-up and sign-in, `getSession` with the signed and the raw token, a bad signature and no
 token (signed out), `listSessions`, `updateUser`, and `signOut` with a bearer token (the
 token stops working, the other session doesn't). It takes `PORT` (default 3000):
 
 ```bash
-PORT=3001 compat/better-auth/run-bearer.sh
+PORT=3001 tests/compat/better-auth/run-bearer.sh
 ```
 
 ## Security

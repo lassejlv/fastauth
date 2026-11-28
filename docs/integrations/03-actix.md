@@ -184,4 +184,4 @@ async fn log_out(
 ```
 
 `crates/fastauth/examples/actix_sqlite.rs` is the `axum_sqlite` example on actix-web, and
-the Better Auth client suite runs against it: `SERVER=actix compat/better-auth/run.sh`.
+the Better Auth client suite runs against it: `SERVER=actix tests/compat/better-auth/run.sh`.

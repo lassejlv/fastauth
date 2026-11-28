@@ -1,4 +1,4 @@
-//! `RedisStorage` against a real server at `REDIS_URL` (Redis 7 or Valkey; `scripts/ci.sh`
+//! `RedisStorage` against a real server at `REDIS_URL` (Redis 7 or Valkey; `tests/ci.sh`
 //! runs it against both). Skipped when `REDIS_URL` isn't set.
 
 use std::time::Duration;

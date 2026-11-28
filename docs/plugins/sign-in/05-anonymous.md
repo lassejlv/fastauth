@@ -146,7 +146,7 @@ await authClient.signUp.email({ email, password, name }); // links and deletes t
 await authClient.deleteAnonymousUser();
 ```
 
-`compat/better-auth/run-anonymous.sh` runs Better Auth's 1.7.28 `anonymousClient` against
+`tests/compat/better-auth/run-anonymous.sh` runs Better Auth's 1.7.28 `anonymousClient` against
 the plugin's `anonymous_server` example and checks 31 things: `signIn.anonymous` and its
 user, signing in anonymously twice, `signUp.email` and `signIn.email` from an anonymous
 session (the old anonymous session stops working), that sign-up can't set `isAnonymous`,
@@ -154,7 +154,7 @@ session (the old anonymous session stops working), that sign-up can't set `isAno
 and message match the client's `ANONYMOUS_ERROR_CODES`. It takes `PORT` (default 3000):
 
 ```bash
-PORT=3001 compat/better-auth/run-anonymous.sh
+PORT=3001 tests/compat/better-auth/run-anonymous.sh
 ```
 
 ## How it differs from Better Auth

@@ -232,5 +232,6 @@ lists are short, and trait resolution over a list that long is cheap.
 The cost to watch is error messages: a mismatched alias prints both full `Cons<..>` types,
 and rustc may write a very long type to a file instead of printing it.
 
-`spike/typed-plugins` is the prototype this design was proven on before the real crates
-existed. It's kept for history; the real crates and their tests are the reference now.
+The prototype this design was proven on before the real crates existed lived in
+`spike/typed-plugins` until 0.8.0 ([v0.8.0 tag](https://github.com/lassejlv/fastauth/tree/v0.8.0/spike/typed-plugins)).
+The real crates and their tests are the reference now.

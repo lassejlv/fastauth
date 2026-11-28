@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-passkey.sh` points Better Auth's `passkeyClient` at: email
+//! The server `tests/compat/better-auth/run-passkey.sh` points Better Auth's `passkeyClient` at: email
 //! and password plus the passkey plugin, on localhost:$PORT (3000 unless set). In memory, or on
 //! MySQL when `DATABASE_URL` is set (an empty database; tables are created on start).
 //! Passkey-first sign-up is on, taking the new user's email from `addPasskey`'s `context`.

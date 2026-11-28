@@ -1,7 +1,7 @@
 //! A Redis that stops answering mid-run (`docker pause`): sign-in stays fast and rate limits
 //! still hold in the instance's memory, and the shared counters take over again once Redis
 //! is back. Needs `REDIS_URL` and `REDIS_CONTAINER`, the name of the Docker container behind
-//! it, which the test pauses and unpauses (`scripts/ci.sh` sets both); skipped without them.
+//! it, which the test pauses and unpauses (`tests/ci.sh` sets both); skipped without them.
 //! In its own test binary, so pausing Redis can't stall another test.
 
 use std::net::IpAddr;

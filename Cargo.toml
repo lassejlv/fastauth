@@ -12,9 +12,8 @@ members = [
     "crates/cli",
     "crates/plugins/*",
     "examples/fullstack/server",
-    "compat/better-auth-dual/fastauth",
+    "tests/compat/better-auth-dual/fastauth",
 ]
-exclude = ["spike"]
 
 [workspace.package]
 version = "0.8.0"

@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-multi-session.sh` points Better Auth's client at: email and
+//! The server `tests/compat/better-auth/run-multi-session.sh` points Better Auth's client at: email and
 //! password plus the multi-session plugin, in memory, on localhost:$PORT (3000 unless set).
 //!
 //! ```bash

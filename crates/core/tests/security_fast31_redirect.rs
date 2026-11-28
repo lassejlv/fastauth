@@ -138,7 +138,7 @@ async fn sec_get_callbacks_do_not_open_redirect() {
     assert!(open.is_empty(), "open redirects:\n{}", open.join("\n"));
 }
 
-/// Inputs the `callback_url` fuzz target (fuzz/fuzz_targets/callback_url.rs) found against
+/// Inputs the `callback_url` fuzz target (tests/fuzz/fuzz_targets/callback_url.rs) found against
 /// 0.3.0. Whatever `is_safe_redirect` accepts must stay on the app's origin once a browser
 /// resolves it.
 const FUZZ_REGRESSIONS: &[&str] = &[

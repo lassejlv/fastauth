@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-jwt.sh` points Better Auth's `jwtClient` at: email
+//! The server `tests/compat/better-auth/run-jwt.sh` points Better Auth's `jwtClient` at: email
 //! and password plus the bearer and JWT plugins, in memory, on localhost:$PORT (3000 unless set).
 //!
 //! ```bash

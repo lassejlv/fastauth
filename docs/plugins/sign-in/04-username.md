@@ -158,7 +158,7 @@ const { data } = await authClient.isUsernameAvailable({ username: "grace" });
 await authClient.updateUser({ username: "countess" });
 ```
 
-`compat/better-auth/run-username.sh` runs Better Auth's 1.7.28 `usernameClient` against the
+`tests/compat/better-auth/run-username.sh` runs Better Auth's 1.7.28 `usernameClient` against the
 plugin's `username_server` example and checks 47 things: sign-up with a username and with
 only `displayUsername`, taken, short and invalid usernames, `signIn.username` in another
 case, its 401 and 422 errors, `isUsernameAvailable`, `updateUser` with a new, taken or bad
@@ -166,7 +166,7 @@ username and a new display username, and that every error's code and message mat
 client's `USERNAME_ERROR_CODES`. It takes `PORT` (default 3000):
 
 ```bash
-PORT=3001 compat/better-auth/run-username.sh
+PORT=3001 tests/compat/better-auth/run-username.sh
 ```
 
 ## How it differs from Better Auth

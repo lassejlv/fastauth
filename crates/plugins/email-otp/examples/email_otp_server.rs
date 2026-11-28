@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-email-otp.sh` points Better Auth's client at: email and
+//! The server `tests/compat/better-auth/run-email-otp.sh` points Better Auth's client at: email and
 //! password plus the email OTP plugin with the change-email flow on, in memory, on
 //! localhost:$PORT (3000 by default).
 //!

@@ -345,8 +345,8 @@ In order:
    (Better Auth's default is 7 days, the preset's 14), `updateAge` as `.update_age(..)`, the
    app's user fields as `Fields` with the same column names, and each social provider under
    the same provider id. Put `app.config.ts` from your real `auth.ts` in
-   `compat/better-auth-dual/better-auth/`, mirror it in `compat/better-auth-dual/fastauth/src/auth.rs`
-   and run `compat/better-auth-dual/run-dual.sh` ([Verified against Better Auth 1.7.8](#verified-against-better-auth-178)).
+   `tests/compat/better-auth-dual/better-auth/`, mirror it in `tests/compat/better-auth-dual/fastauth/src/auth.rs`
+   and run `tests/compat/better-auth-dual/run-dual.sh` ([Verified against Better Auth 1.7.8](#verified-against-better-auth-178)).
 5. **The schema.** Take a backup, run `fastauth generate` against the production database (or a
    fresh copy), review the four files, run the duplicate check at the top of the unique index
    one (it must return no rows), and apply them with your own migration tool. Afterwards
@@ -385,13 +385,13 @@ isn't built yet.
 
 ## Verified against Better Auth 1.7.8
 
-`compat/better-auth-dual/run-dual.sh` (part of `scripts/ci.sh --only compat`) runs a real
+`tests/compat/better-auth-dual/run-dual.sh` (part of `tests/ci.sh --only compat`) runs a real
 Better Auth 1.7.8 app (Node, `better-auth/node`) and a fastauth app (axum) against one
 Postgres 17, with `BetterAuthCompat`, `only_owned_accounts` and `fastauth_verification` as on
 this page. The Better Auth app's config is one file,
-`compat/better-auth-dual/better-auth/app.config.ts`: cookie prefix `vt`, 14-day sessions
+`tests/compat/better-auth-dual/better-auth/app.config.ts`: cookie prefix `vt`, 14-day sessions
 refreshed after a day, email and password, a `customerId` field and no cookie cache. Swap in
-your own and keep `compat/better-auth-dual/fastauth/src/auth.rs` in step. The run proves:
+your own and keep `tests/compat/better-auth-dual/fastauth/src/auth.rs` in step. The run proves:
 
 - **The schema.** Better Auth's `npx auth migrate` creates it; users and sessions are created
   through Better Auth before fastauth's columns exist. `fastauth migrate` refuses,
@@ -463,10 +463,10 @@ Not covered by the run:
 
 ## Golden vectors
 
-`compat/better-auth/run-vectors.sh` (part of `scripts/ci.sh --only compat`) checks both
+`tests/compat/better-auth/run-vectors.sh` (part of `tests/ci.sh --only compat`) checks both
 directions:
 
-- `compat/better-auth/vectors/better-auth.json` holds cookies signed by better-call 1.4.2 under
+- `tests/compat/better-auth/vectors/better-auth.json` holds cookies signed by better-call 1.4.2 under
   three secrets (base64, hex and non-ASCII), for values that need percent-encoding, plus
   requests better-call accepts or refuses (unencoded, quoted, duplicated, tampered, wrong
   padding), and password hashes from `@better-auth/utils/password` 0.5.0, including NFKC
@@ -475,4 +475,4 @@ directions:
 - `check.mjs` verifies fastauth's own values with Better Auth's code: the checked-in
   `vectors/fastauth.json` and a set the run makes fresh.
 
-Regenerate the Better Auth side with `cd compat/better-auth/vectors && npm ci && node generate.mjs`.
+Regenerate the Better Auth side with `cd tests/compat/better-auth/vectors && npm ci && node generate.mjs`.

@@ -1,4 +1,4 @@
-//! The server `compat/better-auth/run-magic-link.sh` points Better Auth's client at: email and
+//! The server `tests/compat/better-auth/run-magic-link.sh` points Better Auth's client at: email and
 //! password plus the magic link plugin, in memory, on localhost:$PORT (3000 by default).
 //!
 //! Emails go to the JSON-lines file in `FASTAUTH_OUTBOX` (default `outbox.jsonl`), so the
